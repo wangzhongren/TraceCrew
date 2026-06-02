@@ -11,6 +11,7 @@ import RunPage from './components/RunPage';
 import ResizeHandle from './components/ResizeHandle';
 import StatusBar from './components/StatusBar';
 import TitleBar from './components/TitleBar';
+import { getInitialLanguage, saveLanguage, tr, type Language } from './i18n';
 
 const MIN_SIDEBAR = 180;
 const MIN_RIGHT = 280;
@@ -28,6 +29,7 @@ export default function App() {
   const [selectedFeature, setSelectedFeature] = useState<FeatureNode | null>(null);
   const [agentContext, setAgentContext] = useState('');
   const [fileVersion, setFileVersion] = useState(0);
+  const [language, setLanguage] = useState<Language>(() => getInitialLanguage());
   const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
   const handleFileChanged = useCallback(() => {
     setFileVersion((v) => v + 1);
@@ -41,6 +43,14 @@ export default function App() {
   const [rightW, setRightW] = useState(INITIAL_RIGHT);
   const [bottomH, setBottomH] = useState(INITIAL_BOTTOM);
   const [showRunPage, setShowRunPage] = useState(false);
+
+  const toggleLanguage = useCallback(() => {
+    setLanguage((current) => {
+      const next = current === 'zh' ? 'en' : 'zh';
+      saveLanguage(next);
+      return next;
+    });
+  }, []);
 
   const handleOpenProject = useCallback((p: string) => {
     setProjectPath(p);
@@ -77,23 +87,12 @@ export default function App() {
     const updated = find(list, current.id);
     if (updated) {
       setSelectedFeature(updated);
-      if (!updated.generated && updated.level < 3) {
-        try {
-          const drillRes = await fetch('/api/v1/features/analyze', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ project_path: projectPath, node_id: updated.id, parent_context: updated.flow_description || updated.description }),
-          });
-          const drillData = await drillRes.json();
-          if (drillData.nodes?.length > 0) {
-            setSelectedFeature({ ...updated, children: drillData.nodes, generated: true });
-          }
-        } catch { /* ignore */ }
-      }
+      // Children are pre-loaded by the unified analyzer — no auto-drill-down needed
     }
-  }, [projectPath]);
+  }, []);
 
   const navigateToFile = (filePath: string, line?: number) => {
-    const isAbs = /^[a-zA-Z]:[\\/]/.test(filePath || '');
+    const isAbs = /^(?:[a-zA-Z]:[\\/]|\/)/.test(filePath || '');
     const resolved = isAbs ? filePath : `${projectPath?.replace(/\\/g, '/')}/${filePath}`;
     setOpenFile(resolved);
     setScrollToLine(line || null);
@@ -108,7 +107,7 @@ export default function App() {
   };
 
   if (!projectPath) {
-    return <WelcomePage onOpenProject={handleOpenProject} />;
+    return <WelcomePage onOpenProject={handleOpenProject} language={language} onToggleLanguage={toggleLanguage} />;
   }
 
   return (
@@ -129,10 +128,17 @@ export default function App() {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="#8ab4f8" stroke="none">
               <polygon points="5,3 19,12 5,21" />
             </svg>
-            Run
+            {tr(language, 'run')}
+          </button>
+          <button
+            onClick={toggleLanguage}
+            className="text-[10px] px-2 py-0.5 rounded-md hover:bg-white/5 transition-colors"
+            style={{ color: '#8ab4f8', border: '1px solid #303234' }}
+            title="Language">
+            {language === 'zh' ? '中文' : 'EN'}
           </button>
           <StatusBar />
-          <button onClick={handleCloseProject} className="text-[10px] px-2 py-0.5 rounded-md hover:bg-white/5 transition-colors" style={{ color: '#8e918f' }}>Close Project</button>
+          <button onClick={handleCloseProject} className="text-[10px] px-2 py-0.5 rounded-md hover:bg-white/5 transition-colors" style={{ color: '#8e918f' }}>{tr(language, 'closeProject')}</button>
         </div>
       </div>
 
@@ -163,6 +169,7 @@ export default function App() {
                 onSelectFeature={handleSelectFeature}
                 selectedId={selectedFeature?.id || null}
                 onFeaturesLoaded={handleFeaturesLoaded}
+                language={language}
               />
             </div>
             <div className="flex-1 overflow-hidden">
@@ -173,6 +180,7 @@ export default function App() {
                 onDrillDown={handleDrillDown}
                 onSendToAgent={setAgentContext}
                 onReloadFeatures={triggerFeatureReload}
+                language={language}
               />
             </div>
           </div>
@@ -181,7 +189,7 @@ export default function App() {
         {/* Right: Agent Chat — full height */}
         <ResizeHandle direction="vertical" onResize={(d) => setRightW((w) => Math.max(MIN_RIGHT, w - d))} />
         <div className="shrink-0 border-l flex flex-col" style={{ width: rightW, borderColor: '#444746' }}>
-          <AgentPanel projectPath={projectPath} openFilePath={openFile} selection={selection} onClearSelection={() => setSelection(null)} injectContext={agentContext} onConsumeContext={() => setAgentContext('')} onFileChanged={handleFileChanged} />
+          <AgentPanel projectPath={projectPath} openFilePath={openFile} selection={selection} onClearSelection={() => setSelection(null)} injectContext={agentContext} onConsumeContext={() => setAgentContext('')} onFileChanged={handleFileChanged} language={language} />
         </div>
       </div>
 

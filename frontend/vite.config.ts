@@ -30,7 +30,7 @@ export default defineConfig({
             rollupOptions: {
               external: ['electron'],
               output: {
-                entryFileNames: 'preload.js',
+                entryFileNames: 'preload.bak.js',
               },
             },
           },
@@ -42,7 +42,26 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:19850',
+      '/api': {
+        target: 'http://localhost:19850',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Disable buffering for SSE streaming endpoints
+            if (req.url?.includes('/stream') || req.url?.includes('/sse')) {
+              proxyReq.setHeader('Connection', 'keep-alive');
+            }
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            // Force flush headers for SSE — prevents proxy buffering
+            if (req.url?.includes('/stream') || req.url?.includes('/sse')) {
+              proxyRes.headers['cache-control'] = 'no-cache';
+              proxyRes.headers['x-accel-buffering'] = 'no';
+              proxyRes.headers['connection'] = 'keep-alive';
+            }
+          });
+        },
+      },
     },
   },
 });

@@ -25,6 +25,7 @@ class AnalyzeFeaturesRequest(BaseModel):
     project_path: str
     node_id: Optional[str] = None  # if set, analyze children of this node
     parent_context: Optional[str] = None  # context from parent for drill-down
+    language: str = "en"
 
 
 class AnalyzeFeaturesResponse(BaseModel):

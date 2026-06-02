@@ -1,22 +1,30 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
-import * as path from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
 import { startBackend, stopBackend } from './backendLauncher';
 import {
   listDirectory, readFile, writeFile,
   insertLines, replaceLines, deleteLines,
-  runShell, killShell, getShellLogFile, readLogFile,
+  runShell, killShell, killAllShells, getShellLogFile, readLogFile,
   restoreBackup,
 } from './fileManager';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 let projectPath: string = '';
+let cleanedUp = false;
+
+function cleanupProcesses(): void {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  killAllShells();
+  stopBackend();
+}
 
 function resolveProjectPath(filePath: string): string {
-  if (path.isAbsolute(filePath)) return filePath;
-  return path.join(projectPath, filePath);
+  if (isAbsolute(filePath)) return filePath;
+  return join(projectPath, filePath);
 }
 
 function registerIpcHandlers(): void {
@@ -26,7 +34,7 @@ function registerIpcHandlers(): void {
     if (mainWindow?.isMaximized()) { mainWindow?.unmaximize(); }
     else { mainWindow?.maximize(); }
   });
-  ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:close', () => app.quit());
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
 
   // File operations
@@ -110,8 +118,8 @@ function registerIpcHandlers(): void {
 
 function getPreloadPath(): string {
   const candidates = [
-    path.join(__dirname, 'preload.js'),
-    path.join(__dirname, 'preload.mjs'),
+    join(__dirname, 'preload.cjs'),
+    join(__dirname, 'preload.mjs'),
   ];
   console.log('[main] preload candidates:', candidates);
   return candidates[0];
@@ -141,8 +149,12 @@ function createWindow(): void {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(join(__dirname, '..', 'dist', 'index.html'));
   }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(async () => {
@@ -164,10 +176,17 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  stopBackend();
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('before-quit', () => {
-  stopBackend();
+  cleanupProcesses();
+});
+
+app.on('will-quit', () => {
+  cleanupProcesses();
+});
+
+process.on('exit', () => {
+  cleanupProcesses();
 });

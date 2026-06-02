@@ -64,6 +64,7 @@ function getFileExt(filePath: string): string {
 export default function CodeViewer({ filePath, projectPath, scrollToLine, onSelectionChange }: Props) {
   const [content, setContent] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -86,16 +87,22 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
   const loadFile = useCallback(async () => {
     if (!filePath || !projectPath) return;
     setLoading(true);
+    setError(null);
     try {
       const fc = await window.codeatlas.file.readFile(filePath);
       if (fc && fc.content !== undefined) {
         setContent(fc);
       } else {
-        console.error('[CodeViewer] Empty file content for:', filePath);
         setContent(null);
+        setError(`Empty content: ${filePath}`);
       }
-    } catch (e) {
-      console.error('[CodeViewer] Failed to read file:', filePath, e);
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes('ENOENT')) {
+        setError(`File not found: ${filePath}`);
+      } else {
+        setError(`Failed to read: ${msg}`);
+      }
       setContent(null);
     }
     setLoading(false);
@@ -153,7 +160,15 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
   if (!content) {
     return (
       <div className="flex-1 flex items-center justify-center" style={{ background: '#1a1c1e' }}>
-        <div className="text-xs" style={{ color: '#f28b82' }}>Failed to load file</div>
+        <div className="text-center max-w-xs px-4">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f28b82" strokeWidth="1" className="mx-auto mb-2 opacity-50">
+            <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+          <div className="text-xs" style={{ color: '#f28b82' }}>{error || 'Failed to load file'}</div>
+          <div className="text-[9px] mt-1 opacity-50" style={{ color: '#8e918f', wordBreak: 'break-all' }}>
+            {filePath}
+          </div>
+        </div>
       </div>
     );
   }

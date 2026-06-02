@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { tr, type Language } from '../i18n';
 
 const RECENT_KEY = 'codeatlas-recent-projects';
 
@@ -13,9 +14,11 @@ function saveRecent(paths: string[]) {
 
 interface Props {
   onOpenProject: (path: string) => void;
+  language: Language;
+  onToggleLanguage: () => void;
 }
 
-export default function WelcomePage({ onOpenProject }: Props) {
+export default function WelcomePage({ onOpenProject, language, onToggleLanguage }: Props) {
   const [recent, setRecent] = useState<string[]>([]);
   const [checking, setChecking] = useState(true);
 
@@ -78,6 +81,13 @@ export default function WelcomePage({ onOpenProject }: Props) {
           <path d="M18 6L6 18M6 6l12 12" />
         </svg>
       </button>
+      <button
+        onClick={onToggleLanguage}
+        className="absolute top-3 right-14 h-9 px-3 flex items-center justify-center rounded-lg text-[11px] transition-colors hover:bg-white/10"
+        style={{ color: '#8ab4f8', border: '1px solid #303234' }}
+        title="Language">
+        {language === 'zh' ? '中文' : 'EN'}
+      </button>
       <div className="text-center max-w-md w-full px-8">
         {/* Logo */}
         <div className="mb-8">
@@ -97,7 +107,7 @@ export default function WelcomePage({ onOpenProject }: Props) {
             </svg>
           </div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: '#e3e2e6' }}>CodeAtlas</h1>
-          <p className="text-sm" style={{ color: '#8e918f' }}>CodeAtlas · AI Code Topology</p>
+          <p className="text-sm" style={{ color: '#8e918f' }}>{language === 'zh' ? 'AI 代码地图' : 'CodeAtlas · AI Code Topology'}</p>
         </div>
 
         {/* Open Folder — primary CTA */}
@@ -107,20 +117,20 @@ export default function WelcomePage({ onOpenProject }: Props) {
           className="w-full px-6 py-3 rounded-2xl text-sm font-medium mb-6 transition-all hover:opacity-90 disabled:opacity-50"
           style={{ background: '#8ab4f8', color: '#003a75' }}
         >
-          {checking ? 'Loading...' : 'Open Folder'}
+          {checking ? tr(language, 'loading') : tr(language, 'openFolder')}
         </button>
 
         {/* Connection status */}
         <div className="flex items-center justify-center gap-1.5 mb-8 text-[10px]" style={{ color: '#5c6166' }}>
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: checking ? '#fdd663' : isElectron ? '#34a853' : '#8e918f' }} />
-          {checking ? 'Initializing...' : isElectron ? 'Electron ready' : 'Browser mode'}
+          {checking ? tr(language, 'initializing') : isElectron ? tr(language, 'electronReady') : tr(language, 'browserMode')}
         </div>
 
         {/* Recent projects */}
         {recent.length > 0 && (
           <div className="text-left">
             <div className="text-xs font-medium uppercase tracking-wide mb-3" style={{ color: '#8e918f' }}>
-              Recent
+              {tr(language, 'recent')}
             </div>
             <div className="space-y-1">
               {recent.map((p) => (
@@ -160,7 +170,7 @@ export default function WelcomePage({ onOpenProject }: Props) {
             fontFamily: 'monospace', fontSize: 10,
           }}>Ctrl+K</span>
           <span style={{ background: '#303234', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 10 }}>Ctrl+O</span>
-          <span className="ml-1">to open folder</span>
+          <span className="ml-1">{tr(language, 'openFolderHint')}</span>
         </div>
       </div>
     </div>

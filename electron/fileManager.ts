@@ -1,5 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import {
+  readdirSync, readFileSync, writeFileSync, existsSync,
+  mkdirSync, statSync, copyFileSync, createWriteStream,
+} from 'fs';
+import { join, dirname, relative, basename } from 'path';
 
 export interface FileEntry {
   name: string;
@@ -40,12 +43,12 @@ function shouldIgnore(name: string): boolean {
 export function listDirectory(dirPath: string, depth = 3): FileEntry[] {
   if (depth <= 0) return [];
   try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const entries = readdirSync(dirPath, { withFileTypes: true });
     const result: FileEntry[] = [];
 
     for (const entry of entries) {
       if (shouldIgnore(entry.name)) continue;
-      const fullPath = path.join(dirPath, entry.name);
+      const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
         const children = listDirectory(fullPath, depth - 1);
         result.push({ name: entry.name, path: fullPath, type: 'directory', children });
@@ -63,7 +66,7 @@ export function listDirectory(dirPath: string, depth = 3): FileEntry[] {
 }
 
 export function readFile(filePath: string, startLine?: number, endLine?: number): FileContent {
-  const content = fs.readFileSync(filePath, 'utf-8');
+  const content = readFileSync(filePath, 'utf-8');
   let lines = content.split('\n');
   if (startLine && endLine) {
     lines = lines.slice(startLine - 1, endLine);
@@ -80,29 +83,29 @@ export function readFile(filePath: string, startLine?: number, endLine?: number)
 }
 
 function findProjectRoot(filePath: string): string {
-  let current = fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()
+  let current = existsSync(filePath) && statSync(filePath).isDirectory()
     ? filePath
-    : path.dirname(filePath);
-  while (current !== path.dirname(current)) {
-    if (fs.existsSync(path.join(current, '.git')) || fs.existsSync(path.join(current, '.codeatlas'))) {
+    : dirname(filePath);
+  while (current !== dirname(current)) {
+    if (existsSync(join(current, '.git')) || existsSync(join(current, '.codeatlas'))) {
       return current;
     }
-    current = path.dirname(current);
+    current = dirname(current);
   }
-  return path.dirname(filePath);
+  return dirname(filePath);
 }
 
 function createBackup(filePath: string, operation: string): string | undefined {
   try {
-    if (!fs.existsSync(filePath)) return undefined;
+    if (!existsSync(filePath)) return undefined;
     const root = findProjectRoot(filePath);
-    const rel = path.relative(root, filePath);
+    const rel = relative(root, filePath);
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const backupDir = path.join(root, '.codeatlas', 'backups', id);
-    fs.mkdirSync(backupDir, { recursive: true });
-    const backupFile = path.join(backupDir, 'before');
-    fs.copyFileSync(filePath, backupFile);
-    fs.writeFileSync(path.join(backupDir, 'meta.json'), JSON.stringify({
+    const backupDir = join(root, '.codeatlas', 'backups', id);
+    mkdirSync(backupDir, { recursive: true });
+    const backupFile = join(backupDir, 'before');
+    copyFileSync(filePath, backupFile);
+    writeFileSync(join(backupDir, 'meta.json'), JSON.stringify({
       id,
       operation,
       file: rel,
@@ -116,14 +119,14 @@ function createBackup(filePath: string, operation: string): string | undefined {
 
 export function restoreBackup(projectPath: string, backupId: string): EditResult {
   try {
-    const backupDir = path.join(projectPath, '.codeatlas', 'backups', backupId);
-    const metaPath = path.join(backupDir, 'meta.json');
-    const backupFile = path.join(backupDir, 'before');
-    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-    const target = path.join(projectPath, meta.file);
-    const dir = path.dirname(target);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.copyFileSync(backupFile, target);
+    const backupDir = join(projectPath, '.codeatlas', 'backups', backupId);
+    const metaPath = join(backupDir, 'meta.json');
+    const backupFile = join(backupDir, 'before');
+    const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+    const target = join(projectPath, meta.file);
+    const dir = dirname(target);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    copyFileSync(backupFile, target);
     return { success: true, file: target, backupId };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -133,9 +136,9 @@ export function restoreBackup(projectPath: string, backupId: string): EditResult
 export function writeFile(filePath: string, content: string): EditResult {
   try {
     const backupId = createBackup(filePath, 'write_file');
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(filePath, content, 'utf-8');
+    const dir = dirname(filePath);
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(filePath, content, 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {
     return { success: false, error: e.message, file: filePath };
@@ -148,7 +151,7 @@ export function insertLines(filePath: string, afterLine: number, content: string
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(afterLine, 0, ...content.split('\n'));
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
+    writeFileSync(filePath, newLines.join('\n'), 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {
     return { success: false, error: e.message, file: filePath };
@@ -163,7 +166,7 @@ export function replaceLines(
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(startLine - 1, endLine - startLine + 1, ...content.split('\n'));
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
+    writeFileSync(filePath, newLines.join('\n'), 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {
     return { success: false, error: e.message, file: filePath };
@@ -176,7 +179,7 @@ export function deleteLines(filePath: string, startLine: number, endLine: number
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(startLine - 1, endLine - startLine + 1);
-    fs.writeFileSync(filePath, newLines.join('\n'), 'utf-8');
+    writeFileSync(filePath, newLines.join('\n'), 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {
     return { success: false, error: e.message, file: filePath };
@@ -184,7 +187,7 @@ export function deleteLines(filePath: string, startLine: number, endLine: number
 }
 
 export function getProjectName(dirPath: string): string {
-  return path.basename(dirPath);
+  return basename(dirPath);
 }
 
 /* ── Shell execution ── */
@@ -207,10 +210,10 @@ export function runShell(
   const id = `shell_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
   // Write output to a log file as well
-  const logDir = path.join(cwd, '.codeatlas-logs');
-  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-  const logFile = path.join(logDir, `${id}.log`);
-  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+  const logDir = join(cwd, '.codeatlas-logs');
+  if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
+  const logFile = join(logDir, `${id}.log`);
+  const logStream = createWriteStream(logFile, { flags: 'a' });
 
   const log = (text: string) => {
     logStream.write(text);
@@ -221,6 +224,7 @@ export function runShell(
   const child = spawn(command, [], {
     cwd,
     shell: true,
+    detached: process.platform !== 'win32',
     env: { ...process.env, FORCE_COLOR: '1' },
   });
 
@@ -254,15 +258,26 @@ export function getShellLogFile(id: string): string | null {
 }
 
 export function readLogFile(logFile: string): string {
-  try { return fs.readFileSync(logFile, 'utf-8'); } catch { return ''; }
+  try { return readFileSync(logFile, 'utf-8'); } catch { return ''; }
 }
 
 export function killShell(id: string): boolean {
-  const child = runningProcesses.get(id);
-  if (child) {
-    child.kill();
+  const proc = runningProcesses.get(id);
+  if (proc) {
+    const pid = proc.child.pid;
+    if (pid && process.platform !== 'win32') {
+      try { process.kill(-pid, 'SIGTERM'); } catch { proc.child.kill(); }
+    } else {
+      proc.child.kill();
+    }
     runningProcesses.delete(id);
     return true;
   }
   return false;
+}
+
+export function killAllShells(): void {
+  for (const id of Array.from(runningProcesses.keys())) {
+    killShell(id);
+  }
 }

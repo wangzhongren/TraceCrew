@@ -41,6 +41,10 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--md-outline); }
 
+.scrollable-panel {
+  scrollbar-gutter: stable;
+}
+
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { FeatureNode } from '../types/feature';
 import { useTaskStore } from '../store/taskStore';
+import { tr, type Language } from '../i18n';
 
 interface Props {
   feature: FeatureNode | null;
@@ -9,6 +10,7 @@ interface Props {
   onDrillDown: (node: FeatureNode) => void;
   onSendToAgent?: (context: string) => void;
   onReloadFeatures?: () => void;
+  language: Language;
 }
 
 const COL = {
@@ -25,7 +27,8 @@ const COL = {
 const LV: Record<number, string> = { 0: '#8b949e', 1: '#8ab4f8', 2: '#3fb950', 3: '#d29922' };
 
 function resolvePath(f: string, projectPath: string | null): string {
-  if (/^[a-zA-Z]:[\\/]/.test(f)) return f;
+  // Already absolute (Unix /... or Windows C:\...)
+  if (/^(?:\/|[a-zA-Z]:[\\/])/.test(f)) return f;
   return projectPath ? `${projectPath.replace(/\\/g, '/')}/${f}` : f;
 }
 
@@ -74,8 +77,17 @@ function Markdown({ text }: { text: string }) {
             </pre>
           );
         }
-        // Regular paragraph
-        return <p key={i}>{renderInline(block)}</p>;
+        // Regular paragraph — preserve single line breaks as <br/>
+        return (
+          <p key={i}>
+            {block.split('\n').map((line, li) => (
+              <span key={li}>
+                {li > 0 && <br />}
+                {renderInline(line)}
+              </span>
+            ))}
+          </p>
+        );
       })}
     </div>
   );
@@ -98,9 +110,7 @@ function renderInline(text: string): React.ReactNode {
   });
 }
 
-export default function FeatureDetail({ feature, projectPath, onNavigateToFile, onDrillDown, onSendToAgent, onReloadFeatures }: Props) {
-  const [drilling, setDrilling] = useState<string | null>(null);
-  const [drillError, setDrillError] = useState<string | null>(null);
+export default function FeatureDetail({ feature, projectPath, onNavigateToFile, onDrillDown, onSendToAgent, onReloadFeatures, language }: Props) {
   const [overviewHtml, setOverviewHtml] = useState<string | null>(null);
   const [overviewFiles, setOverviewFiles] = useState<Array<{path:string;description:string}>>([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
@@ -141,7 +151,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
     return (
       <div className="flex-1 flex items-center justify-center" style={{ background: COL.surface }}>
         <div className="text-xs text-center" style={{ color: '#5c6166' }}>
-          Select a feature to see its details
+          {tr(language, 'selectFeature')}
         </div>
       </div>
     );
@@ -156,11 +166,11 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
     const collectFiles = (nodes: FeatureNode[]) => { for (const n of nodes) { allFiles.push(...(n.files || [])); collectFiles(n.children || []); } };
     collectFiles([feature]);
     const taskId = `overview_${Date.now()}`;
-    useTaskStore.getState().addTask({ id: taskId, type: 'analyze', label: `Analyze: ${feature.label}`, status: 'running', startedAt: Date.now(), detail: 'Exploring code...' });
+    useTaskStore.getState().addTask({ id: taskId, type: 'analyze', label: `${tr(language, 'analyze')}: ${feature.label}`, status: 'running', startedAt: Date.now(), detail: language === 'zh' ? '探索代码...' : 'Exploring code...' });
     try {
       const res = await fetch('/api/v1/features/overview', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: projectPath, node_id: feature.id, files: [...new Set(allFiles)].slice(0, 10) }),
+        body: JSON.stringify({ project_path: projectPath, node_id: feature.id, files: [...new Set(allFiles)].slice(0, 10), language }),
       });
       const d = await res.json();
       setOverviewHtml(d.overview || '');
@@ -178,35 +188,11 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
     setTimeout(() => useTaskStore.getState().removeTask(taskId), 3000);
   };
 
-  const handleDrill = async (node: FeatureNode) => {
-    if (node.generated && node.children.length > 0) { onDrillDown(node); return; }
-    if (node.level >= 3) return;
-    setDrilling(node.id);
-    setDrillError(null);
-    const taskId = `drill_${Date.now()}`;
-    useTaskStore.getState().addTask({ id: taskId, type: 'analyze', label: `Analyze: ${node.label}`, status: 'running', startedAt: Date.now(), detail: 'Reading files...' });
-    try {
-      const res = await fetch('/api/v1/features/analyze', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: projectPath, node_id: node.id, parent_context: node.flow_description || node.description }),
-      });
-      const data = await res.json();
-      if (data.nodes?.length > 0) {
-        onDrillDown({ ...node, children: data.nodes, generated: true });
-        useTaskStore.getState().updateTask(taskId, { status: 'done', detail: `${data.nodes.length} steps` });
-      } else if (data.error) {
-        setDrillError(data.error);
-        useTaskStore.getState().updateTask(taskId, { status: 'error', detail: data.error });
-      } else {
-        setDrillError('No flow steps generated. Try again.');
-        useTaskStore.getState().updateTask(taskId, { status: 'error', detail: 'No steps generated' });
-      }
-    } catch (e: any) {
-      setDrillError(e.message || 'Network error');
-      useTaskStore.getState().updateTask(taskId, { status: 'error', detail: e.message || 'Failed' });
+  const handleDrill = (node: FeatureNode) => {
+    // Children are pre-loaded by unified analyzer — just navigate
+    if (node.children && node.children.length > 0) {
+      onDrillDown(node);
     }
-    setDrilling(null);
-    setTimeout(() => useTaskStore.getState().removeTask(taskId), 3000);
   };
 
   const children = feature.children || [];
@@ -226,19 +212,19 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           }}
             className="text-[9px] px-2 py-0.5 rounded-full shrink-0 hover:bg-white/10 transition-colors"
             style={{ border: '1px solid #303234', color: COL.primary }}>
-            Ask Agent
+            {tr(language, 'askAgent')}
           </button>
         )}
       </div>
 
       {/* ── Overview page (Level 0 / Level 1) ── */}
       {isOverview && (
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto scrollable-panel">
           {/* Loading */}
           {overviewLoading && !overviewHtml && (
             <div className="px-4 py-4 text-[11px] flex items-center gap-2" style={{ color: '#5c6166' }}>
               <span className="w-1.5 h-1.5 rounded-full animate-pulse-dot" style={{ background: '#8ab4f8' }} />
-              Analyzing structure & issues... (10-30s)
+                {language === 'zh' ? '正在分析结构和问题... (10-30 秒)' : 'Analyzing structure & issues... (10-30s)'}
             </div>
           )}
 
@@ -246,7 +232,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           {(overviewHtml || feature.flow_description || feature.description) && (
             <div className="px-4 py-3 border-b" style={{ borderColor: COL.outlineSoft }}>
               <div className="mb-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: '#5c6166' }}>Overview</span>
+                <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'overview')}</span>
               </div>
               <Markdown text={overviewHtml || feature.flow_description || feature.description || ''} />
             </div>
@@ -255,7 +241,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           {/* File links */}
           {(feature.files.length > 0 || overviewFiles.length > 0) && (
             <div className="px-4 py-3 border-b" style={{ borderColor: COL.outlineSoft }}>
-              <div className="text-[10px] font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>Key Files</div>
+              <div className="text-[10px] font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'keyFiles')}</div>
               <div className="space-y-1.5">
                 {(overviewFiles.length > 0 ? overviewFiles : feature.files.map((f: string) => ({ path: f, description: '' }))).map((f: any) => (
                   <div key={f.path} className="flex items-start gap-2">
@@ -318,48 +304,69 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
 
       {/* ── Feature detail (Level 2+) ── */}
       {!isOverview && (
-        <>
+        <div className="flex-1 overflow-y-auto scrollable-panel">
           {feature.flow_description && (
-            <div className="px-3 py-2 text-[11px] leading-relaxed border-b shrink-0" style={{ color: COL.onSurfaceVariant, borderColor: COL.outlineSoft }}>
-              {feature.flow_description}
+            <div className="px-3 py-2 border-b" style={{ borderColor: COL.outlineSoft }}>
+              <Markdown text={feature.flow_description} />
             </div>
           )}
-          <div className="flex-1 overflow-y-auto">
-            {drillError && (
-              <div className="px-3 py-2 text-[11px]" style={{ color: '#f85149', background: '#261212' }}>
-                {drillError}
-                <button onClick={() => setDrillError(null)} className="ml-2 underline">Dismiss</button>
-              </div>
-            )}
+          {(feature.functions.length > 0 || feature.files.length > 0) && (
+            <div className="px-3 py-2 border-b" style={{ borderColor: COL.outlineSoft }}>
+              {feature.functions.length > 0 && (
+                <div className="mb-2">
+                  <div className="text-[10px] font-medium mb-1 uppercase tracking-wide" style={{ color: '#5c6166' }}>
+                    {language === 'zh' ? '方法' : 'Functions'}
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {feature.functions.map((fn) => {
+                      const { name, line } = parseFn(fn);
+                      const targetFile = feature.files[0];
+                      return (
+                        <button key={fn}
+                          onClick={() => { if (targetFile) onNavigateToFile(resolvePath(targetFile, projectPath), line); }}
+                          disabled={!targetFile}
+                          className="text-left text-[11px] font-mono py-0.5 px-2 rounded transition-colors hover:underline disabled:opacity-40"
+                          style={{ color: '#d29922', background: '#161b2220' }}>
+                          {name}(){line ? `:${line}` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {feature.files.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {feature.files.map((f) => (
+                    <button key={f} onClick={() => onNavigateToFile(resolvePath(f, projectPath))}
+                      className="text-[9px] px-1.5 py-0.5 rounded font-mono hover:underline"
+                      style={{ background: '#1a3350', color: COL.primary }}>
+                      {f.split(/[\\/]/).pop()}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
             {children.length === 0 ? (
               <div className="flex items-center justify-center h-full">
-                <button onClick={() => handleDrill(feature)} disabled={drilling === feature.id || feature.level >= 3}
-                  className="px-6 py-3 rounded-xl text-xs transition-colors hover:bg-white/5 disabled:opacity-30 border"
-                  style={{ color: COL.primary, borderColor: COL.outlineSoft }}>
-                  {drilling === feature.id ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full animate-pulse-dot" style={{ background: COL.primary }} />
-                      Analyzing flow steps...
-                    </span>
-                  ) : 'Analyze flow steps'}
-                </button>
+                <div className="text-[11px] text-center px-6" style={{ color: '#5c6166' }}>
+                  {tr(language, 'noFurtherDetails')}
+                </div>
               </div>
             ) : (
               children.map((node) => (
                 <div key={node.id} className="border-b transition-colors hover:bg-white/[0.02]" style={{ borderColor: COL.outlineSoft }}>
                   <div className="flex items-start px-3 py-2.5">
                     <button
-                      onClick={() => node.level < 3 ? handleDrill(node) : null}
-                      disabled={drilling === node.id}
-                      className="flex-1 text-left disabled:opacity-50">
+                      onClick={() => handleDrill(node)}
+                      className="flex-1 text-left">
                       <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full shrink-0" style={{ background: LV[node.level] || '#8e918f' }} />
                         <span className="text-xs font-medium" style={{ color: COL.onSurface }}>{node.label}</span>
-                        {drilling === node.id && <span className="text-[10px] animate-pulse" style={{ color: COL.yellow }}>...</span>}
                       </div>
                       {(node.description || node.flow_description) && (
-                        <div className="text-[10px] mt-1 ml-4" style={{ color: '#5c6166' }}>
-                          {(node.description || node.flow_description).slice(0, 100)}
+                        <div className="mt-1 ml-4 max-h-28 overflow-y-auto pr-1">
+                          <Markdown text={node.flow_description || node.description} />
                         </div>
                       )}
                     </button>
@@ -385,7 +392,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                             onClick={() => { const t = node.files[0]; if (t) onNavigateToFile(resolvePath(t, projectPath), line); }}
                             className="text-left text-[11px] font-mono py-0.5 px-2 rounded transition-colors hover:underline"
                             style={{ color: '#d29922', background: 'transparent' }}>
-                            {name}()
+                            {name}(){line ? `:${line}` : ''}
                           </button>
                         );
                       })}
@@ -405,8 +412,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                 </div>
               ))
             )}
-          </div>
-        </>
+        </div>
       )}
     </div>
   );

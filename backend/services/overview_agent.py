@@ -44,6 +44,57 @@ class OverviewAgent:
         raw = re.sub(r"\s*```$", "", raw)
         return raw.strip()
 
+    def _extract_json_object(self, raw: str) -> str:
+        cleaned = self._clean(raw)
+        if not cleaned:
+            return "{}"
+        if cleaned.startswith("{") and cleaned.endswith("}"):
+            return cleaned
+        start = cleaned.find("{")
+        if start < 0:
+            raise ValueError("LLM response did not contain a JSON object")
+        depth = 0
+        in_string = False
+        escaped = False
+        for idx in range(start, len(cleaned)):
+            ch = cleaned[idx]
+            if in_string:
+                if escaped: escaped = False
+                elif ch == "\\": escaped = True
+                elif ch == '"': in_string = False
+                continue
+            if ch == '"': in_string = True
+            elif ch == "{": depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0: return cleaned[start:idx + 1]
+        raise ValueError("Incomplete JSON object")
+
+    def _sanitize_json_escapes(self, s: str) -> str:
+        result = []
+        i = 0
+        while i < len(s):
+            if s[i] == '\\':
+                if i + 1 < len(s):
+                    nxt = s[i + 1]
+                    if nxt in '"\\/bfnrtu':
+                        result.append(s[i:i+2])
+                        if nxt == 'u':
+                            result.append(s[i+2:i+6])
+                            i += 4
+                        i += 2
+                        continue
+                    result.append('\\\\'); result.append(nxt); i += 2; continue
+            result.append(s[i]); i += 1
+        return ''.join(result)
+
+    def _parse_json(self, raw: str) -> dict:
+        extracted = self._extract_json_object(raw)
+        try:
+            return json.loads(extracted)
+        except json.JSONDecodeError:
+            return json.loads(self._sanitize_json_escapes(extracted))
+
     def _read_file(self, filepath: str) -> str:
         try:
             with open(filepath, "r", encoding="utf-8") as f:
@@ -79,15 +130,16 @@ class OverviewAgent:
             lines.append(f"[error: {e}]")
         return '\n'.join(lines[:200])
 
-    async def explore(self, project_path: str) -> dict:
+    async def explore(self, project_path: str, language: str = "en") -> dict:
         """Autonomous agent: explore project and generate overview."""
         tree = self._build_file_tree(project_path)
         read_so_far: dict[str, str] = {}
         read_files_set: set[str] = set()
+        lang_label = "中文" if language == "zh" else "English"
 
         messages = [
-            {"role": "system", "content": AGENT_PROMPT},
-            {"role": "user", "content": f"项目路径: {project_path}\n项目名称: {os.path.basename(project_path)}\n\n文件列表:\n{tree}\n\n开始探索，先读最关键的几个文件。"},
+            {"role": "system", "content": f"请使用{lang_label}输出 overview、files.description、issues.title 和 issues.detail。\n" + AGENT_PROMPT},
+            {"role": "user", "content": f"输出语言: {lang_label}\n项目路径: {project_path}\n项目名称: {os.path.basename(project_path)}\n\n文件列表:\n{tree}\n\n开始探索，先读最关键的几个文件。"},
         ]
 
         overview = ""
@@ -105,7 +157,7 @@ class OverviewAgent:
             )
 
             raw = response.choices[0].message.content or "{}"
-            data = json.loads(self._clean(raw))
+            data = self._parse_json(raw)
             action = data.get("action", "done")
 
             if action == "done":
@@ -141,7 +193,7 @@ class OverviewAgent:
 
         # If agent didn't produce overview, generate one from accumulated reads
         if not overview and read_so_far:
-            overview = self._summarize_reads(project_path, read_so_far)
+            overview = self._summarize_reads(project_path, read_so_far, language)
 
         return {
             "overview": overview,
@@ -150,14 +202,14 @@ class OverviewAgent:
             "rounds": iteration + 1,
         }
 
-    def _summarize_reads(self, project_path: str, reads: dict[str, str]) -> str:
+    def _summarize_reads(self, project_path: str, reads: dict[str, str], language: str = "en") -> str:
         """Fallback: summarize accumulated reads + detect issues."""
         all_text = "\n\n".join(f"=== {k} ===\n{v[:2000]}" for k, v in list(reads.items())[:10])
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "请用 3-5 段 Markdown 概述这个项目的架构、功能、协作方式，不要写入 issues。"},
+                    {"role": "system", "content": ("请用 3-5 段 Markdown 概述这个项目的架构、功能、协作方式，不要写入 issues。" if language == "zh" else "Write 3-5 Markdown paragraphs summarizing the project's architecture, functionality, and collaboration model. Do not include issues.")},
                     {"role": "user", "content": f"项目: {os.path.basename(project_path)}\n\n{all_text[:6000]}"},
                 ],
                 temperature=0.1,
@@ -165,7 +217,7 @@ class OverviewAgent:
             )
             return response.choices[0].message.content or ""
         except Exception:
-            return "无法生成概述"
+            return "无法生成概述" if language == "zh" else "Unable to generate overview"
 
 
 overview_agent = OverviewAgent()

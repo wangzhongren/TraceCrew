@@ -20,12 +20,12 @@ export default function StatusBar() {
     <div className="relative shrink-0">
       <button
         onClick={toggleVisible}
-        className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] rounded transition-colors hover:bg-white/5"
+        className="flex items-center gap-1.5 px-2 py-0.5 text-[10px] rounded transition-colors hover:bg-white/5 max-w-[200px]"
         style={{ color: running.length > 0 ? '#d29922' : '#484f58' }}>
         {running.length > 0 ? (
           <>
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse-dot" style={{ background: '#d29922' }} />
-            <span>{running.length}</span>
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse-dot shrink-0" style={{ background: '#d29922' }} />
+            <span className="truncate">{running[0]?.detail || running[0]?.label || running.length}</span>
           </>
         ) : (
           <span style={{ color: '#484f58' }}>0</span>

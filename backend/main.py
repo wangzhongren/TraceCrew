@@ -181,11 +181,12 @@ class OverviewRequest(PydanticBaseModel3):
     project_path: str
     node_id: str = ""
     files: list[str] = []
+    language: str = "en"
 
 @app.post("/api/v1/features/overview")
 async def generate_overview(req: OverviewRequest, background_tasks: BackgroundTasks):
     """Autonomous agent: explore project and generate detailed overview."""
-    result = await overview_agent.explore(req.project_path)
+    result = await overview_agent.explore(req.project_path, req.language)
     # Save overview + issues to the feature node in DB
     if req.node_id and result.get("overview"):
         from services.db import find_feature, update_feature_overview
@@ -217,9 +218,10 @@ async def search_features(project_path: str = "", query: str = "", limit: int = 
 @app.post("/api/v1/features/analyze")
 async def analyze_features(req: AnalyzeFeaturesRequest):
     project_path = req.project_path
+    language = getattr(req, "language", "en") or "en"
     if req.node_id:
         try:
-            nodes = await feature_analyzer.drill_down(project_path, req.node_id, req.parent_context or "")
+            nodes = await feature_analyzer.drill_down(project_path, req.node_id, req.parent_context or "", language)
             return {"nodes": [n.model_dump() for n in nodes]}
         except Exception as e:
             logger.error(f"[API] analyze_features error: {e}", exc_info=True)
@@ -231,10 +233,98 @@ async def analyze_features(req: AnalyzeFeaturesRequest):
 async def analyze_top_level(req: dict):
     project_path = req.get("project_path", "")
     file_tree = req.get("file_tree", [])
+    language = req.get("language", "en")
     if not project_path:
         return {"error": "project_path required"}
-    nodes = await feature_analyzer.analyze_top_level(project_path, file_tree)
+    nodes = await feature_analyzer.analyze_top_level(project_path, file_tree, language)
     return {"features": [n.model_dump() for n in nodes]}
+
+
+# ── Unified full-map analysis (single autonomous agent) ──
+
+from pydantic import BaseModel as PydanticBaseModel4
+
+class AnalyzeAllRequest(PydanticBaseModel4):
+    project_path: str
+    language: str = "en"
+
+@app.post("/api/v1/features/analyze-all")
+async def analyze_all_features(req: AnalyzeAllRequest):
+    """Single autonomous agent: full 4-level feature graph in one call. Only needs project_path."""
+    from services.unified_analyzer import unified_analyzer
+    try:
+        nodes = await unified_analyzer.analyze_all(req.project_path, req.language)
+        return {"features": [n.model_dump() for n in nodes]}
+    except Exception as e:
+        logger.error(f"[API] analyze_all error: {e}", exc_info=True)
+        return {"features": [], "error": str(e)}
+
+
+@app.get("/api/v1/sse-test")
+async def sse_test(request: Request):
+    async def gen():
+        for i in range(3):
+            yield {"event": "test", "data": f"msg{i}"}
+            await asyncio.sleep(0.5)
+    return EventSourceResponse(gen())
+
+
+@app.get("/api/v1/features/analyze-all/stream")
+async def analyze_all_features_stream(request: Request, project_path: str = "", language: str = "en"):
+    """Streaming version: SSE progress events, final event contains the complete feature graph."""
+    from services.unified_analyzer import unified_analyzer
+
+    async def gen():
+        if await request.is_disconnected():
+            return
+        yield "event: connected\ndata: {}\n\n"
+        async for ev in unified_analyzer.analyze_all_stream(project_path, language):
+            if await request.is_disconnected():
+                break
+            yield f"event: {ev['event']}\ndata: {ev['data']}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        },
+    )
+
+
+# ── Incremental refresh (detect changed files, update only what's needed) ──
+
+class IncrementalRefreshRequest(PydanticBaseModel4):
+    project_path: str
+    language: str = "en"
+
+@app.post("/api/v1/features/incremental-refresh")
+async def incremental_refresh_features(request: Request, req: IncrementalRefreshRequest):
+    """Smart refresh: incremental if few changes, full otherwise. SSE streaming."""
+    from services.unified_analyzer import unified_analyzer
+
+    async def gen():
+        if await request.is_disconnected():
+            return
+        yield "event: connected\ndata: {}\n\n"
+        async for ev in unified_analyzer.incremental_refresh(req.project_path, req.language):
+            if await request.is_disconnected():
+                break
+            yield f"event: {ev['event']}\ndata: {ev['data']}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+        },
+    )
 
 
 @app.get("/{full_path:path}")

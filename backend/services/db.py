@@ -325,3 +325,24 @@ def has_pending_changes(project_path: str) -> bool:
         (project_path,),
     ).fetchone()
     return row["cnt"] > 0
+
+
+# ── Meta key-value store ──
+
+def get_meta(project_path: str, key: str) -> str | None:
+    """Get a metadata value. Uses project-scoped key: project_path_key."""
+    conn = _connect(project_path)
+    scoped = f"{project_path}_{key}"
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (scoped,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_meta(project_path: str, key: str, value: str):
+    """Set a metadata value."""
+    conn = _connect(project_path)
+    scoped = f"{project_path}_{key}"
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            (scoped, value),
+        )

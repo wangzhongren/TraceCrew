@@ -3,6 +3,7 @@ import type { FileContent } from '../types/electron.d';
 import type { CodeSelection } from './CodeViewer';
 import { useTaskStore } from '../store/taskStore';
 import { streamAgentResponse } from '../utils/agentStream';
+import { languageInstruction, tr, type Language } from '../i18n';
 
 interface Props {
   projectPath: string | null;
@@ -12,6 +13,7 @@ interface Props {
   injectContext?: string;
   onConsumeContext?: () => void;
   onFileChanged?: () => void;
+  language: Language;
 }
 
 interface ShellState {
@@ -57,29 +59,31 @@ interface MapSearchResult {
   }>;
 }
 
-function formatMapContext(result: MapSearchResult): string {
+function formatMapContext(result: MapSearchResult, language: Language): string {
   const features = result.features || [];
   const symbols = result.symbols || [];
   if (features.length === 0 && symbols.length === 0) return '';
 
-  const lines = ['【项目地图查询结果】'];
+  const lines = [language === 'zh' ? '【项目地图查询结果】' : '[Project map search results]'];
   if (features.length > 0) {
-    lines.push('相关功能节点:');
+    lines.push(language === 'zh' ? '相关地图节点:' : 'Relevant map nodes:');
     for (const feature of features.slice(0, 5)) {
       lines.push(`- ${feature.label} (${feature.id}, level ${feature.level})`);
-      if (feature.description) lines.push(`  描述: ${feature.description}`);
-      if (feature.flow_description) lines.push(`  流程: ${feature.flow_description.slice(0, 300)}`);
-      if (feature.files?.length) lines.push(`  文件: ${feature.files.slice(0, 5).join(', ')}`);
-      if (feature.functions?.length) lines.push(`  函数: ${feature.functions.slice(0, 8).join(', ')}`);
+      if (feature.description) lines.push(`  ${language === 'zh' ? '描述' : 'Description'}: ${feature.description}`);
+      if (feature.flow_description) lines.push(`  ${language === 'zh' ? '流程' : 'Flow'}: ${feature.flow_description.slice(0, 300)}`);
+      if (feature.files?.length) lines.push(`  ${language === 'zh' ? '文件' : 'Files'}: ${feature.files.slice(0, 5).join(', ')}`);
+      if (feature.functions?.length) lines.push(`  ${language === 'zh' ? '函数' : 'Functions'}: ${feature.functions.slice(0, 8).join(', ')}`);
     }
   }
   if (symbols.length > 0) {
-    lines.push('真实代码符号:');
+    lines.push(language === 'zh' ? '真实代码符号:' : 'Real code symbols:');
     for (const symbol of symbols.slice(0, 8)) {
       lines.push(`- ${symbol.kind} ${symbol.name} at ${symbol.file}:${symbol.line}${symbol.preview ? ` — ${symbol.preview}` : ''}`);
     }
   }
-  lines.push('请优先基于这些地图和符号证据回答；如果证据不足，继续用 read_file 读取相关文件。');
+  lines.push(language === 'zh'
+    ? '请优先基于这些地图和符号证据回答；如果证据不足，继续用 read_file 读取相关文件。'
+    : 'Use these map and symbol evidence first. If evidence is insufficient, continue with read_file to inspect related files.');
   return lines.join('\n');
 }
 
@@ -139,7 +143,7 @@ const OP_STYLE: Record<string, { icon: string; color: string; bg: string }> = {
   check_log: { icon: '?', color: '#8b949e', bg: '#1c1c1c' },
 };
 
-export default function AgentPanel({ projectPath, openFilePath, selection, onClearSelection, injectContext, onConsumeContext, onFileChanged }: Props) {
+export default function AgentPanel({ projectPath, openFilePath, selection, onClearSelection, injectContext, onConsumeContext, onFileChanged, language }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -209,7 +213,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
           });
           const res = await fetch(`/api/v1/features/search?${params.toString()}`);
           if (res.ok) {
-            mapContext = formatMapContext(await res.json());
+            mapContext = formatMapContext(await res.json(), language);
           }
         } catch (e) {
           console.warn('[Agent] map search failed:', e);
@@ -219,7 +223,9 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
       let fullInstruction = instruction;
       if (projectPath) {
         const projName = projectPath.split(/[\\/]/).pop() || projectPath;
-        fullInstruction = `【当前项目: ${projName}，路径: ${projectPath}】\n${instruction}`;
+        fullInstruction = `${languageInstruction(language)}\n\n【当前项目: ${projName}，路径: ${projectPath}】\n${instruction}`;
+      } else {
+        fullInstruction = `${languageInstruction(language)}\n\n${instruction}`;
       }
       if (mapContext) {
         fullInstruction += `\n\n${mapContext}`;
@@ -497,8 +503,8 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full px-8">
             <div className="text-center space-y-1" style={{ color: '#484f58' }}>
-              <div className="text-[11px] font-mono">Ask anything.</div>
-              <div className="text-[11px] font-mono opacity-50">Edit code, run commands, analyze structure.</div>
+              <div className="text-[11px] font-mono">{tr(language, 'askAnything')}</div>
+              <div className="text-[11px] font-mono opacity-50">{tr(language, 'agentHint')}</div>
             </div>
           </div>
         )}
@@ -530,7 +536,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
                         <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
                       <span className="text-[11px]" style={{ color: '#d29922' }}>
-                        Command approval required
+                        {tr(language, 'commandApproval')}
                       </span>
                     </button>
                   )}
@@ -591,7 +597,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>
-              Context from Feature Analysis
+              {tr(language, 'contextFromFeature')}
               <button onClick={onConsumeContext} className="opacity-50 hover:opacity-100">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -616,14 +622,14 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
         <div className="p-3">
           <div className="flex items-end gap-2">
             {sending && (
-              <button onClick={handleStop} className="p-2 rounded-lg transition-colors hover:bg-white/10 shrink-0" title="Stop generating">
+              <button onClick={handleStop} className="p-2 rounded-lg transition-colors hover:bg-white/10 shrink-0" title={tr(language, 'stop')}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="#f85149"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
               </button>
             )}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything..."
+              placeholder={tr(language, 'askAnything')}
               disabled={sending}
               rows={1}
               className="flex-1 px-3 py-2 text-[13px] leading-relaxed outline-none resize-none rounded-lg transition-colors placeholder:text-[#484f58] disabled:opacity-50"
@@ -645,7 +651,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             {!sending && (
               <button onClick={handleSend} disabled={!input.trim()}
                 className="p-2 rounded-lg transition-colors hover:bg-white/10 disabled:opacity-20 shrink-0"
-                style={{ color: '#8ab4f8' }} title="Send">
+                style={{ color: '#8ab4f8' }} title={tr(language, 'send')}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
                 </svg>
@@ -664,7 +670,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d29922" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
               </svg>
-              <span className="text-xs font-medium flex-1" style={{ color: '#e3e2e6' }}>Review Command</span>
+              <span className="text-xs font-medium flex-1" style={{ color: '#e3e2e6' }}>{tr(language, 'reviewCommand')}</span>
               <button disabled={approving} onClick={() => setApproveMsgIdx(null)} style={{ color: '#484f58' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -673,7 +679,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             </div>
             <div className="px-4 py-3 space-y-3">
               <div className="text-[11px]" style={{ color: '#8b949e' }}>
-                The agent wants to run this command in:
+                {tr(language, 'commandLocation')}
               </div>
               <div className="rounded-md px-2 py-1 font-mono text-[10px] truncate" style={{ background: '#0d1117', color: '#8b949e', border: '1px solid #21262d' }}>
                 {projectPath || '(no project open)'}
@@ -684,19 +690,19 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
                 </div>
               ))}
               <div className="text-[10px]" style={{ color: '#8b949e' }}>
-                Allowing this command streams output below and keeps running until it exits or you stop it.
+                {tr(language, 'commandHint')}
               </div>
             </div>
             <div className="px-4 py-2.5 border-t flex justify-end gap-2" style={{ borderColor: '#21262d', background: '#0d1117' }}>
               <button disabled={approving} onClick={() => { handleDeny(approveMsgIdx); setApproveMsgIdx(null); }}
                 className="px-4 py-1.5 rounded text-[11px] font-medium transition-colors hover:opacity-80"
                 style={{ background: '#21262d', color: '#c9d1d9' }}>
-                Deny
+                {tr(language, 'deny')}
               </button>
               <button disabled={approving} onClick={() => { handleApprove(approveMsgIdx); setApproveMsgIdx(null); }}
                 className="px-4 py-1.5 rounded text-[11px] font-medium transition-colors hover:opacity-80"
                 style={{ background: '#238636', color: '#fff' }}>
-                {approving ? 'Running...' : 'Allow'}
+                {approving ? tr(language, 'running') : tr(language, 'allow')}
               </button>
             </div>
           </div>
