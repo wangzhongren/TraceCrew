@@ -4,7 +4,8 @@ import { fileURLToPath } from 'url';
 import { startBackend, stopBackend } from './backendLauncher';
 import {
   listDirectory, readFile, writeFile,
-  insertLines, replaceLines, deleteLines,
+  insertLines, replaceLines, deleteLines, deleteFile,
+  searchInFiles,
   runShell, killShell, killAllShells, getShellLogFile, readLogFile,
   restoreBackup,
 } from './fileManager';
@@ -36,6 +37,28 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle('window:close', () => app.quit());
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
+
+  ipcMain.handle('window:openTerminal', (_e, path?: string | null) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const terminalPath = path || projectPath;
+    const terminalWin = new BrowserWindow({
+      width: 1200, height: 800,
+      minWidth: 800, minHeight: 500,
+      title: 'AI Terminal — CodeAtlas',
+      backgroundColor: '#0d1117',
+      parent: mainWindow,
+      webPreferences: {
+        preload: getPreloadPath(),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+    const url = mainWindow.webContents.getURL();
+    const sep = url.includes('?') ? '&' : '?';
+    const encodedPath = encodeURIComponent(terminalPath);
+    terminalWin.loadURL(`${url}${sep}terminal=1&path=${encodedPath}`);
+  });
 
   // File operations
   ipcMain.handle('file:getProjectPath', () => projectPath);
@@ -75,6 +98,14 @@ function registerIpcHandlers(): void {
     return deleteLines(resolveProjectPath(filePath), startLine, endLine);
   });
 
+  ipcMain.handle('file:deleteFile', (_e, filePath: string) => {
+    return deleteFile(resolveProjectPath(filePath), projectPath);
+  });
+
+  ipcMain.handle('file:search', (_e, query: string, dirPath: string) => {
+    return searchInFiles(query, resolveProjectPath(dirPath || '.'));
+  });
+
   ipcMain.handle('file:restoreBackup', (_e, backupId: string) => {
     return restoreBackup(projectPath, backupId);
   });
@@ -82,25 +113,20 @@ function registerIpcHandlers(): void {
   // Shell execution — streaming via event
   ipcMain.on('shell:run', (event, command: string) => {
     const cwd = projectPath || process.cwd();
-    const id = runShell(
+    let shellId = '';
+    shellId = runShell(
       command, cwd,
       (data) => {
-        if (!mainWindow?.isDestroyed()) {
-          mainWindow?.webContents.send('shell:data', { id, data });
-        }
+        event.sender.send('shell:data', { id: shellId, data });
       },
       (code) => {
-        if (!mainWindow?.isDestroyed()) {
-          mainWindow?.webContents.send('shell:done', { id, code });
-        }
+        event.sender.send('shell:done', { id: shellId, code });
       },
       (err) => {
-        if (!mainWindow?.isDestroyed()) {
-          mainWindow?.webContents.send('shell:error', { id, error: err });
-        }
+        event.sender.send('shell:error', { id: shellId, error: err });
       },
     );
-    event.returnValue = id;
+    event.returnValue = shellId;
   });
 
   ipcMain.on('shell:kill', (_e, id: string) => {

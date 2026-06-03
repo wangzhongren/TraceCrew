@@ -153,15 +153,18 @@ BOUNDARY_DISCOVERY_PROMPT = """你是项目架构分析师。你需要探索项�
 - 总数 2-5 个边界
 - 最多 10 次工具调用"""
 
-BOUNDARY_ANALYSIS_PROMPT = """你是代码分析师。分析指定的运行时边界，产出功能和流程步骤。
+BOUNDARY_ANALYSIS_PROMPT = """你是代码分析师。分析指定的运行时边界，产出这个边界内的关键功能模块（二级节点）。
 
 工具: read_file(path) — path 使用相对路径（如 backend/main.py）
 
 【路径规则】
 - 所有路径都是相对于项目根目录的相对路径
-- 输出 JSON 中的 files 字段直接使用相对路径，不要变绝对路径
+- 输出 JSON 中的 files 字段直接使用相对路径
 
-先读入口文件，看到 import/require 引用了同边界内的其他文件时，继续 read_file。够了就输出最终结果。
+【工作方式】
+先读入口文件，看到 import/require 引用了同边界内的其他重要文件时，继续 read_file。
+只需要识别功能模块即可，不需要深入分析每个模块的内部流程。
+够了就输出最终结果。
 
 【最终输出格式】纯 JSON：
 {
@@ -169,28 +172,19 @@ BOUNDARY_ANALYSIS_PROMPT = """你是代码分析师。分析指定的运行时�
     {
       "id": "feat_xxx",
       "label": "功能名称",
-      "description": "做什么",
-      "flow_description": "流程概述（Markdown）",
+      "description": "这个功能做什么",
+      "flow_description": "功能概述（Markdown，简要说明核心流程即可）",
       "files": ["文件路径"],
-      "functions": ["函数名:行号"],
-      "steps": [
-        {
-          "id": "step_xxx",
-          "label": "步骤名称",
-          "description": "这个步骤做什么",
-          "flow_description": "实现细节（Markdown）",
-          "files": ["文件路径"],
-          "functions": ["函数名:行号"]
-        }
-      ]
+      "functions": ["函数名:行号"]
     }
   ]
 }
 
 【规则——证据优先】
 - 不编造，基于代码
-- features 1-5 个，steps 2-6 个
-- 最多 8 次工具调用"""
+- features 1-5 个
+- 不需要输出 steps，只输出 features
+- 最多 5 次工具调用"""
 
 # ── Tool definitions for function calling ──
 
@@ -821,17 +815,24 @@ class UnifiedAnalyzer:
             if msg.tool_calls:
                 messages.append(msg)
 
+                def _parse_args(raw_args: str) -> dict:
+                    """Parse LLM tool call args, fixing invalid escape sequences."""
+                    try:
+                        return json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        return json.loads(self._sanitize_json_escapes(raw_args))
+
                 # If any tool call is finish, process immediately and return
                 for tc in msg.tool_calls:
                     if tc.function.name == "finish":
-                        args = json.loads(tc.function.arguments)
+                        args = _parse_args(tc.function.arguments)
                         progress("分析完成" if is_zh else "Analysis complete")
                         return args.get("result", {})
 
                 # Execute ALL tool calls concurrently, then send results together
                 async def _exec_one(tc):
                     func_name = tc.function.name
-                    args = json.loads(tc.function.arguments)
+                    args = _parse_args(tc.function.arguments)
                     if func_name == "list_dir":
                         path = args.get("path", ".")
                         progress(f"浏览目录: {path}" if is_zh else f"Listing: {path}")
@@ -889,7 +890,7 @@ class UnifiedAnalyzer:
 
     async def _analyze_boundary(self, boundary: dict, project_path: str,
                                  language: str = "en", on_progress=None) -> dict:
-        """Phase 2: LLM reads files and returns features+steps for this boundary."""
+        """Phase 2: LLM reads files and returns level-2 features for this boundary. Steps are lazy-loaded."""
         lang_label = "中文" if language == "zh" else "English"
 
         blabel = boundary.get("label", "Unknown")
@@ -1129,8 +1130,7 @@ class UnifiedAnalyzer:
 
     async def _analyze_single_boundary(self, boundary: dict, project_path: str,
                                        language: str, index: int, total: int) -> dict:
-        """Analyze one boundary autonomously — runs in parallel with others.
-        Returns dict with group_node, tool_events, index, label, feature_count, step_count."""
+        """Analyze one boundary — generates level-2 features only. Steps are lazy-loaded on demand."""
         is_zh = language == "zh"
         bid = boundary.get("id", f"grp_{index}")
         blabel = boundary.get("label", f"Boundary {index+1}")
@@ -1143,32 +1143,18 @@ class UnifiedAnalyzer:
         result = await self._analyze_boundary(boundary, project_path, language, on_progress=on_progress)
         features_data = result.get("features", [])
 
-        # Build FeatureNodes for this boundary
-        # Paths from AI are relative (from list_dir) — _make_relative normalizes them
+        # Build FeatureNodes — level 2 only, no steps (lazy-loaded via drill_down)
         feature_nodes = []
-        step_count = 0
         for f in features_data:
             f_files = [self._make_relative(fp, project_path) for fp in f.get("files", [])]
-            steps_data = f.get("steps", [])
-            step_nodes = []
-            for s in steps_data:
-                s_files = [self._make_relative(fp, project_path) for fp in s.get("files", [])]
-                step_nodes.append(FeatureNode(
-                    id=s["id"], label=s["label"], level=3,
-                    parent_id=f["id"],
-                    description=s.get("description", ""),
-                    flow_description=s.get("flow_description", ""),
-                    files=s_files, functions=s.get("functions", []),
-                ))
             feature_nodes.append(FeatureNode(
                 id=f["id"], label=f["label"], level=2,
                 parent_id=bid,
                 description=f.get("description", ""),
                 flow_description=f.get("flow_description", ""),
                 files=f_files, functions=f.get("functions", []),
-                children=step_nodes,
+                children=[],  # empty — expanded on demand
             ))
-            step_count += len(step_nodes)
 
         group_node = FeatureNode(
             id=bid, label=blabel, level=1,
@@ -1180,13 +1166,12 @@ class UnifiedAnalyzer:
         )
 
         logger.info(f"[UnifiedAnalyzer] Boundary {index+1}/{total} '{blabel}' done: "
-                    f"{len(feature_nodes)} features, {step_count} steps, {len(tool_events)} tool_events")
+                    f"{len(feature_nodes)} features, {len(tool_events)} tool_events")
         return {
             "index": index,
             "label": blabel,
             "group_node": group_node,
             "feature_count": len(feature_nodes),
-            "step_count": step_count,
             "tool_events": tool_events,
             "entry_files": entry_files,
         }
@@ -1249,19 +1234,17 @@ class UnifiedAnalyzer:
 
         all_group_nodes = []
         total_features = 0
-        total_steps = 0
 
         for r in results:
             yield {"event": "progress", "data": json.dumps({
                 "step": "analyze",
-                "label": f"{'完成分析' if is_zh else 'Done'}: {r['label']} ({r['feature_count']}f {r['step_count']}s)",
+                "label": f"{'完成分析' if is_zh else 'Done'}: {r['label']} ({r['feature_count']} features)",
                 "detail": ", ".join(r["entry_files"][:3])
             }, ensure_ascii=False)}
             for ev in r["tool_events"]:
                 yield ev
             all_group_nodes.append(r["group_node"])
             total_features += r["feature_count"]
-            total_steps += r["step_count"]
 
         if not all_group_nodes:
             logger.warning("[UnifiedAnalyzer] No group nodes built, falling back to static analysis")
@@ -1292,7 +1275,7 @@ class UnifiedAnalyzer:
 
         yield {"event": "done", "data": json.dumps({
             "features": [root.model_dump()],
-            "stats": {"groups": len(boundaries), "features": total_features, "steps": total_steps, "files": "N/A"}
+            "stats": {"groups": len(boundaries), "features": total_features}
         }, ensure_ascii=False)}
 
 

@@ -28,9 +28,18 @@ export interface CodeAtlasAPI {
     insertLines: (filePath: string, afterLine: number, content: string) => Promise<EditResult>;
     replaceLines: (filePath: string, startLine: number, endLine: number, content: string) => Promise<EditResult>;
     deleteLines: (filePath: string, startLine: number, endLine: number) => Promise<EditResult>;
+    deleteFile: (filePath: string) => Promise<EditResult>;
+    search: (query: string, dirPath: string) => Promise<Array<{ file: string; line: number; text: string }>>;
     restoreBackup: (backupId: string) => Promise<EditResult>;
     getProjectPath: () => Promise<string>;
     onProjectOpened: (cb: (path: string) => void) => void;
+  };
+  window: {
+    minimize: () => Promise<void>;
+    maximize: () => Promise<void>;
+    close: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
+    openTerminal: (projectPath?: string | null) => Promise<void>;
   };
   shell: {
     run: (command: string) => string;
@@ -43,12 +52,6 @@ export interface CodeAtlasAPI {
   };
   backend: {
     getUrl: () => string;
-  };
-  window: {
-    minimize: () => Promise<void>;
-    maximize: () => Promise<void>;
-    close: () => Promise<void>;
-    isMaximized: () => Promise<boolean>;
   };
 }
 

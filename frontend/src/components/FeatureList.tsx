@@ -51,7 +51,6 @@ const PHASES: PhaseDef[] = [
 export default function FeatureList({ projectPath, onSelectFeature, selectedId, onFeaturesLoaded, language }: Props) {
   const [features, setFeatures] = useState<FeatureNode[]>([]);
   const [loading, setLoading] = useState(false);
-  const [polling, setPolling] = useState(false);
   const [progressLabel, setProgressLabel] = useState('');
   const [activePhase, setActivePhase] = useState<string | null>(null);
   const [completedPhases, setCompletedPhases] = useState<Set<string>>(new Set());
@@ -80,34 +79,6 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
 
   useEffect(() => { loadFeatures(); }, [loadFeatures]);
 
-  // Poll for changes from bottom agent — incremental update
-  useEffect(() => {
-    if (!projectPath) return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/v1/changes/pending?project_path=${encodeURIComponent(projectPath)}`);
-        const data = await res.json();
-        if (data.has_pending && data.items?.length > 0) {
-          setPolling(true);
-          // Incremental update based on specific changes
-          const item = data.items[0];
-          await fetch('/api/v1/features/incremental-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              project_path: projectPath,
-              change_summary: item.summary || '',
-              files_changed: item.files_changed || [],
-            }),
-          });
-          // Reload to get updated features
-          await loadFeatures();
-          setPolling(false);
-        }
-      } catch { /* */ }
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [projectPath]);
 
   const handleGenerate = async () => {
     if (!projectPath) return;
@@ -191,7 +162,7 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
                 const stats = data.stats || {};
                 useTaskStore.getState().updateTask(taskId, {
                   status: 'done',
-                  detail: `${stats.groups || 0}g ${stats.features || 0}f ${stats.steps || 0}s`
+                  detail: `${stats.groups || 0} groups, ${stats.features || 0} features`
                 });
               } else {
                 useTaskStore.getState().updateTask(taskId, { status: 'error', detail: tr(language, 'noFeatures') });
@@ -222,7 +193,6 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
           {tr(language, 'features')}
         </span>
         <div className="flex items-center gap-1.5">
-          {polling && <span className="text-[9px] animate-pulse" style={{ color: COL.yellow }}>sync</span>}
           <button
             onClick={handleGenerate}
             disabled={(!features.length && loading) || !projectPath}
@@ -246,7 +216,7 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
         {loading && (
           <div className="px-3 py-2.5 border-b space-y-1" style={{ borderColor: COL.outline, background: '#1d2024' }}>
             {/* Phase steps */}
-            {PHASES.map((phase, i) => {
+            {PHASES.map((phase) => {
               const isComplete = completedPhases.has(phase.id);
               const isActive = activePhase === phase.id;
               const label = language === 'zh' ? phase.labelZh : phase.labelEn;

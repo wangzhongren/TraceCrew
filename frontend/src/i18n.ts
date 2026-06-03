@@ -22,7 +22,7 @@ export function languageInstruction(language: Language): string {
 
 export const UI = {
   zh: {
-    run: '运行',
+    run: 'AI 终端',
     closeProject: '关闭项目',
     language: '中文',
     features: '地图',
@@ -58,7 +58,7 @@ export const UI = {
     noFurtherDetails: '没有更多细节（AI 已自动分析到此层级）',
   },
   en: {
-    run: 'Run',
+    run: 'AI Terminal',
     closeProject: 'Close Project',
     language: 'English',
     features: 'Features',

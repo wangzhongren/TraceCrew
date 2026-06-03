@@ -116,14 +116,14 @@ INCREMENTAL_PROMPT = """你是一个代码架构维护助手。项目代码发�
 请分析这些变更对功能点的影响，返回需要增量更新的操作。
 
 【输出格式】纯 JSON：
-{
+{{
   "message": "简述变更影响",
   "updates": [
-    { "action": "add_feature", "feature": { "id": "新功能id", "label": "功能名", "description": "描述", "flow_description": "流程概述", "files": ["文件路径"], "functions": ["函数名:行号"] } },
-    { "action": "update_feature", "feature": { "id": "已有功能id", "description": "更新的描述", "files": ["更新的文件"], "functions": ["更新的函数"] } },
-    { "action": "remove_feature", "feature_id": "要删除的功能id" }
+    {{ "action": "add_feature", "feature": {{ "id": "新功能id", "label": "功能名", "description": "描述", "flow_description": "流程概述", "files": ["文件路径"], "functions": ["函数名:行号"] }} }},
+    {{ "action": "update_feature", "feature": {{ "id": "已有功能id", "description": "更新的描述", "files": ["更新的文件"], "functions": ["更新的函数"] }} }},
+    {{ "action": "remove_feature", "feature_id": "要删除的功能id" }}
   ]
-}
+}}
 
 【规则——证据优先】
 - 只返回真正受影响的变更，变更很小则返回空 updates

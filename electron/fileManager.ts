@@ -1,6 +1,6 @@
 import {
   readdirSync, readFileSync, writeFileSync, existsSync,
-  mkdirSync, statSync, copyFileSync, createWriteStream,
+  mkdirSync, statSync, copyFileSync, renameSync, createWriteStream,
 } from 'fs';
 import { join, dirname, relative, basename } from 'path';
 
@@ -184,6 +184,68 @@ export function deleteLines(filePath: string, startLine: number, endLine: number
   } catch (e: any) {
     return { success: false, error: e.message, file: filePath };
   }
+}
+
+export function deleteFile(filePath: string, projectPath: string): EditResult {
+  try {
+    const backupId = createBackup(filePath, 'delete_file');
+    if (existsSync(filePath)) {
+      const trashDir = join(projectPath, '.codeatlas', 'deleted');
+      mkdirSync(trashDir, { recursive: true });
+      const name = basename(filePath);
+      const ts = Date.now();
+      const trashPath = join(trashDir, `${ts}_${name}`);
+      renameSync(filePath, trashPath);
+    }
+    return { success: true, file: filePath, backupId };
+  } catch (e: any) {
+    return { success: false, error: e.message, file: filePath };
+  }
+}
+
+export interface SearchResult {
+  file: string;
+  line: number;
+  text: string;
+}
+
+export function searchInFiles(query: string, dirPath: string, maxResults = 30): SearchResult[] {
+  const results: SearchResult[] = [];
+  const sourceExts = ['.py', '.ts', '.tsx', '.js', '.jsx', '.go', '.rs', '.java',
+    '.json', '.toml', '.yaml', '.yml', '.md', '.css', '.html', '.vue', '.svelte'];
+
+  function walk(dir: string, depth: number) {
+    if (depth > 4 || results.length >= maxResults) return;
+    try {
+      for (const name of readdirSync(dir)) {
+        if (name.startsWith('.') || IGNORE_PATTERNS.some(p => p === name)) continue;
+        const full = join(dir, name);
+        try {
+          const st = statSync(full);
+          if (st.isDirectory()) {
+            walk(full, depth + 1);
+          } else if (st.isFile() && st.size < 200_000) {
+            const ext = name.includes('.') ? '.' + name.split('.').pop()?.toLowerCase() : '';
+            if (!sourceExts.includes(ext)) continue;
+            const content = readFileSync(full, 'utf-8');
+            const lines = content.split('\n');
+            for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+              if (lines[i].toLowerCase().includes(query.toLowerCase())) {
+                results.push({
+                  file: relative(dirPath, full).replace(/\\/g, '/'),
+                  line: i + 1,
+                  text: lines[i].trim().slice(0, 200),
+                });
+              }
+            }
+          }
+        } catch { /* skip unreadable */ }
+      }
+    } catch { /* skip */ }
+  }
+
+  walk(dirPath, 1);
+  return results;
 }
 
 export function getProjectName(dirPath: string): string {

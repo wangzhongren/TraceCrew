@@ -81,6 +81,9 @@ async def agent_chat_stream(req: AgentRequest, background_tasks: BackgroundTasks
     )
 
 
+# ── Agent Plan (Planner + Sub-agent) ────────────────
+
+
 # ── Topology refresh ────────────────────────────────
 
 from pydantic import BaseModel as PydanticBaseModel
@@ -98,6 +101,50 @@ async def topology_refresh(req: TopologyRefreshRequest, background_tasks: Backgr
     for d in req.diffs:
         background_tasks.add_task(topology_analyzer.analyze_diff, d.file, d.diff)
     return {"status": "ok", "files": len(req.diffs)}
+
+
+# ── Intent classification ─────────────────────────
+
+class IntentRequest(PydanticBaseModel):
+    instruction: str
+
+@app.post("/api/v1/agent/classify-intent")
+async def classify_intent(req: IntentRequest):
+    intent = await agent_service.classify_intent(req.instruction)
+    return {"intent": intent}
+
+
+# ── Agent Plan (Planner + Sub-agent) ────────────────
+
+class PlanRequest(PydanticBaseModel):
+    instruction: str
+
+@app.post("/api/v1/agent/plan/stream")
+async def agent_plan_stream(req: PlanRequest):
+    """Phase 1: Planner agent explores and outputs a JSON plan."""
+    async def gen():
+        async for event in agent_service.plan_stream(req.instruction):
+            yield f"event: {event['event']}\ndata: {event['data']}\n\n"
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class StepRequest(PydanticBaseModel):
+    task: str
+    step_id: int
+
+@app.post("/api/v1/agent/step/stream")
+async def agent_step_stream(req: StepRequest):
+    """Phase 2: Worker agent executes a single plan step."""
+    async def gen():
+        async for event in agent_service.run_sub_agent(req.task, req.step_id):
+            yield f"event: {event['event']}\ndata: {event['data']}\n\n"
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── Topology stream ─────────────────────────────────

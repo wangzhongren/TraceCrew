@@ -43,6 +43,7 @@ const api = {
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    openTerminal: (projectPath?: string | null) => ipcRenderer.invoke('window:openTerminal', projectPath),
   },
 };
 

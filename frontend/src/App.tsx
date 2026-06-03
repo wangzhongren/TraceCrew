@@ -20,7 +20,25 @@ const INITIAL_LEFT = 260;
 const INITIAL_RIGHT = 380;
 const INITIAL_BOTTOM = 280;
 
+function TerminalApp() {
+  const [tp, setTp] = useState<string | null>(() => {
+    const p = new URLSearchParams(window.location.search).get('path');
+    return p ? decodeURIComponent(p) : null;
+  });
+  useEffect(() => {
+    if (!tp) {
+      window.codeatlas?.file.getProjectPath().then((p: string) => { if (p) setTp(p); });
+    }
+  }, [tp]);
+  if (!tp) return <div className="w-screen h-screen flex items-center justify-center" style={{ background: '#0d1117', color: '#8b949e' }}>Loading...</div>;
+  return <RunPage projectPath={tp} onClose={() => window.close()} onFileChanged={() => {}} />;
+}
+
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('terminal') === '1') {
+    return <TerminalApp />;
+  }
+
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const [scrollToLine, setScrollToLine] = useState<number | null>(null);
@@ -42,7 +60,10 @@ export default function App() {
   const [leftW, setLeftW] = useState(INITIAL_LEFT);
   const [rightW, setRightW] = useState(INITIAL_RIGHT);
   const [bottomH, setBottomH] = useState(INITIAL_BOTTOM);
-  const [showRunPage, setShowRunPage] = useState(false);
+
+  const openTerminal = () => {
+    window.codeatlas?.window?.openTerminal(projectPath);
+  };
 
   const toggleLanguage = useCallback(() => {
     setLanguage((current) => {
@@ -120,8 +141,8 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setShowRunPage(true)}
-            title="AI auto-run: analyze, build, run & fix"
+            onClick={openTerminal}
+            title="AI Terminal — auto analyze, build, run & fix"
             className="flex items-center gap-1.5 text-[10px] px-3 py-1 rounded-md font-medium transition-all hover:opacity-80 active:scale-[0.97]"
             style={{ background: '#1a3350', color: '#8ab4f8', border: '1px solid #8ab4f830' }}
           >
@@ -193,14 +214,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Run Page overlay */}
-      {showRunPage && projectPath && (
-        <RunPage
-          projectPath={projectPath}
-          onClose={() => setShowRunPage(false)}
-          onFileChanged={handleFileChanged}
-        />
-      )}
     </div>
   );
 }

@@ -30,7 +30,7 @@ export default defineConfig({
             rollupOptions: {
               external: ['electron'],
               output: {
-                entryFileNames: 'preload.bak.js',
+                entryFileNames: 'preload.js',
               },
             },
           },

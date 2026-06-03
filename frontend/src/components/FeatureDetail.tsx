@@ -114,6 +114,8 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
   const [overviewHtml, setOverviewHtml] = useState<string | null>(null);
   const [overviewFiles, setOverviewFiles] = useState<Array<{path:string;description:string}>>([]);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  const [drilling, setDrilling] = useState(false);
+  const [expandError, setExpandError] = useState<string | null>(null);
   const loadingNodeIds = useRef<Set<string>>(new Set());
 
   // Collect all files from tree for overview display
@@ -188,8 +190,37 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
     setTimeout(() => useTaskStore.getState().removeTask(taskId), 3000);
   };
 
+  const handleExpand = async () => {
+    if (!feature || !projectPath || drilling) return;
+    setDrilling(true);
+    setExpandError(null);
+    try {
+      const res = await fetch('/api/v1/features/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_path: projectPath,
+          node_id: feature.id,
+          parent_context: `${feature.label}: ${feature.description}\n${feature.flow_description || ''}`,
+          language,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setExpandError(data.error);
+      } else if (data.nodes?.length) {
+        onDrillDown({ ...feature, children: data.nodes });
+        onReloadFeatures?.();
+      } else {
+        setExpandError(language === 'zh' ? '未生成子节点' : 'No children generated');
+      }
+    } catch (e: any) {
+      setExpandError(e.message || 'Failed');
+    }
+    setDrilling(false);
+  };
+
   const handleDrill = (node: FeatureNode) => {
-    // Children are pre-loaded by unified analyzer — just navigate
     if (node.children && node.children.length > 0) {
       onDrillDown(node);
     }
@@ -206,9 +237,14 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
         <span className="px-1.5 py-0.5 rounded text-[9px] font-mono shrink-0" style={{ background: LV[feature.level] + '20', color: LV[feature.level] }}>L{feature.level}</span>
         {onSendToAgent && (
           <button onClick={() => {
-            const files = (overviewFiles.length > 0 ? overviewFiles : feature.files.map((f: string) => ({ path: f, description: '' })))
-              .map((f: any) => f.path).filter(Boolean);
-            onSendToAgent(`当前焦点: ${feature.label}\n参考文件: ${files.join(', ') || '无'}`);
+            const parts = [language === 'zh'
+              ? `【参考：用户当前正在查看地图节点「${feature.label}」(L${feature.level})，以下信息仅供你参考理解上下文。请以用户的具体需求为准。】`
+              : `[Reference: user is viewing map node "${feature.label}" (L${feature.level}). The info below is for context only — follow the user's request, not your own assumptions.]`];
+            if (feature.description) parts.push(`描述: ${feature.description}`);
+            if (feature.flow_description) parts.push(`概述: ${feature.flow_description.slice(0, 500)}`);
+            if (feature.files?.length) parts.push(`相关文件: ${feature.files.join(', ')}`);
+            if (feature.functions?.length) parts.push(`关键函数: ${feature.functions.join(', ')}`);
+            onSendToAgent(parts.join('\n'));
           }}
             className="text-[9px] px-2 py-0.5 rounded-full shrink-0 hover:bg-white/10 transition-colors"
             style={{ border: '1px solid #303234', color: COL.primary }}>
@@ -347,9 +383,29 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
               )}
             </div>
           )}
-            {children.length === 0 ? (
+            {children.length === 0 && feature.level >= 2 ? (
+              <div className="flex flex-col items-center justify-center h-full py-8 gap-2">
+                <button
+                  onClick={handleExpand}
+                  disabled={drilling}
+                  className="px-4 py-2 rounded-lg text-xs font-medium transition-all hover:opacity-90 disabled:opacity-50"
+                  style={{ background: '#1a3350', color: '#8ab4f8', border: '1px solid #8ab4f830' }}>
+                  {drilling ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full animate-pulse-dot" style={{ background: '#8ab4f8' }} />
+                      {language === 'zh' ? '分析中...' : 'Analyzing...'}
+                    </span>
+                  ) : (
+                    language === 'zh' ? '🔍 展开查看详情' : '🔍 Expand details'
+                  )}
+                </button>
+                {expandError && (
+                  <div className="text-[10px]" style={{ color: '#f85149' }}>{expandError}</div>
+                )}
+              </div>
+            ) : children.length === 0 ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-[11px] text-center px-6" style={{ color: '#5c6166' }}>
+                <div className="text-[11px]" style={{ color: '#5c6166' }}>
                   {tr(language, 'noFurtherDetails')}
                 </div>
               </div>
