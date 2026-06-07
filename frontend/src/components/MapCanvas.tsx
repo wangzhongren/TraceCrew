@@ -1,28 +1,24 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 
 /* ═══════════════════════════════════════════════════════════
    Call Graph Canvas — Node-Link diagram for code structure
-   Used by Planner to communicate call chains and problems.
-   Updated during execution to show changes.
    ═══════════════════════════════════════════════════════════ */
 
-/* ── Data types (matching Planner's JSON output) ── */
-
 export interface GraphNode {
-  id: string;         // unique id, e.g. "auth.login"
-  label: string;      // display name
-  kind: 'file' | 'function' | 'class' | 'module' | 'endpoint';
+  id: string;
+  label: string;
+  kind: string;
   status: 'existing' | 'problem' | 'planned_change' | 'planned_new' | 'done';
-  detail: string;     // brief description
-  file?: string;      // source file path
+  detail: string;
+  file?: string;
   line?: number;
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
-  label: string;      // "calls" | "imports" | "returns" | "creates"
-  status: 'existing' | 'new' | 'removed';
+  label: string;
+  status: 'existing' | 'new' | 'removed' | 'error';
 }
 
 export interface CallGraph {
@@ -35,102 +31,100 @@ interface Props {
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
 }
 
-/* ── Colors ── */
-const STATUS_COLORS: Record<string, { fill: string; stroke: string; text: string }> = {
-  existing:       { fill: '#161616', stroke: '#78a9ff', text: '#f4f4f4' },
-  problem:        { fill: '#2a0a0a', stroke: '#da1e28', text: '#ffb3b8' },
-  planned_change: { fill: '#1a1a00', stroke: '#f1c21b', text: '#f1c21b' },
-  planned_new:    { fill: '#061832', stroke: '#24a148', text: '#6fdc8c' },
-  done:           { fill: '#071a10', stroke: '#24a148', text: '#6fdc8c' },
+/* ── Color palette ── */
+const COLORS: Record<string, { fill: string; stroke: string; badge: string; text: string; icon: string }> = {
+  existing:       { fill: '#1a1f2e', stroke: '#5a8fd4', badge: '#5a8fd4', text: '#c8d6e5', icon: '⬡' },
+  problem:        { fill: '#2e1a1a', stroke: '#e0556a', badge: '#e0556a', text: '#f0c0c5', icon: '✕' },
+  planned_change: { fill: '#292614', stroke: '#e0b830', badge: '#e0b830', text: '#f0e0b0', icon: '✎' },
+  planned_new:    { fill: '#0f291a', stroke: '#3db86c', badge: '#3db86c', text: '#b8e6cc', icon: '+' },
+  done:           { fill: '#0f291a', stroke: '#3db86c', badge: '#3db86c', text: '#b8e6cc', icon: '✓' },
 };
 
 const EDGE_COLORS: Record<string, string> = {
-  existing: '#393939',
-  new: '#24a148',
-  removed: '#da1e28',
+  existing: '#4a5568',
+  new: '#3db86c',
+  removed: '#e0556a',
+  error: '#e0556a',
 };
 
-/* ── Simple layered layout ── */
+/* ── Dagre-like layered layout ── */
 interface LayoutNode extends GraphNode {
   x: number; y: number;
 }
 
-function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[] } {
-  const nodes = graph.nodes;
-  const edges = graph.edges;
+const NODE_W = 220, NODE_H = 72;
+const X_GAP = 48, Y_GAP = 96;
 
+function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[] } {
+  const { nodes, edges } = graph;
   if (nodes.length === 0) return { nodes: [], edges };
 
-  // Simple BFS layering from root nodes
-  const layers: Map<string, number> = new Map();
-  const children: Map<string, string[]> = new Map();
-
-  for (const n of nodes) children.set(n.id, []);
+  // Build adjacency
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  for (const n of nodes) {
+    children.set(n.id, []);
+    parents.set(n.id, []);
+  }
   for (const e of edges) {
-    const c = children.get(e.from);
-    if (c) c.push(e.to);
+    children.get(e.from)?.push(e.to);
+    parents.get(e.to)?.push(e.from);
   }
 
-  // Root nodes: nodes with no incoming edges
-  const incoming = new Set<string>();
-  for (const e of edges) incoming.add(e.to);
+  // Kahn's algorithm for layering
+  const layer = new Map<string, number>();
+  const inDegree = new Map<string, number>();
+  for (const n of nodes) inDegree.set(n.id, parents.get(n.id)?.length || 0);
 
-  let queue = nodes.filter((n) => !incoming.has(n.id));
-  if (queue.length === 0) queue = [nodes[0]]; // fallback
-
-  const visited = new Set<string>();
-  queue.forEach((n) => { layers.set(n.id, 0); visited.add(n.id); });
+  const queue: string[] = [];
+  for (const n of nodes) {
+    if (inDegree.get(n.id) === 0) {
+      layer.set(n.id, 0);
+      queue.push(n.id);
+    }
+  }
+  if (queue.length === 0) {
+    // All nodes in a cycle — put first as root
+    layer.set(nodes[0].id, 0);
+    queue.push(nodes[0].id);
+  }
 
   while (queue.length > 0) {
-    const next: GraphNode[] = [];
-    for (const n of queue) {
-      const layer = layers.get(n.id) || 0;
-      for (const childId of (children.get(n.id) || [])) {
-        if (!visited.has(childId)) {
-          visited.add(childId);
-          const child = nodes.find((x) => x.id === childId);
-          if (child) {
-            layers.set(childId, layer + 1);
-            next.push(child);
-          }
-        }
-      }
-    }
-    // Also process any remaining nodes without incoming
-    for (const n of nodes) {
-      if (!visited.has(n.id)) {
-        visited.add(n.id);
-        layers.set(n.id, (layers.get(n.id) || 0) + 1);
-        next.push(n);
-      }
-    }
-    queue = next;
-  }
-
-  // Assign positions
-  const layerGroups: Map<number, GraphNode[]> = new Map();
-  for (const [id, l] of layers) {
-    const n = nodes.find((x) => x.id === id);
-    if (n) {
-      const group = layerGroups.get(l) || [];
-      group.push(n);
-      layerGroups.set(l, group);
+    const id = queue.shift()!;
+    const currentLayer = layer.get(id) || 0;
+    for (const child of children.get(id) || []) {
+      const nd = Math.max(layer.get(child) || 0, currentLayer + 1);
+      layer.set(child, nd);
+      const deg = (inDegree.get(child) || 1) - 1;
+      inDegree.set(child, deg);
+      if (deg === 0 && !queue.includes(child)) queue.push(child);
     }
   }
 
+  // Catch unvisited nodes
+  for (const n of nodes) {
+    if (!layer.has(n.id)) layer.set(n.id, 0);
+  }
+
+  // Group by layer
+  const layerGroups = new Map<number, GraphNode[]>();
+  for (const n of nodes) {
+    const l = layer.get(n.id) || 0;
+    const g = layerGroups.get(l) || [];
+    g.push(n);
+    layerGroups.set(l, g);
+  }
+
+  // Assign positions — left to right, top to bottom
   const layouted: LayoutNode[] = [];
-  const NODE_W = 200, NODE_H = 60;
-  const X_GAP = 40, Y_GAP = 80;
+  const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
 
-  for (const [layer, group] of layerGroups) {
+  for (const l of sortedLayers) {
+    const group = layerGroups.get(l)!;
     const totalW = group.length * (NODE_W + X_GAP) - X_GAP;
     const startX = -totalW / 2;
     group.forEach((n, i) => {
-      layouted.push({
-        ...n,
-        x: startX + i * (NODE_W + X_GAP),
-        y: layer * (NODE_H + Y_GAP),
-      });
+      layouted.push({ ...n, x: startX + i * (NODE_W + X_GAP), y: l * (NODE_H + Y_GAP) });
     });
   }
 
@@ -141,25 +135,33 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[
 
 export default function MapCanvas({ graph, phase }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [transform, setTransform] = useState({ x: 60, y: 40, scale: 1 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
-  // Layout the graph
-  const layouted = graph ? layoutGraph(graph) : { nodes: [], edges: [] };
+  const layouted = useMemo(
+    () => graph ? layoutGraph(graph) : { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] },
+    [graph]
+  );
+
+  // Auto-fit on new graph
+  useEffect(() => {
+    if (!graph || graph.nodes.length === 0) return;
+    setTransform({ x: 60, y: 40, scale: 0.85 });
+    setSelectedNode(null);
+  }, [graph]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    setTransform((t) => ({
-      ...t,
-      scale: Math.max(0.3, Math.min(2, t.scale + delta)),
-    }));
+    const delta = e.deltaY > 0 ? -0.12 : 0.12;
+    setTransform((t) => ({ ...t, scale: Math.max(0.2, Math.min(2.5, t.scale + delta)) }));
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target === svgRef.current || (e.target as SVGElement)?.tagName === 'svg') {
+    if ((e.target as SVGElement)?.tagName === 'svg' || (e.target as SVGElement)?.classList?.contains?.('bg-layer')) {
       setDragging(true);
       dragStart.current = { x: e.clientX, y: e.clientY, tx: transform.x, ty: transform.y };
     }
@@ -167,59 +169,56 @@ export default function MapCanvas({ graph, phase }: Props) {
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    setTransform((t) => ({ ...t, x: dragStart.current.tx + dx, y: dragStart.current.ty + dy }));
+    setTransform((t) => ({
+      ...t,
+      x: dragStart.current.tx + (e.clientX - dragStart.current.x),
+      y: dragStart.current.ty + (e.clientY - dragStart.current.y),
+    }));
   }, [dragging]);
 
   const handleMouseUp = useCallback(() => setDragging(false), []);
 
-  // Center on mount or graph change
-  useEffect(() => {
-    setTransform({ x: 400, y: 200, scale: 1 });
+  // Status summary counts
+  const statusCounts = useMemo(() => {
+    if (!graph) return {};
+    const counts: Record<string, number> = {};
+    for (const n of graph.nodes) counts[n.status] = (counts[n.status] || 0) + 1;
+    return counts;
   }, [graph]);
 
-  /* ── Render ── */
   return (
-    <div className="relative h-full overflow-hidden" style={{ background: 'var(--ibm-bg)', cursor: dragging ? 'grabbing' : 'grab' }}>
-      {/* Grid background */}
-      <svg className="absolute inset-0 pointer-events-none opacity-[0.03]" width="100%" height="100%">
+    <div ref={containerRef} className="relative h-full overflow-hidden" style={{ background: '#0d1117' }}>
+      {/* Background dot grid */}
+      <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%">
         <defs>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <circle cx="20" cy="20" r="1" fill="var(--ibm-text)"/>
+          <pattern id="dotGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+            <circle cx="16" cy="16" r="0.8" fill="#ffffff" opacity="0.04"/>
           </pattern>
         </defs>
-        <rect width="100%" height="100%" fill="url(#grid)"/>
+        <rect width="100%" height="100%" fill="url(#dotGrid)"/>
       </svg>
 
       {/* Empty state */}
       {(!graph || graph.nodes.length === 0) && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'transparent' }}>
           <div className="text-center space-y-3">
-            <svg width="48" height="48" viewBox="0 0 32 32" fill="none" stroke="var(--ibm-text-placeholder)" strokeWidth="1" style={{ margin: '0 auto' }}>
-              <circle cx="7" cy="7" r="2"/><circle cx="25" cy="7" r="2"/><circle cx="16" cy="20" r="2"/>
-              <circle cx="10" cy="25" r="2"/><circle cx="22" cy="25" r="2"/>
-              <line x1="9" y1="8" x2="15" y2="19"/><line x1="23" y1="8" x2="17" y2="19"/>
-              <line x1="9.5" y1="25" x2="15" y2="21"/><line x1="21.5" y1="25" x2="17" y2="21"/>
-            </svg>
-            <p className="text-sm font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
-              {phase === 'idle' ? 'Call graph will appear when Planner analyzes the code' :
-               phase === 'planning' ? 'Planner is analyzing call chains...' : 'No graph yet'}
-            </p>
-            <p className="text-xs" style={{ color: 'var(--ibm-text-disabled)' }}>
-              Shows code structure, call relationships, and problem locations
+            <div className="text-4xl opacity-20">◈</div>
+            <p className="text-sm font-light" style={{ color: '#8b949e' }}>
+              {phase === 'idle' ? 'Call graph will appear when Mapper analyzes the code' :
+               phase === 'planning' ? 'Mapper is analyzing call chains...' : 'No graph yet'}
             </p>
           </div>
         </div>
       )}
 
-      {/* SVG canvas — zoom + pan */}
-      <svg ref={svgRef} className="absolute inset-0 w-full h-full"
+      {/* SVG canvas */}
+      <svg ref={svgRef} className="absolute inset-0 w-full h-full bg-layer"
         onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}>
+
         <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
           {/* Edges */}
           {layouted.edges.map((edge, i) => {
@@ -227,86 +226,136 @@ export default function MapCanvas({ graph, phase }: Props) {
             const to = layouted.nodes.find((n) => n.id === edge.to);
             if (!from || !to) return null;
 
-            const cx1 = from.x + 100; const cy1 = from.y + 60;
-            const cx2 = to.x + 100; const cy2 = to.y;
-
-            // Arrow head
-            const midX = (cx1 + cx2) / 2;
-            const midY = (cy1 + cy2) / 2;
+            const x1 = from.x + NODE_W / 2;
+            const y1 = from.y + NODE_H;
+            const x2 = to.x + NODE_W / 2;
+            const y2 = to.y;
+            const ec = EDGE_COLORS[edge.status] || EDGE_COLORS.existing;
+            const isError = edge.status === 'error';
+            const isNew = edge.status === 'new';
 
             return (
               <g key={`e${i}`}>
-                {/* Edge line */}
-                <path d={`M${cx1},${cy1} C${cx1},${(cy1+cy2)/2} ${cx2},${(cy1+cy2)/2} ${cx2},${cy2-5}`}
-                  fill="none" stroke={EDGE_COLORS[edge.status] || EDGE_COLORS.existing}
-                  strokeWidth={edge.status === 'new' ? 2 : 1}
-                  strokeDasharray={edge.status === 'removed' ? '4,3' : undefined} />
+                {/* Glow for error/new edges */}
+                {(isError || isNew) && (
+                  <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
+                    fill="none" stroke={ec} strokeWidth={4} opacity={0.25} />
+                )}
+                {/* Main edge line — orthogonal */}
+                <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
+                  fill="none" stroke={ec}
+                  strokeWidth={isError || isNew ? 2 : 1.2}
+                  strokeDasharray={edge.status === 'removed' ? '6,4' : undefined}
+                  opacity={edge.status === 'removed' ? 0.5 : 0.85} />
                 {/* Arrow head */}
                 <polygon
-                  points={`${cx2-5},${cy2-10} ${cx2+5},${cy2-10} ${cx2},${cy2-5}`}
-                  fill={EDGE_COLORS[edge.status] || EDGE_COLORS.existing}/>
+                  points={`${x2-5},${y2-10} ${x2+5},${y2-10} ${x2},${y2-3}`}
+                  fill={ec} opacity={0.85} />
                 {/* Edge label */}
-                <text x={midX} y={midY - 4} textAnchor="middle"
-                  fill="var(--ibm-text-placeholder)" fontSize="10" fontFamily="var(--ibm-font)"
-                  style={{ pointerEvents: 'none' }}>
-                  {edge.label}
-                </text>
+                {edge.label && (
+                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle"
+                    fill="#8b949e" fontSize="10" fontFamily="monospace" fontWeight={isError ? 700 : 400}>
+                    <tspan fill={isError ? '#e0556a' : '#8b949e'}>{edge.label}</tspan>
+                  </text>
+                )}
               </g>
             );
           })}
 
           {/* Nodes */}
           {layouted.nodes.map((node) => {
-            const c = STATUS_COLORS[node.status] || STATUS_COLORS.existing;
+            const c = COLORS[node.status] || COLORS.existing;
             const isSelected = selectedNode === node.id;
-            const opacity = selectedNode && !isSelected ? 0.3 : 1;
+            const isHovered = hoveredNode === node.id;
+            const dimmed = selectedNode && !isSelected;
+            const isProblem = node.status === 'problem';
 
             return (
-              <g key={node.id} style={{ cursor: 'pointer', opacity }}
-                onClick={() => setSelectedNode(isSelected ? null : node.id)}>
-                {/* Node background */}
-                <rect x={node.x} y={node.y} width={200} height={60} rx={6}
-                  fill={c.fill} stroke={c.stroke} strokeWidth={isSelected ? 2 : 1}
-                  style={{ transition: 'opacity 0.2s' }} />
+              <g key={node.id} style={{ cursor: 'pointer', transition: 'opacity 0.2s', opacity: dimmed ? 0.25 : 1 }}
+                onClick={() => setSelectedNode(isSelected ? null : node.id)}
+                onMouseEnter={() => setHoveredNode(node.id)}
+                onMouseLeave={() => setHoveredNode(null)}>
 
-                {/* Kind badge */}
-                <rect x={node.x + 8} y={node.y + 8} width={16} height={16} rx={3}
-                  fill={c.stroke} opacity={0.3}/>
-                <text x={node.x + 16} y={node.y + 19} textAnchor="middle"
-                  fill={c.stroke} fontSize="8" fontFamily="var(--ibm-font)" fontWeight="bold">
-                  {node.kind === 'function' ? 'ƒ' :
-                   node.kind === 'class' ? 'C' :
-                   node.kind === 'endpoint' ? '→' :
-                   node.kind === 'module' ? 'M' : 'F'}
+                {/* Problem glow */}
+                {isProblem && (
+                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={NODE_H + 8} rx={10}
+                    fill="none" stroke={c.stroke} strokeWidth={2} opacity={0.2 + (isHovered ? 0.15 : 0)}
+                    style={{ transition: 'opacity 0.3s' }} />
+                )}
+
+                {/* Card background */}
+                <rect x={node.x} y={node.y} width={NODE_W} height={NODE_H} rx={8}
+                  fill={c.fill} stroke={isHovered || isSelected ? c.stroke : c.badge}
+                  strokeWidth={isSelected ? 2.5 : isHovered ? 1.8 : 1}
+                  strokeOpacity={isHovered || isSelected ? 1 : 0.5}
+                  style={{ filter: isSelected ? 'brightness(1.2)' : undefined }} />
+
+                {/* Left accent bar */}
+                <rect x={node.x} y={node.y + 8} width={3} height={NODE_H - 16} rx={1.5}
+                  fill={c.badge} opacity={0.8} />
+
+                {/* Status icon */}
+                <text x={node.x + 16} y={node.y + 24} textAnchor="middle"
+                  fill={c.badge} fontSize="13" fontWeight="bold">
+                  {c.icon}
                 </text>
 
-                {/* Label */}
-                <text x={node.x + 30} y={node.y + 22}
-                  fill={c.text} fontSize="12" fontFamily="var(--ibm-font)" fontWeight="500">
-                  {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
+                {/* Label — 16 chars max, 13px font */}
+                <text x={node.x + 34} y={node.y + 24}
+                  fill={c.text} fontSize="13" fontFamily="system-ui, sans-serif" fontWeight={600}>
+                  {node.label.length > 16 ? node.label.slice(0, 15) + '…' : node.label}
                 </text>
 
-                {/* File path */}
+                {/* File path — below label */}
                 {node.file && (
-                  <text x={node.x + 30} y={node.y + 38}
-                    fill="var(--ibm-text-placeholder)" fontSize="9" fontFamily="var(--ibm-font-mono)"
-                    opacity={0.7}>
-                    {node.file.slice(-25)}
+                  <text x={node.x + 34} y={node.y + 42}
+                    fill="#8b949e" fontSize="10" fontFamily="monospace" opacity={0.8}>
+                    {node.file.length > 28 ? '…' + node.file.slice(-27) : node.file}
                   </text>
                 )}
 
-                {/* Detail — visible on selected */}
-                {isSelected && node.detail && (
-                  <text x={node.x + 10} y={node.y + 78}
-                    fill="var(--ibm-text-secondary)" fontSize="10" fontFamily="var(--ibm-font)">
-                    {node.detail.slice(0, 60)}
+                {/* Detail — bottom of card */}
+                {node.detail && (
+                  <text x={node.x + 16} y={node.y + NODE_H - 16}
+                    fill="#6e7681" fontSize="10" fontFamily="system-ui, sans-serif">
+                    {node.detail.length > 32 ? node.detail.slice(0, 31) + '…' : node.detail}
                   </text>
                 )}
 
-                {/* Status indicator dot */}
+                {/* Status badge — top right */}
                 {node.status !== 'existing' && (
-                  <circle cx={node.x + 190} cy={node.y + 12} r={5}
-                    fill={c.stroke} opacity={0.8} />
+                  <rect x={node.x + NODE_W - 58} y={node.y + 8} width={52} height={16} rx={8}
+                    fill={c.badge} opacity={0.2} />
+                )}
+                {node.status !== 'existing' && (
+                  <text x={node.x + NODE_W - 32} y={node.y + 19} textAnchor="middle"
+                    fill={c.badge} fontSize="9" fontWeight={700}>
+                    {node.status === 'problem' ? 'ISSUE' :
+                     node.status === 'planned_change' ? 'CHANGE' :
+                     node.status === 'planned_new' ? 'NEW' : 'DONE'}
+                  </text>
+                )}
+
+                {/* Selected detail popup */}
+                {isSelected && (
+                  <g>
+                    <rect x={node.x + NODE_W + 12} y={node.y} width={210} height={NODE_H}
+                      rx={6} fill="#161b22" stroke={c.stroke} strokeWidth={1} opacity={0.95} />
+                    <text x={node.x + NODE_W + 22} y={node.y + 20}
+                      fill={c.text} fontSize="12" fontWeight={600}>
+                      {node.kind}
+                    </text>
+                    <text x={node.x + NODE_W + 22} y={node.y + 38}
+                      fill="#8b949e" fontSize="11">
+                      {node.detail?.slice(0, 55)}
+                    </text>
+                    {node.file && (
+                      <text x={node.x + NODE_W + 22} y={node.y + 56}
+                        fill="#6e7681" fontSize="10" fontFamily="monospace">
+                        {node.file.length > 32 ? '…' + node.file.slice(-31) : node.file}
+                      </text>
+                    )}
+                  </g>
                 )}
               </g>
             );
@@ -314,18 +363,38 @@ export default function MapCanvas({ graph, phase }: Props) {
         </g>
       </svg>
 
-      {/* Legend */}
+      {/* Legend — bottom left */}
       {graph && graph.nodes.length > 0 && (
-        <div className="absolute bottom-4 left-4 flex gap-3 p-3 rounded-lg" style={{ background: 'var(--ibm-layer)', border: '1px solid var(--ibm-border-subtle)' }}>
-          {Object.entries(STATUS_COLORS).map(([key, c]) => (
-            <div key={key} className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded" style={{ background: c.stroke }}/>
-              <span className="text-[10px]" style={{ color: 'var(--ibm-text-secondary)' }}>
-                {key === 'existing' ? 'Code' :
-                 key === 'problem' ? 'Issue' :
-                 key === 'planned_change' ? 'Changes' :
-                 key === 'planned_new' ? 'New' : 'Done'}
-              </span>
+        <div className="absolute bottom-4 left-4 rounded-xl px-4 py-2.5 flex gap-4 flex-wrap"
+          style={{ background: '#161b22dd', backdropFilter: 'blur(8px)', border: '1px solid #30363d' }}>
+          {[
+            { key: 'existing', label: '现有代码', count: statusCounts.existing || 0 },
+            { key: 'problem', label: '问题位置', count: statusCounts.problem || 0 },
+            { key: 'planned_change', label: '需要修改', count: statusCounts.planned_change || 0 },
+            { key: 'planned_new', label: '新增', count: statusCounts.planned_new || 0 },
+            { key: 'done', label: '已完成', count: statusCounts.done || 0 },
+          ]
+          .filter(item => item.count > 0 || item.key === 'existing')
+          .map(({ key, label, count }) => {
+            const c = COLORS[key];
+            return (
+              <div key={key} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.badge }}/>
+                <span className="text-[11px]" style={{ color: '#c9d1d9' }}>{label}</span>
+                {count > 0 && <span className="text-[10px]" style={{ color: '#6e7681' }}>({count})</span>}
+              </div>
+            );
+          })}
+          {/* Edge legend */}
+          <div className="w-px h-4 self-center" style={{ background: '#30363d' }}/>
+          {[
+            { key: 'existing', label: '调用', color: EDGE_COLORS.existing },
+            { key: 'error', label: '异常', color: EDGE_COLORS.error },
+            { key: 'new', label: '新增', color: EDGE_COLORS.new },
+          ].map(({ key, label, color }) => (
+            <div key={`e-${key}`} className="flex items-center gap-1.5">
+              <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth={key === 'error' ? 2 : 1.2} strokeDasharray={key === 'removed' ? '4,3' : undefined}/><polygon points="14,2 18,5 14,8" fill={color}/></svg>
+              <span className="text-[11px]" style={{ color: '#c9d1d9' }}>{label}</span>
             </div>
           ))}
         </div>

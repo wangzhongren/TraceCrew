@@ -1,12 +1,22 @@
 import OpenAI from 'openai';
 import * as path from 'path';
-import * as fs from 'fs';
+import {
+  listDirectory, readFile, writeFile,
+  insertLines, replaceLines, deleteLines, deleteFile,
+  searchInFiles, runShell, killShell,
+} from '../../fileManager';
+import { existsSync } from 'fs';
 
 const MAX_CONTEXT_CHARS = 8000;
 
 /* ── System Prompts ── */
 
 const AGENT_SYSTEM_PROMPT = `你是 CodeAtlas 的 AI 编程助手，你的首要目标是准确理解用户需求再行动。
+
+【铁律——禁止重复输出代码】
+- 严禁把你读取到的文件内容大段复制到回复里。用户要的是你的分析和结论。
+- 可以引用关键行号或函数名，但不能把整个文件 dump 出来。
+- 分析完直接说结论，不要用代码块展示你已经读过的文件。
 
 【核心原则 —— 理解优先，谨慎执行】
 1. 先理解用户的需求是什么，不清楚的地方可以简短追问，不要猜测后擅自行动
@@ -99,15 +109,14 @@ def health():
 const PLANNER_SYSTEM_PROMPT = `你是技术架构师，负责理解需求并制定执行计划。
 
 【你的职责】
-1. 理解用户需求，用 read_file 和 list_dir 探索项目结构
-2. 输出一个结构化的 JSON 执行计划
+根据用户需求描述和项目信息，制定一个具体可执行的步骤计划。
 
 【规则】
-- 你只能读取文件，不能修改任何代码
 - 计划要具体，每个步骤明确要改什么文件、改什么内容
 - 步骤数量 3-8 个，不要太细也不要太粗
 - 如果步骤之间有依赖，用 deps 标注
-- 探索项目至少读 2-3 个关键文件再出计划
+- 如果信息不足以制定计划，直接说明缺少什么信息
+- 只输出 JSON，不要输出其他内容
 
 【输出格式】严格 JSON，不要其他内容：
 \`\`\`json
@@ -128,9 +137,7 @@ const PLANNER_SYSTEM_PROMPT = `你是技术架构师，负责理解需求并制�
     }
   ]
 }
-\`\`\`
-
-先探索，再输出 JSON 计划。`;
+\`\`\``;
 
 const WORKER_SYSTEM_PROMPT = `你是代码执行者。收到任务后直接输出操作标签，不要犹豫，不要解释。
 
@@ -330,9 +337,9 @@ export class AgentService {
     }
   }
 
-  private buildMessages(systemPrompt: string, userMsg: string, history?: Array<{ role: string; content: string }> | null) {
+  private buildMessages(history?: Array<{ role: string; content: string }> | null) {
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: AGENT_SYSTEM_PROMPT },
     ];
     if (history) {
       for (const h of history) {
@@ -340,7 +347,6 @@ export class AgentService {
         msgs.push({ role, content: h.content });
       }
     }
-    msgs.push({ role: 'user', content: userMsg });
     return msgs;
   }
 
@@ -382,52 +388,12 @@ export class AgentService {
     }
   }
 
-  /* ── Build user message from request ── */
-
-  buildUserMessage(req: {
-    instruction: string;
-    open_file?: { path: string; content: string; lines: number } | null;
-    file_tree?: unknown[] | null;
-    selection?: { file: string; text: string; lines: string } | null;
-  }): string {
-    const parts: string[] = [`【用户指令】\n${req.instruction}`];
-
-    if (req.open_file) {
-      parts.push(
-        `\n【当前打开的文件: ${req.open_file.path}，共 ${req.open_file.lines} 行】\n` +
-        '```\n' + this.truncate(req.open_file.content) + '\n```',
-      );
-    }
-
-    if (req.selection) {
-      parts.push(
-        `\n【用户选中的代码: ${req.selection.file} ${req.selection.lines}】\n` +
-        '用户特意选中了这段代码，请围绕这段代码进行修改：\n' +
-        '```\n' + req.selection.text + '\n```',
-      );
-    }
-
-    if (req.file_tree) {
-      const treeSummary = JSON.stringify(req.file_tree, null, 2);
-      parts.push(`\n【项目文件树 (${req.file_tree.length} 个顶层条目)】\n${this.truncate(treeSummary, 2000)}`);
-    } else {
-      parts.push('\n【注意: 用户已经打开了一个文件夹，但文件树未加载。请告诉用户稍等，不要说你没看到项目。】');
-    }
-
-    return parts.join('\n');
-  }
-
   /* ── Non-streaming chat ── */
 
   async process(req: {
-    instruction: string;
-    open_file?: { path: string; content: string; lines: number } | null;
-    file_tree?: unknown[] | null;
-    selection?: { file: string; text: string; lines: string } | null;
     history?: Array<{ role: string; content: string }> | null;
   }): Promise<{ message: string; operations: Record<string, unknown>[] }> {
-    const userMessage = this.buildUserMessage(req);
-    const messages = this.buildMessages(AGENT_SYSTEM_PROMPT, userMessage, req.history);
+    const messages = this.buildMessages(req.history);
 
     try {
       const response = await this.client.chat.completions.create({
@@ -446,53 +412,206 @@ export class AgentService {
   /* ── Streaming chat (SSE) ── */
 
   async *processStream(req: {
-    instruction: string;
-    open_file?: { path: string; content: string; lines: number } | null;
-    file_tree?: unknown[] | null;
-    selection?: { file: string; text: string; lines: string } | null;
     history?: Array<{ role: string; content: string }> | null;
   }): AsyncGenerator<{ event: string; data: string }> {
-    const userMessage = this.buildUserMessage(req);
-    const messages = this.buildMessages(AGENT_SYSTEM_PROMPT, userMessage, req.history);
+    const messages = this.buildMessages(req.history);
+    const projectPath = process.env.CODEATLAS_PROJECT_PATH || '';
 
-    let fullText = '';
-    try {
-      const stream = await this.client.chat.completions.create({
-        model: this.model,
-        messages,
-        temperature: 0.0,
-        stream: true,
-      });
+    let turn = 0, emptyCount = 0;
+    const startTime = Date.now();
+    while (true) {
+      if (++turn > 50) {
+        console.log(`[processStream] TURN LIMIT reached (${turn - 1} turns, ${Date.now() - startTime}ms)`);
+        yield { event: 'done', data: JSON.stringify({ message: '已达到最大轮次限制', operations: [] }) };
+        return;
+      }
+      console.log(`[processStream] ═══ Turn ${turn} (${messages.length} msgs in history) ═══`);
+      let fullText = '';
 
-      for await (const chunk of stream) {
-        const delta = (chunk.choices[0]?.delta as any) || {};
-        if (delta.reasoning_content) {
-          yield { event: 'reasoning', data: delta.reasoning_content };
+      try {
+        const stream = await this.client.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.0,
+          stream: true,
+        });
+
+        for await (const chunk of stream) {
+          const delta = (chunk.choices[0]?.delta as any) || {};
+          if (delta.reasoning_content) {
+            yield { event: 'reasoning', data: delta.reasoning_content };
+          }
+          const token = delta.content || '';
+          if (token) {
+            fullText += token;
+            yield { event: 'token', data: token };
+          }
         }
-        const token = delta.content || '';
-        if (token) {
-          fullText += token;
-          yield { event: 'token', data: token };
-        }
+      } catch (e: any) {
+        console.log(`[processStream] ERROR at turn ${turn}: ${e.message?.slice(0, 200)}`);
+        yield {
+          event: 'done',
+          data: JSON.stringify({ message: `⚠️ 处理出错: ${e.message?.slice(0, 200)}`, operations: [] }),
+        };
+        return;
       }
 
-      const { message, operations } = this.parseAgentOutput(fullText);
+      console.log(`[processStream] Turn ${turn} output: ${fullText.length} chars, last 200:`, fullText.slice(-200));
+
+      // Parse operations from the response
+      let operations: Record<string, unknown>[] = [];
+      let agentMessage = fullText;
+      try {
+        const parsed = this.parseXmlLike(fullText);
+        operations = parsed.operations;
+        agentMessage = parsed.message;
+        console.log(`[processStream] Turn ${turn} parsed: ${operations.length} ops [${operations.map(o => o.type).join(', ')}], message: ${agentMessage.length} chars`);
+      } catch (e: any) {
+        console.log(`[processStream] Turn ${turn} NO XML ops found: ${e.message?.slice(0, 100)}`);
+      }
+
+      // Save assistant response to conversation
+      messages.push({ role: 'assistant', content: fullText });
+
+      if (operations.length === 0) {
+        // LLM returned empty — retry up to 3 times before giving up
+        if (fullText.trim().length < 5) {
+          emptyCount++;
+          console.log(`[processStream] Turn ${turn} EMPTY response (${fullText.length} chars) — retry ${emptyCount}/3`);
+          if (emptyCount >= 3) {
+            yield {
+              event: 'done',
+              data: JSON.stringify({ message: `⚠️ LLM 连续 ${emptyCount} 次返回空响应，可能超出上下文限制或 API 错误。`, operations: [] }),
+            };
+            return;
+          }
+          messages.push({ role: 'user', content: '你的上一条回复是空的，请继续完成任务。' });
+          continue;
+        }
+        emptyCount = 0;
+        console.log(`[processStream] DONE after ${turn} turns (${Date.now() - startTime}ms)`);
+        yield { event: 'done', data: JSON.stringify({ message: agentMessage, operations: [] }) };
+        return;
+      }
+      emptyCount = 0;
+
+      console.log(`[processStream] Turn ${turn} executing ${operations.length} tools...`);
       yield {
-        event: 'done',
-        data: JSON.stringify({ message, operations }),
+        event: 'tools',
+        data: JSON.stringify({ count: operations.length, ops: operations.map((o) => ({ type: o.type, file: o.file })) }),
       };
-    } catch (e: any) {
-      yield {
-        event: 'done',
-        data: JSON.stringify({ message: `⚠️ 处理出错: ${e.message?.slice(0, 200)}`, operations: [] }),
-      };
+
+      // Execute all tools
+      let toolResults = '';
+      for (const op of operations) {
+        const result = await this.executeTool(op, projectPath);
+        toolResults += result + '\n\n';
+      }
+      console.log(`[processStream] Turn ${turn} tools done: ${toolResults.length} chars result`);
+
+      // Feed results back to LLM for next turn
+      messages.push({
+        role: 'user',
+        content: `【工具执行结果】\n${toolResults.trim()}\n\n请基于以上结果继续处理。`,
+      });
     }
+
+  }
+
+  /** Execute a tool operation and return the formatted result. */
+  private async executeTool(op: Record<string, unknown>, projectPath: string): Promise<string> {
+    const type = op.type as string;
+    const filePath = (op.file as string) || '';
+    const fullPath = path.isAbsolute(filePath) ? filePath : path.join(projectPath, filePath);
+
+    try {
+      switch (type) {
+        case 'list_dir': {
+          const dirPath = filePath ? fullPath : projectPath;
+          const entries = listDirectory(dirPath);
+          const tree = JSON.stringify(entries, null, 2);
+          return `[list_dir ${filePath || '.'}]\n${tree.slice(0, 4000)}`;
+        }
+        case 'read_file': {
+          const startLine = (op.start_line as number) || 1;
+          const endLine = op.end_line as number | undefined;
+          const result = readFile(fullPath, startLine, endLine);
+          // Add line numbers so the LLM can reference specific lines
+          const numbered = result.lines
+            .map((l: string, i: number) => `${String(startLine + i).padStart(4, ' ')}| ${l}`)
+            .join('\n');
+          const truncated = this.truncate(numbered, 4000);
+          return `[read_file ${filePath} L${startLine}${endLine ? `-L${endLine}` : `-L${startLine + result.lineCount - 1}`} (${result.lineCount} lines)]\n\`\`\`\n${truncated}\n\`\`\``;
+        }
+        case 'search': {
+          const query = (op.content as string) || '';
+          const searchPath = filePath ? fullPath : projectPath;
+          const results = searchInFiles(query, searchPath);
+          const summary = results.map((r) => `${r.file}:${r.line}  ${r.text}`).join('\n');
+          return `[search "${query}" in ${filePath || '.'}]\n${summary.slice(0, 4000) || '(无匹配结果)'}`;
+        }
+        case 'insert_lines': {
+          const afterLine = (op.after_line as number) || 0;
+          const content = (op.content as string) || '';
+          const r = insertLines(fullPath, afterLine, content);
+          return `[insert_lines ${filePath} after L${afterLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
+        }
+        case 'replace_lines': {
+          const startLine = (op.start_line as number) || 1;
+          const endLine = (op.end_line as number) || 1;
+          const content = (op.content as string) || '';
+          const r = replaceLines(fullPath, startLine, endLine, content);
+          return `[replace_lines ${filePath} L${startLine}-L${endLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
+        }
+        case 'delete_lines': {
+          const startLine = (op.start_line as number) || 1;
+          const endLine = (op.end_line as number) || 1;
+          const r = deleteLines(fullPath, startLine, endLine);
+          return `[delete_lines ${filePath} L${startLine}-L${endLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
+        }
+        case 'create_file': {
+          const content = (op.content as string) || '';
+          const r = writeFile(fullPath, content);
+          return `[create_file ${filePath}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
+        }
+        case 'delete_file': {
+          const r = deleteFile(fullPath, projectPath);
+          return `[delete_file ${filePath}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
+        }
+        case 'run_shell': {
+          const command = (op.content as string) || '';
+          return await this.executeShell(command, projectPath);
+        }
+        default:
+          return `[未知操作: ${type}]`;
+      }
+    } catch (e: any) {
+      return `[错误: ${type} ${filePath}]\n${e.message?.slice(0, 500)}`;
+    }
+  }
+
+  /** Execute a shell command and wait for completion. */
+  private executeShell(command: string, cwd: string): Promise<string> {
+    return new Promise((resolve) => {
+      let output = '';
+      const shellId = runShell(
+        command,
+        cwd,
+        (data) => { output += data; },
+        (code) => { resolve(`[run_shell]\n$ ${command}\n${output.slice(-3000)}\n[exit ${code}]`); },
+        (err) => { resolve(`[run_shell]\n$ ${command}\n[error: ${err}]`); },
+      );
+      setTimeout(() => {
+        killShell(shellId);
+        resolve(`[run_shell]\n$ ${command}\n${output.slice(-3000)}\n[timeout]`);
+      }, 120000);
+    });
   }
 
   /* ── Planner ── */
 
   async *planStream(instruction: string): AsyncGenerator<{ event: string; data: string }> {
-    const userMsg = `【用户需求】\n${instruction}\n\n【项目路径】\n${process.env.CODEATLAS_PROJECT_PATH || ''}\n\n请先探索项目结构，然后输出 JSON 计划。`;
+    const userMsg = `【用户需求】\n${instruction}\n\n【项目路径】\n${process.env.CODEATLAS_PROJECT_PATH || ''}\n\n请基于以上信息，直接输出 JSON 执行计划。`;
     let fullText = '';
 
     try {

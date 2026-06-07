@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import { flushSync } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { PipelineState } from '../App';
@@ -15,10 +16,10 @@ type TimelineEntry =
   | { kind: 'system'; text: string };
 
 const AG: Record<string, { name: string; color: string; bg: string }> = {
-  planner:  { name: 'Planner',  color: '#78a9ff', bg: 'rgba(120,169,255,0.06)' },
-  mapper:   { name: 'Mapper',   color: '#a78bfa', bg: 'rgba(167,139,250,0.06)' },
-  executor: { name: 'Executor', color: '#6fdc8c', bg: 'rgba(111,220,140,0.06)' },
-  reviewer: { name: 'Reviewer', color: '#ffb3b8', bg: 'rgba(255,179,184,0.06)' },
+  planner:  { name: 'Planner',  color: '#6ea8e0', bg: 'rgba(120,169,255,0.04)' },
+  mapper:   { name: 'Mapper',   color: '#9685d4', bg: 'rgba(167,139,250,0.04)' },
+  executor: { name: 'Executor', color: '#56b87a', bg: 'rgba(111,220,140,0.04)' },
+  reviewer: { name: 'Reviewer', color: '#e0888d', bg: 'rgba(255,179,184,0.04)' },
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -29,7 +30,7 @@ const TOOL_LABEL: Record<string, string> = {
 
 export default function ChatPanel({ projectPath, onPipelineChange }: {
   projectPath: string | null;
-  onPipelineChange: (s: PipelineState) => void;
+  onPipelineChange: (s: Partial<PipelineState>) => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [input, setInput] = useState('');
@@ -43,15 +44,19 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   }, [timeline]);
 
   /* ── Stream ── */
-  const streamWithOps = async (body: Record<string, any>, onToken: (t: string) => void) => {
+  const streamWithOps = async (
+    body: Record<string, any>,
+    onToken: (t: string) => void,
+    onTools?: (info: { count: number; ops: any[] }) => void,
+  ) => {
     const res = await fetch('/api/v1/agent/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body), signal: abortRef.current?.signal,
     });
     const reader = res.body?.getReader();
-    if (!reader) return { text: '', ops: [] as any[] };
+    if (!reader) return { text: '' };
     const dec = new TextDecoder();
-    let buf = '', full = '', ops: any[] = [];
+    let buf = '', full = '', finalMessage = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -66,10 +71,11 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
           else if (l.startsWith('data: ')) ed = l.slice(6);
         }
         if (et === 'token') { full += ed; onToken(ed); }
-        else if (et === 'done') { try { ops = JSON.parse(ed).operations || []; } catch {} }
+        else if (et === 'tools') { try { onTools?.(JSON.parse(ed)); } catch {} }
+        else if (et === 'done') { try { finalMessage = JSON.parse(ed).message || ''; } catch {} }
       }
     }
-    return { text: full, ops };
+    return { text: finalMessage || full };
   };
 
   const parseJson = (text: string): any => {
@@ -80,102 +86,52 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     try { return JSON.parse(m[1] || m[0]); } catch { return null; }
   };
 
-  /* ── Execute a single op ── */
-  const execSingleOp = async (op: any): Promise<{ detail: string; output?: string }> => {
-    try {
-      let fp = op.file || '';
-      if (fp && !/^[a-zA-Z]:[\\/]/.test(fp) && projectPath) {
-        fp = projectPath.replace(/\\/g, '/') + '/' + fp.replace(/^[\\/]+/, '');
-      }
-      switch (op.type) {
-        case 'read_file': {
-          const label = op.start_line ? `${fp}:L${op.start_line}-${op.end_line || 'end'}` : fp;
-          const fc = await window.codeatlas.file.readFile(fp, op.start_line, op.end_line);
-          return { detail: label, output: `=== ${label} ===\n${fc.content}\n` };
-        }
-        case 'list_dir': {
-          await window.codeatlas.file.listDirectory(fp); // validate
-          return { detail: fp || '.' };
-        }
-        case 'insert_lines':
-          await window.codeatlas.file.insertLines(fp, op.after_line || 0, op.content || '');
-          return { detail: `${fp} +L${op.after_line}` };
-        case 'replace_lines':
-          await window.codeatlas.file.replaceLines(fp, op.start_line || 1, op.end_line || 1, op.content || '');
-          return { detail: `${fp} L${op.start_line}-${op.end_line}` };
-        case 'delete_lines':
-          await window.codeatlas.file.deleteLines(fp, op.start_line || 1, op.end_line || 1);
-          return { detail: `${fp} L${op.start_line}-${op.end_line}` };
-        case 'create_file':
-          await window.codeatlas.file.writeFile(fp, op.content || '');
-          return { detail: fp };
-        case 'run_shell': {
-          const cmd = op.content || '';
-          if (!cmd) return { detail: 'shell (empty)' };
-          const out = await new Promise<string>((resolve) => {
-            const sid = window.codeatlas.shell.run(cmd); let o = '';
-            window.codeatlas.shell.onData((id, d) => { if (id === sid) o += d; });
-            window.codeatlas.shell.onDone((id, code) => { if (id === sid) resolve(`\n=== ${cmd} (exit ${code}) ===\n${o}\n`); });
-            setTimeout(() => resolve(`\n[timeout: ${cmd}]\n`), 15000);
-          });
-          return { detail: cmd.slice(0, 60), output: out };
-        }
-        default: return { detail: op.type };
-      }
-    } catch { return { detail: 'failed' }; }
-  };
-
   /* ── Agent loop ── */
   const agentLoop = async (
     agent: string, systemPrompt: string, initialCtx: string,
-    shouldStop: (text: string, ops: any[]) => boolean,
-    allowWrite: boolean, history?: Array<{ role: string; content: string }>,
-  ): Promise<string> => {
+    _shouldStop: (text: string, ops: any[]) => boolean,
+    _allowWrite: boolean, history?: Array<{ role: string; content: string }>,
+  ): Promise<{ fullText: string; textIdx: number }> => {
+    const chatHistory: Array<{ role: string; content: string }> = [...(history || [])];
+    // Fetch file tree and put everything into history as the first user message
+    let fileTree: any = null;
+    try { fileTree = await window.codeatlas.file.listDirectory(projectPath!); } catch {}
+    const firstMsg = fileTree
+      ? `${initialCtx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}`
+      : `${initialCtx}\n\n${systemPrompt}`;
+    chatHistory.push({ role: 'user', content: firstMsg });
+
     let fullText = '';
-    let body: Record<string, any> = { instruction: `${initialCtx}\n\n${systemPrompt}`, file_tree: null, history: history || [] };
-    try { body.file_tree = await window.codeatlas.file.listDirectory(projectPath!); } catch {}
+    let textIdx = -1;
+    setTimeline((prev) => {
+      textIdx = prev.length;
+      return [...prev, { kind: 'text' as const, agent, text: '' }];
+    });
 
-    for (let round = 0; round < 12; round++) {
-      // Start a new text segment
-      let currentText = '';
-      const { text, ops } = await streamWithOps(body, (t) => {
-        currentText += t;
-        // Update the last text entry
-        setTimeline((prev) => {
-          const u = [...prev];
-          const last = u[u.length - 1];
-          if (last?.kind === 'text' && last.agent === agent) {
-            u[u.length - 1] = { ...last, text: last.text + t };
-          }
-          return u;
-        });
+    // Backend handles tool execution internally — frontend just streams and displays
+    const { text: message } = await streamWithOps({ history: chatHistory }, (t) => {
+      fullText += t;
+      setTimeline((prev) => {
+        const u = [...prev];
+        const target = u[textIdx];
+        if (target?.kind === 'text') {
+          u[textIdx] = { ...target, text: target.text + t };
+        }
+        return u;
       });
-      fullText += text;
-
-      if (shouldStop(fullText, ops)) break;
-
-      // Show tool calls on timeline
-      const readOps = ops.filter((o: any) => allowWrite ? true : ['read_file', 'list_dir', 'search'].includes(o.type));
-      if (readOps.length === 0) break;
-
-      let feedback = '';
-      for (const op of readOps) {
+    }, (toolInfo) => {
+      // Tool events: show what the backend is executing
+      for (const op of toolInfo.ops || []) {
         setTimeline((prev) => [...prev, {
           kind: 'tool', agent,
-          tool: op.type, detail: op.file || op.content?.slice(0, 40) || op.type,
+          tool: op.type, detail: op.file || '',
         }]);
-        const r = await execSingleOp(op);
-        if (r.output) feedback += r.output;
       }
+    });
 
-      if (!feedback && !allowWrite) break;
-
-      body = {
-        instruction: `结果如下，请继续：\n${feedback}`,
-        file_tree: body.file_tree, history: history || [],
-      };
-    }
-    return fullText;
+    // message = done event's parsed message (XML tags stripped by backend)
+    // fullText = raw token accumulation (with XML tags) — fallback only
+    return { fullText: message || fullText, textIdx };
   };
 
   /* ── Helpers ── */
@@ -186,46 +142,133 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     if (!projectPath) return;
     setRunning(true);
     abortRef.current = new AbortController();
-    const projName = projectPath.split(/[\\/]/).pop() || '';
     const hist = [...historyRef.current, { role: 'user', content: instruction }];
 
     pushTimeline({ kind: 'agent-start', agent: 'planner' });
-    onPipelineChange({ phase: 'planning', graph: null });
+    onPipelineChange({ phase: 'planning' });
 
-    const fullText = await agentLoop('planner',
-      `【角色: Planner】理解需求,读取代码,制定计划。输出JSON:\n\`\`\`json\n{"plan_summary":"概述","needs_execution":true/false,"steps":[{"id":1,"title":"...","description":"具体操作","deps":[]}],"key_files":["文件"],"notes":"给Mapper的备注"}\n\`\`\``,
-      `【项目: ${projName}】\n用户需求: ${instruction}\n\n请先读文件了解结构。`,
+    const { fullText } = await agentLoop('planner',
+      `【角色: Planner / 技术架构师】
+
+你是项目的技术架构师，你的职责是：
+1. 深入理解用户需求——用户想要什么效果？涉及哪些模块？
+2. 探索现有代码——用 read_file、list_dir、search 充分了解项目结构和相关实现
+3. 制定可执行的详细计划——每个步骤必须具体、可验证、有明确的文件路径和改动范围
+
+【探索规则】
+- 阅读与需求相关的上下文代码，充分理解调用链和影响范围后再输出计划
+- 先看入口文件（index.ts/main.ts/App.tsx），再追溯调用链
+- 搜索与需求相关的关键词，确认所有影响范围
+- 如果项目结构不清楚，先用 list_dir 了解目录布局
+- 读文件时先用默认行数，如果关键逻辑在文件后半部分，再指定行号读取
+
+【计划要求】
+- steps 数量 3-8 个，按依赖关系排序
+- 每个步骤必须包含：具体文件路径、改动方式（新增/修改/删除）、改动范围
+- 如果步骤之间有依赖（比如必须先改 A 才能改 B），用 deps 标注
+- key_files 列出所有受影响的文件，给 Mapper 提供准确的调用链入口
+- notes 给 Mapper 补充关键信息：哪些函数调用关系需要重点绘制、边界情况
+
+【输出格式】严格按以下 JSON 格式输出，放在 \`\`\`json 代码块中：
+\`\`\`json
+{
+  "plan_summary": "一句话概述整个计划，如：修复 TitleBar 关闭按钮的 IPC 调用链路",
+  "needs_execution": true,
+  "steps": [
+    {
+      "id": 1,
+      "title": "步骤标题，如：修复 preload.cjs 的 closeWindow 方法",
+      "description": "具体操作细节，如：在 electron/preload.cjs 第48行，将 closeWindow 改为直接调用 window.close",
+      "file": "electron/preload.cjs",
+      "deps": []
+    }
+  ],
+  "key_files": ["electron/main.ts", "electron/preload.cjs", "frontend/src/components/TitleBar.tsx"],
+  "notes": "给 Mapper 的备注：调用链为 TitleBar.onClick → preload.closeWindow → main.ipcMain.handle('window:close')，重点验证 IPC 通道是否注册正确"
+}
+\`\`\`
+
+不需要执行时 needs_execution 为 false，steps 为空数组，notes 改为说明为什么不需要执行。
+你只能读取代码，不能修改任何文件。`,
+      `用户需求: ${instruction}`,
       (text) => !!(parseJson(text)?.plan_summary), false, hist);
 
     const plan = parseJson(fullText);
+    console.log(`[Planner] plan=${!!plan} needs_exec=${plan?.needs_execution} steps=${plan?.steps?.length || 0}`);
     hist.push({ role: 'assistant', content: `[Plan] ${plan?.plan_summary || fullText.slice(0, 300)}` });
     historyRef.current = hist;
-    pushTimeline({ kind: 'plan', agent: 'planner', plan });
+    pushTimeline({ kind: 'plan', agent: 'planner', plan: plan || { plan_summary: fullText.slice(0, 200) } });
 
-    if (plan?.needs_execution && plan.steps?.length > 0) {
-      await runMapper(instruction, plan);
-    } else {
-      await runReviewOnly(instruction, fullText, plan);
-    }
+    // Always run Mapper — Planner's analysis is context enough even without JSON
+    await runMapper(instruction, plan, fullText);
   };
 
   /* ════ Mapper ════ */
-  const runMapper = async (instruction: string, plan: any) => {
+  const runMapper = async (instruction: string, plan: any, plannerText?: string) => {
     pushTimeline({ kind: 'agent-start', agent: 'mapper' });
-    onPipelineChange({ phase: 'planning', graph: null });
 
-    const fullText = await agentLoop('mapper',
-      `【角色: Mapper】根据Planner计划,读取代码,绘制调用链路图。输出JSON:\n\`\`\`json\n{"call_graph":{"nodes":[{"id":"a","label":"main","kind":"file","status":"existing","detail":"入口","file":"src/main.ts"}],"edges":[{"from":"a","to":"b","label":"calls","status":"existing"}]}}\n\`\`\``,
-      `【需求】${instruction}\n【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`,
+    const planCtx = plan?.plan_summary
+      ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
+      : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
+    const { fullText } = await agentLoop('mapper',
+      `【角色: Mapper / 调用链路绘制者】
+
+**你只能读取代码，不能修改任何文件。**
+
+根据 Planner 的分析，读取相关代码文件，绘制完整的调用链路图。
+
+【节点 status 标注规则 — 必须严格区分】
+- **existing**：正常的现有代码，不需要修改
+- **problem**：问题或 bug 所在的具体位置（Planner 指出的问题点）
+- **planned_change**：需要修改的代码（Planner steps 里涉及的文件/函数）
+- **planned_new**：需要新增的代码（如果需要新建文件或函数）
+
+【边 status 标注规则】
+- **existing**：正常的调用关系
+- **new**：需要新增的调用关系
+- **error**：有问题的调用关系（比如调用了不存在的函数、产生 ReferenceError 的调用）
+
+【要求】
+- 必须读取 Planner 提到的关键文件，验证文件名和函数签名
+- 先画出现有调用链（existing），再在现有链上标注问题点和修改点
+- 每个 Planner step 对应至少一个 planned_change 或 planned_new 节点
+- edges 必须覆盖完整的调用路径，包括 IPC 通道、事件监听等跨文件关系
+
+【输出格式】严格 JSON：
+\`\`\`json
+{
+  "call_graph": {
+    "nodes": [
+      {"id":"a","label":"按钮 onClick","kind":"component","status":"existing","detail":"点击关闭按钮触发 action('close')","file":"src/components/TitleBar.tsx"},
+      {"id":"b","label":"ipcMain window:close","kind":"function","status":"problem","detail":"调用 app.quit() 跳过正常生命周期","file":"electron/main.ts"},
+      {"id":"c","label":"修复: mainWindow.close()","kind":"function","status":"planned_change","detail":"改为先 close 窗口，走正常退出流程","file":"electron/main.ts"}
+    ],
+    "edges": [
+      {"from":"a","to":"b","label":"IPC invoke","status":"existing"},
+      {"from":"b","to":"c","label":"替换为","status":"new"}
+    ]
+  }
+}
+\`\`\``,
+      `【需求】${instruction}\n${planCtx}`,
       (text) => !!(parseJson(text)?.call_graph), false);
 
     const data = parseJson(fullText);
+    console.log(`[Mapper] parsed data:`, data ? `has call_graph=${!!data.call_graph} nodes=${data.call_graph?.nodes?.length || 0}` : 'null', '| last500=', fullText.slice(-500));
     if (data?.call_graph?.nodes?.length > 0) {
       const graph: CallGraph = { nodes: data.call_graph.nodes, edges: data.call_graph.edges || [] };
+      console.log(`[Mapper] Graph ready: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
+      console.log(`[Mapper] First node:`, JSON.stringify(graph.nodes[0]));
       pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
-      onPipelineChange({ phase: 'planning', graph });
-      await runExecutor(instruction, plan, graph);
+      flushSync(() => onPipelineChange({ phase: 'planning', graph }));
+      console.log(`[Mapper] onPipelineChange called with graph (flushSync)`);
+      if (plan?.needs_execution && plan?.steps?.length > 0) {
+        await runExecutor(instruction, plan, graph);
+      } else {
+        await runReviewOnly(instruction, plannerText || '', plan);
+      }
     } else {
+      console.log(`[Mapper] No valid call_graph, skipping to done`);
       onPipelineChange({ phase: 'done', graph: null });
       setRunning(false);
     }
@@ -237,7 +280,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     onPipelineChange({ phase: 'executing', graph });
 
     const stepsText = (plan.steps || []).map((s: any) => `[${s.id}] ${s.title}: ${s.description}`).join('\n');
-    const fullText = await agentLoop('executor',
+    const { fullText } = await agentLoop('executor',
       '【角色: Executor】按计划执行。读文件、改代码、运行命令。', `【需求】${instruction}\n【计划】\n${stepsText}`, () => false, true);
 
     const execData = parseJson(fullText);
@@ -251,16 +294,15 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   /* ════ ReviewOnly ════ */
   const runReviewOnly = async (instruction: string, plannerText: string, plan: any) => {
     pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
-    onPipelineChange({ phase: 'reviewing', graph: null });
 
-    const fullText = await agentLoop('reviewer',
-      '【角色: Reviewer】独立验证Planner的回答。必须读文件确认。输出JSON:\n```json\n{"passed":true/false,"feedback":"意见","issues":[]}\n```',
+    const { fullText } = await agentLoop('reviewer',
+      '【角色: Reviewer / 独立审查者】你必须按以下步骤工作，不能跳过:\n1.**先读文件** — 至少读取 2-3 个 Planner 提到的文件验证\n2.**再验证** — 确认文件名、函数名、行号是否真实存在\n3.**最后出结论** — 确认完毕后再输出 JSON。禁止在不读文件的情况下直接通过。输出 JSON:\n```json\n{"passed":true/false,"feedback":"意见","issues":[]}\n```',
       `【需求】${instruction}\n【Planner输出】${plannerText.slice(-3000)}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}`,
       (text) => !!(parseJson(text)?.passed !== undefined), false);
 
     const review = parseJson(fullText) || { passed: true, feedback: '', issues: [] };
     pushTimeline({ kind: 'review', agent: 'reviewer', passed: review.passed, feedback: review.feedback || '', issues: review.issues || [] });
-    onPipelineChange({ phase: review.passed ? 'done' : 'rejected', graph: null });
+    onPipelineChange({ phase: review.passed ? 'done' : 'rejected' });
     historyRef.current.push({ role: 'assistant', content: review.passed ? `✓ Passed` : `✗ Rejected: ${review.issues?.join('; ')}` });
     setRunning(false);
   };
@@ -270,8 +312,8 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
     onPipelineChange({ phase: 'reviewing', graph });
 
-    const fullText = await agentLoop('reviewer',
-      '【角色: Reviewer】独立审查。Plan可能错,执行可能漏。1.Plan对不对 2.执行对不对 3.结果是否符合需求。输出JSON:\n```json\n{"passed":true/false,"plan_correct":true/false,"feedback":"意见","issues":[]}\n```',
+    const { fullText } = await agentLoop('reviewer',
+      '【角色: Reviewer / 独立审查者】你必须按以下步骤工作，不能跳过:\n1.**先读文件** — 读取被修改的文件和 Planner 标记的关键文件\n2.**再审查** — 1)Plan对不对? 2)执行对不对? 3)结果是否符合需求?\n3.**最后出结论** — 确认完毕后再输出 JSON。禁止不读文件直接通过。输出 JSON:\n```json\n{"passed":true/false,"plan_correct":true/false,"feedback":"意见","issues":[]}\n```',
       `【需求】${instruction}\n【计划】${JSON.stringify(plan.steps || [])}\n【关键文件】${(plan.key_files || []).join(', ')}\n【执行输出】${execText.slice(-3000)}`,
       (text) => !!(parseJson(text)?.passed !== undefined), false);
 
@@ -327,7 +369,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
                   <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
                     <span className="w-[5px] h-[5px] rounded-full" style={{ background: AG[entry.agent]?.color || 'var(--ibm-border)' }} />
                   </span>
-                  <span className="text-[13px] font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-primary)' }}>
+                  <span className="text-[12px] font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-secondary)' }}>
                     {AG[entry.agent]?.name || entry.agent}
                   </span>
                 </div>
@@ -416,30 +458,41 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       </div>
 
       {/* Input */}
-      <footer className="shrink-0 p-3" style={{ borderTop: '1px solid var(--ibm-border-subtle)' }}>
-        <div className="flex gap-2">
-          {running && (
-            <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
-              className="shrink-0 px-3 py-2 rounded-md text-xs font-medium"
-              style={{ color: 'var(--ibm-error)', border: '1px solid var(--ibm-error)', background: 'transparent' }}>
-              Stop
-            </button>
-          )}
+      <footer className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--ibm-border-subtle)' }}>
+        <div className="flex items-end gap-3 p-2 rounded-lg" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--ibm-border)' }}>
           <textarea value={input} onChange={(e) => setInput(e.target.value)}
             placeholder="Describe what you want to build or fix..."
-            disabled={running} rows={1}
-            className="flex-1 px-3 py-2 text-sm bg-transparent outline-none resize-none rounded-md"
-            style={{ border: '1px solid var(--ibm-border)', fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)', background: 'var(--ibm-layer-01)' }}
-            onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }}
+            disabled={running} rows={2}
+            className="flex-1 py-1 text-sm bg-transparent outline-none resize-none min-h-[44px] focus:outline-none focus:ring-0"
+            style={{ fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)' }}
+            onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           />
-          {!running && (
-            <button onClick={handleSend} disabled={!input.trim()}
-              className="shrink-0 px-5 py-2 rounded-md text-xs font-medium transition-all disabled:opacity-30"
-              style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
-              Send
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {running ? (
+              <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
+                className="px-3 py-2 rounded-md text-xs font-medium transition-colors"
+                style={{ color: 'var(--ibm-error)', border: '1px solid var(--ibm-error)', background: 'transparent' }}>
+                Stop
+              </button>
+            ) : (
+              <button onClick={handleSend} disabled={!input.trim()}
+                className="w-9 h-9 flex items-center justify-center rounded-md transition-all disabled:opacity-20"
+                style={{ background: input.trim() ? 'var(--ibm-primary)' : 'var(--ibm-layer-03)' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-between mt-2 px-2">
+          <span className="text-[10px]" style={{ color: 'var(--ibm-text-disabled)' }}>
+            Enter to send, Shift+Enter for new line
+          </span>
+          <span className="text-[10px]" style={{ color: 'var(--ibm-text-disabled)' }}>
+            {input.length} / 4000
+          </span>
         </div>
       </footer>
     </div>
@@ -463,7 +516,7 @@ function Markdown({ text, muted }: { text: string; muted?: boolean }) {
   if (!cleaned) return null;
 
   return (
-    <div className="text-sm leading-relaxed" style={{ color: muted ? 'var(--ibm-text-secondary)' : 'var(--ibm-text-primary)' }}>
+    <div className="text-[13px] leading-relaxed" style={{ color: muted ? 'var(--ibm-text-placeholder)' : 'var(--ibm-text-secondary)' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}
         components={{
           code: ({ className, children, ...props }: any) => {

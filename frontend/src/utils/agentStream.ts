@@ -23,6 +23,7 @@ export async function streamAgentResponse(
   signal: AbortSignal | undefined,
   onToken: (token: string) => void,
   onReasoning?: (token: string) => void,
+  onTools?: (info: { count: number; ops: Array<{ type: string; file: string }> }) => void,
 ): Promise<StreamResult> {
   const res = await fetch('/api/v1/agent/chat/stream', {
     method: 'POST',
@@ -61,6 +62,8 @@ export async function streamAgentResponse(
       } else if (eventType === 'token') {
         fullMessage += eventData;
         onToken(eventData);
+      } else if (eventType === 'tools') {
+        try { onTools?.(JSON.parse(eventData)); } catch { /* ignore */ }
       } else if (eventType === 'done') {
         try {
           const d = JSON.parse(eventData);

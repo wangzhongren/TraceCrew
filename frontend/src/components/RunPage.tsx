@@ -16,8 +16,6 @@ const PHASE_LABELS: Record<RunPhase, string> = {
   success: '完成', failed: '失败',
 };
 
-const MAX_ROUNDS = 30;
-
 function ansiToHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -208,58 +206,11 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
         setRunning(false);
       } else {
         // ── Normal chat mode ──
-        let body: Record<string, any> = { instruction: msg, open_file: null, history: historyRef.current };
-        let round = 0;
-        while (round < MAX_ROUNDS) {
-          round++;
-          if (signal.aborted) break;
-          const { message, operations, reasoning } = await streamAgentResponse(body, signal, () => {}, undefined);
-          appendAgentMsg(message, reasoning);
-          historyRef.current = [...historyRef.current, { role: 'user', content: body.instruction }, { role: 'agent', content: message }];
-          const readOps = operations.filter((o: any) => ['read_file', 'list_dir', 'search'].includes(o.type));
-          const shellOps = operations.filter((o: any) => o.type === 'run_shell');
-          const editOps = operations.filter((o: any) => ['insert_lines', 'replace_lines', 'delete_lines', 'create_file', 'delete_file'].includes(o.type));
-          let extraContext = '';
-          for (const op of readOps) {
-            try {
-              let fp = op.file || '.';
-              if (!/^(?:\/|[a-zA-Z]:[\\/])/.test(fp)) fp = projectPath.replace(/\\/g, '/') + '/' + fp.replace(/^[\\/]+/, '');
-              if (op.type === 'list_dir') { const entries = await window.codeatlas.file.listDirectory(fp); extraContext += `\n\n【目录: ${op.file || '.'}】\n${JSON.stringify(entries, null, 2)}\n`; }
-              else if (op.type === 'search') { const q = op.content || ''; const results = await window.codeatlas.file.search(q, fp); extraContext += `\n\n【搜索 "${q}"】\n${(results as any[]).map(r => `${r.file}:${r.line}: ${r.text}`).join('\n')}\n`; }
-              else { const fc = await window.codeatlas.file.readFile(fp, op.start_line, op.end_line); extraContext += `\n\n【${op.file}】\n\`\`\`\n${fc.content}\n\`\`\`\n`; }
-            } catch (e: any) { extraContext += `\n读取失败: ${op.file} — ${e.message}\n`; }
-          }
-          if (extraContext) { body = { instruction: `读取内容如下，请继续：\n${extraContext}`, open_file: null, history: historyRef.current }; continue; }
-          for (const op of editOps) {
-            try {
-              let fp = op.file || '';
-              if (!/^(?:\/|[a-zA-Z]:[\\/])/.test(fp)) fp = projectPath.replace(/\\/g, '/') + '/' + fp.replace(/^[\\/]+/, '');
-              switch (op.type) {
-                case 'insert_lines': await window.codeatlas.file.insertLines(fp, op.after_line || 0, op.content || ''); break;
-                case 'replace_lines': await window.codeatlas.file.replaceLines(fp, op.start_line || 1, op.end_line || 1, op.content || ''); break;
-                case 'delete_lines': await window.codeatlas.file.deleteLines(fp, op.start_line || 1, op.end_line || 1); break;
-                case 'create_file': await window.codeatlas.file.writeFile(fp, op.content || ''); break;
-                case 'delete_file': await window.codeatlas.file.deleteFile(fp); break;
-              }
-            } catch (e: any) { /* */ }
-          }
-          for (const op of shellOps) {
-            const cmd = (op.content || '').trim();
-            if (!cmd) continue;
-            const c = cmd.toLowerCase();
-            if (c.includes('install') || c.includes('npm i')) setPhase('installing');
-            else if (c.includes('build') || c.includes('tsc')) setPhase('building');
-            else setPhase('running');
-            appendCmd(cmd);
-            const { output, exitCode } = await executeShellAndWait(cmd, (d) => appendCmdOutput(d), 120000);
-            setShellCount(n => n + 1);
-            appendCmdExit(exitCode);
-            body = { instruction: exitCode === 0 ? `命令成功:\n${cmd}\n\n${output.slice(-2000)}\n\n请继续。` : `命令失败:\n${cmd}\nexit: ${exitCode}\n\n${output.slice(-4000)}\n\n请修复。`, open_file: null, history: historyRef.current };
-            if (exitCode !== 0) { setPhase('fixing'); break; }
-          }
-          if (shellOps.length === 0 && readOps.length === 0) { setPhase(editOps.length > 0 || shellCount > 0 ? 'success' : 'idle'); break; }
-          if (shellOps.length > 0) continue;
-        }
+        // Backend handles tool execution internally — frontend just displays
+        const body: Record<string, any> = { history: [...historyRef.current, { role: 'user', content: msg }] };
+        const { message, reasoning } = await streamAgentResponse(body, signal, () => {}, undefined);
+        appendAgentMsg(message, reasoning);
+        historyRef.current = [...historyRef.current, { role: 'user', content: msg }, { role: 'agent', content: message }];
         setPhase('success');
       }
     } catch (e: any) {

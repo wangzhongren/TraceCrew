@@ -263,89 +263,34 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
         selectionCtx = { file: relPath, text: selection.text, lines: `L${selection.startLine}-L${selection.endLine}` };
       }
       const history: Array<{ role: string; content: string }> = messages.map((m) => ({ role: m.role, content: m.content }));
-      const body: Record<string, any> = { instruction: fullInstruction, open_file: openFileCtx, history };
-      if (selectionCtx) body.selection = selectionCtx;
+      // Build user message with context: instruction + open_file + selection
+      let userMsg = fullInstruction;
+      if (openFileCtx) {
+        userMsg += `\n\n【当前打开的文件: ${openFileCtx.path}，共 ${openFileCtx.lines} 行】\n\`\`\`\n${openFileCtx.content}\n\`\`\``;
+      }
+      if (selectionCtx) {
+        userMsg += `\n\n【用户选中的代码: ${selectionCtx.file} ${selectionCtx.lines}】\n用户特意选中了这段代码，请围绕这段代码进行修改：\n\`\`\`\n${selectionCtx.text}\n\`\`\``;
+      }
+      history.push({ role: 'user', content: userMsg });
+      const body: Record<string, any> = { history };
       setMessages((prev) => [...prev, { role: 'agent', content: '', operations: [] }]);
 
+      // Backend handles tool execution internally — frontend just streams and displays
       const { message: fullMessage, operations: finalOps } = await streamAgentResponse(body, abortRef.current?.signal, (token) => {
         setMessages((prev) => { const u = [...prev]; const last = u[u.length - 1]; if (last?.role === 'agent') u[u.length - 1] = { ...last, content: last.content + token }; return u; });
+      }, (_toolInfo) => {
+        // Tool events from backend — display as steps
+        // (tools are executed server-side, shown here for visibility)
       });
       setMessages((prev) => { const u = [...prev]; const last = u[u.length - 1]; if (last?.role === 'agent') u[u.length - 1] = { ...last, content: fullMessage, operations: finalOps }; return u; });
       history.push({ role: 'agent', content: fullMessage });
-
-      let ops = [...finalOps]; let extraContext = ''; let loopGuard = 0;
-      while (ops.length > 0 && loopGuard < 50) {
-        loopGuard++;
-        const readOps = ops.filter((o) => o.type === 'read_file' || o.type === 'list_dir' || o.type === 'search');
-        const execOps = ops.filter((o) => o.type !== 'read_file' && o.type !== 'list_dir' && o.type !== 'search');
-        const isAbs = (p: string) => /^(?:\/|[a-zA-Z]:[\\/])/.test(p);
-        const resolveFile = (p: string) => { if (!p || isAbs(p) || !projectPath) return p; return projectPath.replace(/\\/g, '/') + '/' + p.replace(/^[\\/]+/, ''); };
-        for (const op of readOps) {
-          if (op.type === 'search') {
-            const query = op.content || op.file || ''; const dirPath = op.file || '.';
-            pushStep(`${query}`, '🔍', false);
-            try { const results = await window.codeatlas.file.search(query, dirPath); extraContext += `\n\n【搜索 "${query}"】\n${results.map((r: any) => `${r.file}:${r.line}: ${r.text}`).join('\n')}\n`; pushStep(`${query} (${results.length})`, '🔍', true); } catch (e: any) { extraContext += `\n\n【搜索失败: ${e.message}】\n`; pushStep(`${query} 失败`, '❌', true); }
-          } else if (op.type === 'list_dir') {
-            const dirPath = op.file || '.';
-            pushStep(dirPath, '📁', false);
-            try { const entries = await window.codeatlas.file.listDirectory(resolveFile(dirPath)); extraContext += `\n\n【目录: ${dirPath}】\n${JSON.stringify(entries, null, 2)}\n`; pushStep(dirPath, '📁', true); } catch (e: any) { extraContext += `\n\n【目录读取失败: ${e.message}】\n`; pushStep(`${dirPath} 失败`, '❌', true); }
-          } else {
-            pushStep(`${op.file || '?'}`, '📄', false);
-            try { const filePath = resolveFile(op.file || ''); if (filePath) { const fc: FileContent = await window.codeatlas.file.readFile(filePath, op.start_line, op.end_line); extraContext += `\n\n【${op.file}】\n\`\`\`\n${fc.content}\n\`\`\`\n`; } pushStep(`${op.file || '?'}`, '📄', true); } catch (e: any) { extraContext += `\n\n【文件读取失败: ${e.message}】\n`; pushStep(`${op.file || '?'} 失败`, '❌', true); }
-          }
-        }
-        const editResults: string[] = [];
-        for (const op of execOps) {
-          const label = `${op.file || ''}${op.start_line ? ` L${op.start_line}` : ''}`;
-          const icon = op.type === 'create_file' ? '✨' : op.type === 'delete_file' ? '🗑' : '✏️';
-          pushStep(label, icon, false);
-          try {
-            const filePath = resolveFile(op.file || '');
-            let result;
-            switch (op.type) {
-              case 'insert_lines': result = await window.codeatlas.file.insertLines(filePath, op.after_line || 0, op.content || ''); break;
-              case 'replace_lines': result = await window.codeatlas.file.replaceLines(filePath, op.start_line || 1, op.end_line || 1, op.content || ''); break;
-              case 'delete_lines': result = await window.codeatlas.file.deleteLines(filePath, op.start_line || 1, op.end_line || 1); break;
-              case 'create_file': result = await window.codeatlas.file.writeFile(filePath, op.content || ''); break;
-              case 'delete_file': result = await window.codeatlas.file.deleteFile(filePath); break;
-            }
-            pushStep(label, icon, true, result?.backupId, op.content);
-            editResults.push(`✅ ${label}: ${op.type}`);
-          } catch (e: any) { pushStep(`${label} 失败`, '❌', true); editResults.push(`❌ ${label}: ${e.message}`); }
-        }
-        if (editResults.length > 0) { extraContext += `\n\n【已执行的操作】\n${editResults.join('\n')}\n`; history.push({ role: 'agent', content: `已执行 ${editResults.length} 个修改` }); onFileChanged?.(); }
-        if (readOps.length > 0 && extraContext) {
-          history.push({ role: 'agent', content: `读取了 ${readOps.length} 个文件` });
-          const followBody: Record<string, any> = { instruction: `【文件内容如上。请基于这些信息继续处理用户最初的需求。不要重新读取已提供的文件。】\n${extraContext}`, open_file: openFileCtx, history };
-          setMessages((prev) => [...prev, { role: 'agent', content: '', operations: [] }]);
-          const { message: msg2, operations: ops2 } = await streamAgentResponse(followBody, abortRef.current?.signal, (token) => {
-            setMessages((prev) => { const u = [...prev]; const last = u[u.length - 1]; if (last?.role === 'agent') u[u.length - 1] = { ...last, content: last.content + token }; return u; });
-          });
-          setMessages((prev) => { const u = [...prev]; const last = u[u.length - 1]; if (last?.role === 'agent') u[u.length - 1] = { ...last, content: msg2, operations: ops2 }; return u; });
-          history.push({ role: 'agent', content: msg2 });
-          ops = ops2; extraContext = '';
-        } else { ops = []; }
+      if (finalOps.length > 0) {
+        onFileChanged?.();
       }
     } catch (e: any) {
       if (e.name !== 'AbortError') setMessages((prev) => [...prev, { role: 'agent', content: `\`\`\`\nError: ${e.message}\n\`\`\`` }]);
     }
     abortRef.current = null; setSending(false);
-  };
-
-  const pushStep = (text: string, icon: string, done: boolean, backupId?: string, content?: string) => {
-    setMessages((prev) => {
-      const u = [...prev];
-      for (let i = u.length - 1; i >= 0; i--) {
-        if (u[i].role === 'agent') {
-          const step = { text, icon, done, backupId, content };
-          const existing = u[i].steps || [];
-          const updateIdx = done ? existing.findIndex(s => s.text === text && !s.done) : -1;
-          const steps = updateIdx >= 0 ? [...existing.slice(0, updateIdx), step, ...existing.slice(updateIdx + 1)] : [...existing, step];
-          u[i] = { ...u[i], steps }; break;
-        }
-      }
-      return u;
-    });
   };
 
   return (

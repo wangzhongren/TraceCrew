@@ -8,8 +8,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "electron:dev": "ELECTRON_RUN_AS_NODE=  vite",
-    "electron:build": "ELECTRON_RUN_AS_NODE=  vite build && electron-builder",
+    "electron:dev": "vite",
+    "electron:build": "vite build && electron-builder",
     "test": "vitest run",
     "test:watch": "vitest"
   },

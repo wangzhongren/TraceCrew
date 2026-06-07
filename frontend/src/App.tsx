@@ -13,6 +13,9 @@ export interface PipelineState {
 export default function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null });
+  const updatePipeline = useCallback((update: Partial<PipelineState>) => {
+    setPipeline(prev => ({ ...prev, ...update }));
+  }, []);
 
   const handleOpenProject = useCallback((p: string) => setProjectPath(p), []);
 
@@ -68,7 +71,7 @@ export default function App() {
             {/* Left: Chat Panel */}
             <aside className="shrink-0 border-r overflow-hidden"
               style={{ width: 420, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
-              <ChatPanel projectPath={projectPath} onPipelineChange={setPipeline} />
+              <ChatPanel projectPath={projectPath} onPipelineChange={updatePipeline} />
             </aside>
             {/* Right: Call Graph */}
             <main className="flex-1 overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
