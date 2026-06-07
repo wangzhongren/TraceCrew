@@ -8,12 +8,12 @@ interface LLMSettings {
 
 const STORAGE_KEY = 'codeatlas-llm-settings';
 
-function load(): LLMSettings {
+function loadLocal(): LLMSettings | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { apiKey: '', baseUrl: '', model: '' };
+  return null;
 }
 
 function save(s: LLMSettings) {
@@ -21,8 +21,21 @@ function save(s: LLMSettings) {
 }
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<LLMSettings>(load);
+  const [settings, setSettings] = useState<LLMSettings>(() => loadLocal() || { apiKey: '', baseUrl: '', model: '' });
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // On mount: if no localStorage, fetch from backend (reads .env)
+  useEffect(() => {
+    if (loadLocal()) { setLoading(false); return; }
+    fetch('/api/v1/settings')
+      .then((r) => r.json())
+      .then((d) => {
+        setSettings({ apiKey: d.apiKey || '', baseUrl: d.baseUrl || '', model: d.model || '' });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -73,6 +86,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {/* Fields */}
       <div className="px-4 py-3 space-y-3">
+        {loading && (
+          <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>Loading from .env...</div>
+        )}
         <label className="block">
           <span className="text-[11px] font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>API Key</span>
           <input

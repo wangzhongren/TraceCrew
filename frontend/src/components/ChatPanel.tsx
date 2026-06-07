@@ -1,34 +1,48 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { PipelineState } from '../App';
 import type { CallGraph } from './MapCanvas';
 
+/* ── Timeline entry ── */
+type TimelineEntry =
+  | { kind: 'agent-start'; agent: string }
+  | { kind: 'tool'; agent: string; tool: string; detail: string }
+  | { kind: 'text'; agent: string; text: string }
+  | { kind: 'plan'; agent: string; plan: any }
+  | { kind: 'graph'; agent: string; nodes: number; edges: number }
+  | { kind: 'review'; agent: string; passed: boolean; feedback: string; issues: string[] }
+  | { kind: 'system'; text: string };
+
 const AG: Record<string, { name: string; color: string; bg: string }> = {
-  planner:  { name: 'Planner',  color: '#78a9ff', bg: '#061832' },
-  mapper:   { name: 'Mapper',   color: '#a78bfa', bg: '#0f0720' },
-  executor: { name: 'Executor', color: '#6fdc8c', bg: '#071a10' },
-  reviewer: { name: 'Reviewer', color: '#ffb3b8', bg: '#2a0a0a' },
-  user:     { name: 'You',      color: '#a8a8a8', bg: 'transparent' },
-  system:   { name: 'System',   color: '#6f6f6f', bg: 'transparent' },
+  planner:  { name: 'Planner',  color: '#78a9ff', bg: 'rgba(120,169,255,0.06)' },
+  mapper:   { name: 'Mapper',   color: '#a78bfa', bg: 'rgba(167,139,250,0.06)' },
+  executor: { name: 'Executor', color: '#6fdc8c', bg: 'rgba(111,220,140,0.06)' },
+  reviewer: { name: 'Reviewer', color: '#ffb3b8', bg: 'rgba(255,179,184,0.06)' },
+};
+
+const TOOL_LABEL: Record<string, string> = {
+  read_file: 'Read', list_dir: 'List', search: 'Search',
+  insert_lines: 'Insert', replace_lines: 'Replace', delete_lines: 'Delete',
+  create_file: 'Create', run_shell: 'Run',
 };
 
 export default function ChatPanel({ projectPath, onPipelineChange }: {
   projectPath: string | null;
   onPipelineChange: (s: PipelineState) => void;
 }) {
-  const [messages, setMessages] = useState<Array<{
-    agent: string; content: string; plan?: any; graph?: CallGraph;
-  }>>([]);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
-  const historyRef = useRef<Array<{ role: string; content: string }>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const historyRef = useRef<Array<{ role: string; content: string }>>([]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  }, [timeline]);
 
-  /* ── Stream helper ── */
+  /* ── Stream ── */
   const streamWithOps = async (body: Record<string, any>, onToken: (t: string) => void) => {
     const res = await fetch('/api/v1/agent/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -59,215 +73,157 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   };
 
   const parseJson = (text: string): any => {
-    const m = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || text.match(/\{[\s\S]*\}/);
+    let m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (!m) m = text.match(/`json\s*([\s\S]*?)`/);
+    if (!m) m = text.match(/\{[\s\S]*\}/);
     if (!m) return null;
     try { return JSON.parse(m[1] || m[0]); } catch { return null; }
   };
 
-  /* ── Execute operations (read, write, shell) ── */
-  const execOps = async (ops: any[]): Promise<string> => {
-    let ctx = '';
-    for (const op of ops) {
-      try {
-        let fp = op.file || '';
-        if (fp && !/^[a-zA-Z]:[\\/]/.test(fp) && projectPath) {
-          fp = projectPath.replace(/\\/g, '/') + '/' + fp.replace(/^[\\/]+/, '');
-        }
-        if (!fp && op.type !== 'run_shell') continue;
-
-        switch (op.type) {
-          case 'read_file': {
-            const fc = await window.codeatlas.file.readFile(fp, op.start_line, op.end_line);
-            ctx += `\n\n=== ${op.file || fp} ===\n${fc.content}\n`;
-            break;
-          }
-          case 'list_dir': {
-            const entries = await window.codeatlas.file.listDirectory(fp);
-            ctx += `\n\n=== 目录: ${op.file} ===\n${JSON.stringify(entries, null, 2)}\n`;
-            break;
-          }
-          case 'insert_lines':
-            await window.codeatlas.file.insertLines(fp, op.after_line || 0, op.content || '');
-            break;
-          case 'replace_lines':
-            await window.codeatlas.file.replaceLines(fp, op.start_line || 1, op.end_line || 1, op.content || '');
-            break;
-          case 'delete_lines':
-            await window.codeatlas.file.deleteLines(fp, op.start_line || 1, op.end_line || 1);
-            break;
-          case 'create_file':
-            await window.codeatlas.file.writeFile(fp, op.content || '');
-            break;
-          case 'run_shell': {
-            const cmd = op.content || '';
-            if (!cmd) break;
-            ctx += await new Promise<string>((resolve) => {
-              const sid = window.codeatlas.shell.run(cmd);
-              let out = '';
-              window.codeatlas.shell.onData((id, d) => { if (id === sid) out += d; });
-              window.codeatlas.shell.onDone((id, code) => {
-                if (id === sid) resolve(`\n\n=== 命令: ${cmd} (exit ${code}) ===\n${out}\n`);
-              });
-              setTimeout(() => resolve(`\n[命令超时: ${cmd}]\n`), 15000);
-            });
-            break;
-          }
-        }
-      } catch (e: any) {
-        ctx += `\n[操作失败: ${op.type} ${op.file} — ${e.message}]\n`;
+  /* ── Execute a single op ── */
+  const execSingleOp = async (op: any): Promise<{ detail: string; output?: string }> => {
+    try {
+      let fp = op.file || '';
+      if (fp && !/^[a-zA-Z]:[\\/]/.test(fp) && projectPath) {
+        fp = projectPath.replace(/\\/g, '/') + '/' + fp.replace(/^[\\/]+/, '');
       }
-    }
-    return ctx;
+      switch (op.type) {
+        case 'read_file': {
+          const label = op.start_line ? `${fp}:L${op.start_line}-${op.end_line || 'end'}` : fp;
+          const fc = await window.codeatlas.file.readFile(fp, op.start_line, op.end_line);
+          return { detail: label, output: `=== ${label} ===\n${fc.content}\n` };
+        }
+        case 'list_dir': {
+          await window.codeatlas.file.listDirectory(fp); // validate
+          return { detail: fp || '.' };
+        }
+        case 'insert_lines':
+          await window.codeatlas.file.insertLines(fp, op.after_line || 0, op.content || '');
+          return { detail: `${fp} +L${op.after_line}` };
+        case 'replace_lines':
+          await window.codeatlas.file.replaceLines(fp, op.start_line || 1, op.end_line || 1, op.content || '');
+          return { detail: `${fp} L${op.start_line}-${op.end_line}` };
+        case 'delete_lines':
+          await window.codeatlas.file.deleteLines(fp, op.start_line || 1, op.end_line || 1);
+          return { detail: `${fp} L${op.start_line}-${op.end_line}` };
+        case 'create_file':
+          await window.codeatlas.file.writeFile(fp, op.content || '');
+          return { detail: fp };
+        case 'run_shell': {
+          const cmd = op.content || '';
+          if (!cmd) return { detail: 'shell (empty)' };
+          const out = await new Promise<string>((resolve) => {
+            const sid = window.codeatlas.shell.run(cmd); let o = '';
+            window.codeatlas.shell.onData((id, d) => { if (id === sid) o += d; });
+            window.codeatlas.shell.onDone((id, code) => { if (id === sid) resolve(`\n=== ${cmd} (exit ${code}) ===\n${o}\n`); });
+            setTimeout(() => resolve(`\n[timeout: ${cmd}]\n`), 15000);
+          });
+          return { detail: cmd.slice(0, 60), output: out };
+        }
+        default: return { detail: op.type };
+      }
+    } catch { return { detail: 'failed' }; }
   };
 
   /* ── Agent loop ── */
   const agentLoop = async (
-    systemPrompt: string,
-    initialCtx: string,
-    onToken: (t: string) => void,
+    agent: string, systemPrompt: string, initialCtx: string,
     shouldStop: (text: string, ops: any[]) => boolean,
-    allowWrite: boolean,
-    history?: Array<{ role: string; content: string }>,
+    allowWrite: boolean, history?: Array<{ role: string; content: string }>,
   ): Promise<string> => {
     let fullText = '';
-    let body: Record<string, any> = {
-      instruction: `${initialCtx}\n\n${systemPrompt}`,
-      file_tree: null, history: history || [],
-    };
+    let body: Record<string, any> = { instruction: `${initialCtx}\n\n${systemPrompt}`, file_tree: null, history: history || [] };
     try { body.file_tree = await window.codeatlas.file.listDirectory(projectPath!); } catch {}
 
     for (let round = 0; round < 12; round++) {
-      const { text, ops } = await streamWithOps(body, onToken);
+      // Start a new text segment
+      let currentText = '';
+      const { text, ops } = await streamWithOps(body, (t) => {
+        currentText += t;
+        // Update the last text entry
+        setTimeline((prev) => {
+          const u = [...prev];
+          const last = u[u.length - 1];
+          if (last?.kind === 'text' && last.agent === agent) {
+            u[u.length - 1] = { ...last, text: last.text + t };
+          }
+          return u;
+        });
+      });
       fullText += text;
 
       if (shouldStop(fullText, ops)) break;
 
-      const readOps = ops.filter((o: any) =>
-        allowWrite
-          ? true
-          : ['read_file', 'list_dir', 'search'].includes(o.type),
-      );
+      // Show tool calls on timeline
+      const readOps = ops.filter((o: any) => allowWrite ? true : ['read_file', 'list_dir', 'search'].includes(o.type));
       if (readOps.length === 0) break;
 
-      const ctx = await execOps(readOps);
-      if (!ctx && !allowWrite) break;
+      let feedback = '';
+      for (const op of readOps) {
+        setTimeline((prev) => [...prev, {
+          kind: 'tool', agent,
+          tool: op.type, detail: op.file || op.content?.slice(0, 40) || op.type,
+        }]);
+        const r = await execSingleOp(op);
+        if (r.output) feedback += r.output;
+      }
+
+      if (!feedback && !allowWrite) break;
 
       body = {
-        instruction: allowWrite ? `继续执行：\n${ctx}` : `读取的文件内容如下，请继续分析：\n${ctx}`,
+        instruction: `结果如下，请继续：\n${feedback}`,
         file_tree: body.file_tree, history: history || [],
       };
     }
     return fullText;
   };
 
-  /* ════ Planner — only plans, no drawing ════ */
+  /* ── Helpers ── */
+  const pushTimeline = (e: TimelineEntry) => setTimeline((p) => [...p, e]);
+
+  /* ════ Planner ════ */
   const runPlanner = async (instruction: string) => {
     if (!projectPath) return;
     setRunning(true);
     abortRef.current = new AbortController();
     const projName = projectPath.split(/[\\/]/).pop() || '';
-
-    // Add user message to history
     const hist = [...historyRef.current, { role: 'user', content: instruction }];
 
+    pushTimeline({ kind: 'agent-start', agent: 'planner' });
     onPipelineChange({ phase: 'planning', graph: null });
-    setMessages((prev) => [...prev, { agent: 'planner', content: '' }]);
 
-    const systemPrompt = `【角色: Planner / 架构规划师】
-你的职责是理解用户需求，读取代码，制定执行计划。
-不要画图，不要生成 call_graph。只输出计划。
-
-你可以读取文件、浏览目录来理解项目结构。
-
-输出 JSON:
-\`\`\`json
-{
-  "plan_summary": "计划概述",
-  "needs_execution": true/false,
-  "steps": [
-    {"id": 1, "title": "...", "description": "具体操作(改哪个文件,怎么改)", "deps": []}
-  ],
-  "key_files": ["涉及的关键文件路径"],
-  "notes": "给 Mapper 的备注——哪些调用关系需要在图中展示"
-}
-\`\`\`
-不需要执行时 needs_execution 为 false。`;
-
-    const initialCtx = `【当前项目: ${projName}，路径: ${projectPath}】\n\n用户需求: ${instruction}\n\n请先读取关键文件了解项目结构。`;
-
-    const fullText = await agentLoop(
-      systemPrompt, initialCtx,
-      (t) => { setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, content: (l.content || '') + t }; return u; }); },
-      (text) => !!(parseJson(text)?.plan_summary),
-      false, hist,
-    );
+    const fullText = await agentLoop('planner',
+      `【角色: Planner】理解需求,读取代码,制定计划。输出JSON:\n\`\`\`json\n{"plan_summary":"概述","needs_execution":true/false,"steps":[{"id":1,"title":"...","description":"具体操作","deps":[]}],"key_files":["文件"],"notes":"给Mapper的备注"}\n\`\`\``,
+      `【项目: ${projName}】\n用户需求: ${instruction}\n\n请先读文件了解结构。`,
+      (text) => !!(parseJson(text)?.plan_summary), false, hist);
 
     const plan = parseJson(fullText);
-    // History: user + planner summary
     hist.push({ role: 'assistant', content: `[Plan] ${plan?.plan_summary || fullText.slice(0, 300)}` });
     historyRef.current = hist;
-    setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, plan }; return u; });
+    pushTimeline({ kind: 'plan', agent: 'planner', plan });
 
     if (plan?.needs_execution && plan.steps?.length > 0) {
-      // → Mapper draws the call graph
       await runMapper(instruction, plan);
     } else {
-      onPipelineChange({ phase: 'done', graph: null });
-      setRunning(false);
+      await runReviewOnly(instruction, fullText, plan);
     }
   };
 
-  /* ════ Mapper — reads plan, draws call graph ════ */
+  /* ════ Mapper ════ */
   const runMapper = async (instruction: string, plan: any) => {
+    pushTimeline({ kind: 'agent-start', agent: 'mapper' });
     onPipelineChange({ phase: 'planning', graph: null });
-    setMessages((prev) => [...prev, { agent: 'mapper', content: '' }]);
 
-    const systemPrompt = `【角色: Mapper / 调用链路绘制者】
-你的职责是根据 Planner 的计划，读取相关代码文件，绘制调用链路图。
-
-图中需要展示:
-1. 当前代码的调用关系（谁调谁）
-2. 问题所在节点（status: "problem"）
-3. 计划修改的节点（status: "planned_change"）
-4. 计划新增的节点（status: "planned_new"）
-
-输出 JSON（只输出这个，不需要 plan_summary 和 steps）:
-\`\`\`json
-{
-  "call_graph": {
-    "nodes": [
-      {"id": "router", "label": "main.ts", "kind": "file", "status": "existing", "detail": "路由入口", "file": "src/main.ts"},
-      {"id": "auth.login", "label": "handleLogin", "kind": "function", "status": "problem", "detail": "空token绕过认证", "file": "src/auth.ts", "line": 42},
-      {"id": "db.find", "label": "findUser", "kind": "function", "status": "existing", "detail": "数据库查询", "file": "src/db.ts"}
-    ],
-    "edges": [
-      {"from": "router", "to": "auth.login", "label": "calls", "status": "existing"},
-      {"from": "auth.login", "to": "db.find", "label": "calls", "status": "existing"}
-    ]
-  }
-}
-\`\`\`
-status: "existing" | "problem" | "planned_change" | "planned_new"
-kind: "file" | "function" | "class" | "module" | "endpoint"`;
-
-    const notes = plan.notes || '';
-    const keyFiles = (plan.key_files || []).join(', ');
-    const initialCtx = `【用户需求】${instruction}\n【Planner 计划】${plan.plan_summary}\n【关键文件】${keyFiles}\n【备注】${notes}\n\n请读取相关代码，绘制调用链路图。`;
-
-    const fullText = await agentLoop(
-      systemPrompt, initialCtx,
-      (t) => { setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, content: (l.content || '') + t }; return u; }); },
-      (text) => !!(parseJson(text)?.call_graph),
-      false, // read-only
-    );
+    const fullText = await agentLoop('mapper',
+      `【角色: Mapper】根据Planner计划,读取代码,绘制调用链路图。输出JSON:\n\`\`\`json\n{"call_graph":{"nodes":[{"id":"a","label":"main","kind":"file","status":"existing","detail":"入口","file":"src/main.ts"}],"edges":[{"from":"a","to":"b","label":"calls","status":"existing"}]}}\n\`\`\``,
+      `【需求】${instruction}\n【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`,
+      (text) => !!(parseJson(text)?.call_graph), false);
 
     const data = parseJson(fullText);
     if (data?.call_graph?.nodes?.length > 0) {
       const graph: CallGraph = { nodes: data.call_graph.nodes, edges: data.call_graph.edges || [] };
-      setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, graph }; return u; });
+      pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
       onPipelineChange({ phase: 'planning', graph });
-
-      // → Executor
       await runExecutor(instruction, plan, graph);
     } else {
       onPipelineChange({ phase: 'done', graph: null });
@@ -277,147 +233,256 @@ kind: "file" | "function" | "class" | "module" | "endpoint"`;
 
   /* ════ Executor ════ */
   const runExecutor = async (instruction: string, plan: any, graph: CallGraph) => {
+    pushTimeline({ kind: 'agent-start', agent: 'executor' });
     onPipelineChange({ phase: 'executing', graph });
-    setMessages((prev) => [...prev, { agent: 'executor', content: '' }]);
 
     const stepsText = (plan.steps || []).map((s: any) => `[${s.id}] ${s.title}: ${s.description}`).join('\n');
-    const systemPrompt = `【角色: Executor】
-按计划执行。读文件、改代码、运行命令。完成后输出更新后的 call_graph（节点 status 改为 "done"）。`;
-    const initialCtx = `【用户需求】${instruction}\n【计划】\n${stepsText}\n\n请开始执行。`;
-
-    const fullText = await agentLoop(
-      systemPrompt, initialCtx,
-      (t) => { setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, content: (l.content || '') + t }; return u; }); },
-      () => false,
-      true, // allow write + shell
-    );
+    const fullText = await agentLoop('executor',
+      '【角色: Executor】按计划执行。读文件、改代码、运行命令。', `【需求】${instruction}\n【计划】\n${stepsText}`, () => false, true);
 
     const execData = parseJson(fullText);
     const updatedGraph = execData?.call_graph
       ? { nodes: execData.call_graph.nodes.map((n: any) => n.status === 'planned_change' || n.status === 'planned_new' ? { ...n, status: 'done' } : n), edges: execData.call_graph.edges || [] }
       : { ...graph, nodes: graph.nodes.map((n: any) => n.status === 'planned_change' || n.status === 'planned_new' ? { ...n, status: 'done' } : n) };
-
     onPipelineChange({ phase: 'executing', graph: updatedGraph });
     await runReviewer(instruction, plan, fullText, updatedGraph);
   };
 
-  /* ════ Reviewer ════ */
-  const runReviewer = async (instruction: string, plan: any, execText: string, graph: CallGraph) => {
-    onPipelineChange({ phase: 'reviewing', graph });
-    setMessages((prev) => [...prev, { agent: 'reviewer', content: '' }]);
+  /* ════ ReviewOnly ════ */
+  const runReviewOnly = async (instruction: string, plannerText: string, plan: any) => {
+    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
+    onPipelineChange({ phase: 'reviewing', graph: null });
 
-    const systemPrompt = `【角色: Reviewer】
-审查执行结果。读取被修改的文件确认改动正确：
-\`\`\`json
-{"passed": true/false, "feedback": "意见", "issues": ["问题"]}
-\`\`\``;
-    const initialCtx = `【用户需求】${instruction}\n【计划】${JSON.stringify(plan.steps || [])}\n【执行输出】${execText.slice(-3000)}\n\n请审查。`;
+    const fullText = await agentLoop('reviewer',
+      '【角色: Reviewer】独立验证Planner的回答。必须读文件确认。输出JSON:\n```json\n{"passed":true/false,"feedback":"意见","issues":[]}\n```',
+      `【需求】${instruction}\n【Planner输出】${plannerText.slice(-3000)}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}`,
+      (text) => !!(parseJson(text)?.passed !== undefined), false);
 
-    let fullText = '';
-    await agentLoop(
-      systemPrompt, initialCtx,
-      (t) => { fullText += t; setMessages((prev) => { const u = [...prev]; const l = u[u.length - 1]; u[u.length - 1] = { ...l, content: (l.content || '') + t }; return u; }); },
-      (text) => !!(parseJson(text)?.passed !== undefined),
-      false,
-    );
-
-    const review = parseJson(fullText);
-    if (review?.passed) {
-      onPipelineChange({ phase: 'done', graph });
-      setMessages((prev) => [...prev, { agent: 'system', content: '✓ Review passed.' }]);
-      historyRef.current.push({ role: 'assistant', content: `✓ Review passed. ${review.feedback || ''}` });
-    } else {
-      onPipelineChange({ phase: 'rejected', graph });
-      setMessages((prev) => [...prev, {
-        agent: 'system',
-        content: `✗ Rejected.\n${(review?.issues || []).map((i: string) => '• ' + i).join('\n')}`,
-      }]);
-      historyRef.current.push({ role: 'assistant', content: `✗ Review rejected: ${(review?.issues || []).join('; ')}` });
-    }
+    const review = parseJson(fullText) || { passed: true, feedback: '', issues: [] };
+    pushTimeline({ kind: 'review', agent: 'reviewer', passed: review.passed, feedback: review.feedback || '', issues: review.issues || [] });
+    onPipelineChange({ phase: review.passed ? 'done' : 'rejected', graph: null });
+    historyRef.current.push({ role: 'assistant', content: review.passed ? `✓ Passed` : `✗ Rejected: ${review.issues?.join('; ')}` });
     setRunning(false);
   };
 
-  /* ════ UI ════ */
+  /* ════ Reviewer (with execution) ════ */
+  const runReviewer = async (instruction: string, plan: any, execText: string, graph: CallGraph) => {
+    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
+    onPipelineChange({ phase: 'reviewing', graph });
+
+    const fullText = await agentLoop('reviewer',
+      '【角色: Reviewer】独立审查。Plan可能错,执行可能漏。1.Plan对不对 2.执行对不对 3.结果是否符合需求。输出JSON:\n```json\n{"passed":true/false,"plan_correct":true/false,"feedback":"意见","issues":[]}\n```',
+      `【需求】${instruction}\n【计划】${JSON.stringify(plan.steps || [])}\n【关键文件】${(plan.key_files || []).join(', ')}\n【执行输出】${execText.slice(-3000)}`,
+      (text) => !!(parseJson(text)?.passed !== undefined), false);
+
+    const review = parseJson(fullText) || { passed: true, feedback: '', issues: [] };
+    pushTimeline({ kind: 'review', agent: 'reviewer', passed: review.passed, feedback: review.feedback || '', issues: review.issues || [] });
+    onPipelineChange({ phase: review.passed ? 'done' : 'rejected', graph });
+    historyRef.current.push({ role: 'assistant', content: review.passed ? `✓ Passed` : `✗ Rejected: ${review.issues?.join('; ')}` });
+    setRunning(false);
+  };
+
+  /* ════ Send ════ */
   const handleSend = () => {
     if (!input.trim() || running) return;
     const instruction = input.trim();
     setInput('');
-    setMessages((prev) => [...prev, { agent: 'user', content: instruction }]);
+    pushTimeline({ kind: 'text', agent: 'user', text: instruction });
     runPlanner(instruction);
   };
 
+  /* ════ Render ════ */
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-4 py-3 border-b" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
-        <h2 className="text-sm font-medium" style={{ color: 'var(--ibm-text)' }}>Agent Pipeline</h2>
-        <p className="text-[11px] mt-0.5" style={{ color: 'var(--ibm-text-placeholder)' }}>
-          Planner → Mapper → Executor → Reviewer
+      <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--ibm-border-subtle)' }}>
+        <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>Agent Pipeline</h2>
+        <p className="text-xs mt-0.5 font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
+          Planner&nbsp;→&nbsp;Mapper&nbsp;→&nbsp;Executor&nbsp;→&nbsp;Reviewer
         </p>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
-        {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center space-y-2" style={{ color: 'var(--ibm-text-placeholder)' }}>
-              <div className="text-sm font-light">Describe your task</div>
-              <div className="text-xs">Planner plans · Mapper draws · Executor runs · Reviewer checks</div>
+      {/* Timeline */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {timeline.length === 0 && (
+          <div className="flex items-center justify-center h-full px-8">
+            <div className="text-center" style={{ color: 'var(--ibm-text-placeholder)' }}>
+              <svg width="36" height="36" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1" style={{ margin: '0 auto', opacity: 0.4 }}>
+                <circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/><circle cx="22" cy="12" r="2"/>
+                <line x1="12" y1="13" x2="15" y2="17"/><line x1="20" y1="13" x2="17" y2="17"/>
+              </svg>
+              <p className="mt-4 text-sm font-light tracking-wide">Describe your task</p>
+              <p className="mt-1 text-xs font-light opacity-60">The agent pipeline will plan, map, execute, and review</p>
             </div>
           </div>
         )}
 
-        {messages.map((msg, i) => {
-          const cfg = AG[msg.agent] || AG.system;
-          return (
-            <div key={i} className="animate-fade-in">
-              <div className="flex items-center gap-2 mt-3 mb-1">
-                <span className="text-[11px] font-medium uppercase tracking-wider" style={{ color: cfg.color }}>{cfg.name}</span>
-              </div>
-              {msg.plan && (
-                <div className="mb-2 p-2 rounded-lg border text-xs" style={{ borderColor: 'var(--ibm-border-subtle)', background: 'var(--ibm-bg)', color: 'var(--ibm-text-secondary)' }}>
-                  <div className="font-medium" style={{ color: '#78a9ff' }}>Plan: {msg.plan.plan_summary}</div>
-                  {(msg.plan.steps || []).map((s: any) => (
-                    <div key={s.id} className="mt-1">  {s.id}. {s.title} — {s.description}</div>
-                  ))}
+        <div className="relative ml-5 mr-5">
+          {/* Timeline vertical line — at x=9px (center of 4px dot at x=7) */}
+          <div className="absolute top-0 bottom-0" style={{ left: 7, width: 1, background: 'var(--ibm-border-subtle)' }} />
+
+          {timeline.map((entry, i) => (
+            <div key={i} className="relative animate-fade-in">
+              {entry.kind === 'agent-start' && (
+                <div className="flex items-center gap-3 pt-4 pb-1">
+                  <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
+                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: AG[entry.agent]?.color || 'var(--ibm-border)' }} />
+                  </span>
+                  <span className="text-[13px] font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-primary)' }}>
+                    {AG[entry.agent]?.name || entry.agent}
+                  </span>
                 </div>
               )}
-              {msg.content && (
-                <div className="text-sm leading-relaxed whitespace-pre-wrap break-words"
-                  style={{ color: msg.agent === 'system' ? 'var(--ibm-text-secondary)' : 'var(--ibm-text)' }}>
-                  {msg.content}
+
+              {entry.kind === 'tool' && (
+                <div className="flex items-center gap-3 py-[2px]">
+                  <span className="w-[15px] flex items-center justify-center shrink-0">
+                    <span className="w-1 h-1 rounded-full" style={{ background: 'var(--ibm-border-strong)' }} />
+                  </span>
+                  <span className="text-[11px] font-mono" style={{ color: 'var(--ibm-text-placeholder)' }}>
+                    {TOOL_LABEL[entry.tool] || entry.tool}
+                  </span>
+                  <span className="text-[11px] truncate" style={{ color: 'var(--ibm-text-secondary)' }}>
+                    {entry.detail}
+                  </span>
                 </div>
               )}
-              {msg.graph && (
-                <div className="mt-1 text-[10px]" style={{ color: 'var(--ibm-text-placeholder)' }}>
-                  📊 {msg.graph.nodes.length} nodes, {msg.graph.edges.length} edges
+
+              {entry.kind === 'text' && (
+                <div className="flex gap-3 pb-4">
+                  {entry.agent === 'user' ? (
+                    <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
+                      <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--ibm-text-secondary)' }} />
+                    </span>
+                  ) : (
+                    <span className="w-[15px] shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <Markdown text={entry.text} muted={entry.agent === 'system'} />
+                  </div>
+                </div>
+              )}
+
+              {entry.kind === 'plan' && (
+                <div className="flex gap-3 pb-3">
+                  <span className="w-[15px] shrink-0" />
+                  <div className="flex-1 min-w-0 px-3 py-2 rounded text-xs" style={{ background: AG.planner.bg }}>
+                    <span className="font-medium tracking-wide" style={{ color: AG.planner.color }}>PLAN</span>
+                    <span className="ml-2" style={{ color: 'var(--ibm-text-secondary)' }}>{entry.plan?.plan_summary}</span>
+                    {(entry.plan?.steps || []).map((s: any) => (
+                      <div key={s.id} className="mt-1.5 ml-1 flex gap-2">
+                        <span className="font-medium shrink-0" style={{ color: 'var(--ibm-text-primary)' }}>{s.id}.</span>
+                        <span style={{ color: 'var(--ibm-text-secondary)' }}>{s.title} — {s.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {entry.kind === 'graph' && (
+                <div className="flex gap-3 pb-3">
+                  <span className="w-[15px] shrink-0" />
+                  <span className="text-[11px] tracking-wide" style={{ color: AG.mapper.color }}>
+                    Call graph &nbsp;
+                    <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
+                  </span>
+                </div>
+              )}
+
+              {entry.kind === 'review' && (
+                <div className="flex gap-3 pb-4">
+                  <span className="w-[15px] shrink-0" />
+                  <div className="flex-1 min-w-0 px-3 py-2 rounded text-xs" style={{
+                    background: entry.passed ? 'rgba(36,161,72,0.06)' : 'rgba(218,30,40,0.06)',
+                  }}>
+                    <span className="font-medium tracking-wide" style={{
+                      color: entry.passed ? 'var(--ibm-success)' : 'var(--ibm-error)',
+                    }}>
+                      {entry.passed ? 'PASSED' : 'REJECTED'}
+                    </span>
+                    {entry.feedback && (
+                      <span className="ml-2" style={{ color: 'var(--ibm-text-secondary)' }}>{entry.feedback}</span>
+                    )}
+                    {entry.issues.length > 0 && (
+                      <ul className="mt-1 space-y-0.5" style={{ color: 'var(--ibm-text-secondary)' }}>
+                        {entry.issues.map((issue, j) => <li key={j}>— {issue}</li>)}
+                      </ul>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
 
-      <footer className="shrink-0 p-3 border-t" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
+      {/* Input */}
+      <footer className="shrink-0 p-3" style={{ borderTop: '1px solid var(--ibm-border-subtle)' }}>
         <div className="flex gap-2">
           {running && (
             <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
-              className="px-3 py-2 rounded-md text-xs font-medium shrink-0"
-              style={{ background: 'var(--ibm-layer-accent)', color: 'var(--ibm-error)' }}>Stop</button>
+              className="shrink-0 px-3 py-2 rounded-md text-xs font-medium"
+              style={{ color: 'var(--ibm-error)', border: '1px solid var(--ibm-error)', background: 'transparent' }}>
+              Stop
+            </button>
           )}
           <textarea value={input} onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe what you want..."
+            placeholder="Describe what you want to build or fix..."
             disabled={running} rows={1}
             className="flex-1 px-3 py-2 text-sm bg-transparent outline-none resize-none rounded-md"
-            style={{ border: '1px solid var(--ibm-border)', color: 'var(--ibm-text)', background: 'var(--ibm-bg)', fontFamily: 'var(--ibm-font)' }}
+            style={{ border: '1px solid var(--ibm-border)', fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)', background: 'var(--ibm-layer-01)' }}
             onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           />
           {!running && (
             <button onClick={handleSend} disabled={!input.trim()}
-              className="px-4 py-2 rounded-md text-xs font-medium transition-colors shrink-0 disabled:opacity-40"
-              style={{ background: 'var(--ibm-primary)', color: '#fff' }}>Send</button>
+              className="shrink-0 px-5 py-2 rounded-md text-xs font-medium transition-all disabled:opacity-30"
+              style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
+              Send
+            </button>
           )}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── Markdown renderer ── */
+
+function Markdown({ text, muted }: { text: string; muted?: boolean }) {
+  const cleaned = useMemo(() => {
+    if (!text) return '';
+    return text
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
+      .replace(/<done>[^<]*<\/done>/gi, '')
+      .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
+      .replace(/<all-done>[^<]*<\/all-done>/gi, '')
+      .replace(/\n{3,}/g, '\n\n').trim();
+  }, [text]);
+
+  if (!cleaned) return null;
+
+  return (
+    <div className="text-sm leading-relaxed" style={{ color: muted ? 'var(--ibm-text-secondary)' : 'var(--ibm-text-primary)' }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}
+        components={{
+          code: ({ className, children, ...props }: any) => {
+            const inline = !className;
+            if (inline) return <code className="inline-code" {...props}>{children}</code>;
+            return <pre className="my-2 p-3 rounded-md overflow-x-auto text-xs" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--ibm-border-subtle)' }}><code className={className} {...props}>{children}</code></pre>;
+          },
+          p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
+          ul: ({ children }: any) => <ul className="list-disc pl-5 mb-1 space-y-0.5">{children}</ul>,
+          ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-1 space-y-0.5">{children}</ol>,
+          h1: ({ children }: any) => <h1 className="text-base font-semibold mt-3 mb-1">{children}</h1>,
+          h2: ({ children }: any) => <h2 className="text-sm font-semibold mt-2 mb-1">{children}</h2>,
+          h3: ({ children }: any) => <h3 className="text-sm font-medium mt-2 mb-1">{children}</h3>,
+          blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-3 my-1 italic opacity-70" style={{ borderColor: 'var(--ibm-border)' }}>{children}</blockquote>,
+          a: ({ href, children }: any) => <a href={href} className="md-link" target="_blank" rel="noopener">{children}</a>,
+          hr: () => <hr className="my-2" style={{ borderColor: 'var(--ibm-border-subtle)' }} />,
+        }}>
+        {cleaned}
+      </ReactMarkdown>
     </div>
   );
 }

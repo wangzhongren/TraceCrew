@@ -4,36 +4,43 @@
 
 /* ═══════════════════════════════════════════════════
    IBM Carbon Design System — Dark Theme
+   Refined for premium feel
    ═══════════════════════════════════════════════════ */
 
 :root {
   --ibm-bg: #161616;
-  --ibm-layer: #1c1c1c;
-  --ibm-layer-accent: #262626;
-  --ibm-layer-hover: #333333;
+  --ibm-layer-01: #1c1c1c;
+  --ibm-layer-02: #262626;
+  --ibm-layer-03: #333333;
+  --ibm-layer-hover: #353535;
+  --ibm-layer-active: #4c4c4c;
   --ibm-border: #393939;
   --ibm-border-subtle: #2e2e2e;
+  --ibm-border-strong: #525252;
+  --ibm-border-interactive: #0f62fe;
 
-  --ibm-text: #f4f4f4;
-  --ibm-text-secondary: #a8a8a8;
+  --ibm-text-primary: #f4f4f4;
+  --ibm-text-secondary: #c6c6c6;
   --ibm-text-placeholder: #6f6f6f;
   --ibm-text-disabled: #525252;
+  --ibm-text-on-color: #ffffff;
+  --ibm-text-error: #ffb3b8;
+
+  --ibm-link: #78a9ff;
+  --ibm-link-hover: #a6c8ff;
+  --ibm-icon-primary: #f4f4f4;
+  --ibm-icon-secondary: #c6c6c6;
 
   --ibm-primary: #0f62fe;
   --ibm-primary-hover: #0353e9;
   --ibm-primary-active: #002d9c;
-  --ibm-focus: #ffffff;
 
   --ibm-success: #24a148;
   --ibm-warning: #f1c21b;
   --ibm-error: #da1e28;
-  --ibm-info: #4589ff;
 
-  --ibm-link: #78a9ff;
-  --ibm-icon: #f4f4f4;
-
-  --ibm-font: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
-  --ibm-font-mono: 'IBM Plex Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --ibm-font: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --ibm-font-mono: 'IBM Plex Mono', 'JetBrains Mono', 'Fira Code', monospace;
 
   --ibm-spacing-01: 2px;
   --ibm-spacing-02: 4px;
@@ -42,50 +49,59 @@
   --ibm-spacing-05: 16px;
   --ibm-spacing-06: 24px;
   --ibm-spacing-07: 32px;
-  --ibm-spacing-08: 40px;
 
   --ibm-radius-sm: 4px;
   --ibm-radius-md: 8px;
-  --ibm-radius-lg: 12px;
+
+  --ibm-transition: 150ms cubic-bezier(0.2, 0, 0.38, 1);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   font-family: var(--ibm-font);
-  background: var(--ibm-bg);
-  color: var(--ibm-text);
-  -webkit-font-smoothing: antialiased;
+  font-weight: 400;
   font-size: 14px;
   line-height: 1.42857;
+  letter-spacing: 0.16px;
+  background: var(--ibm-bg);
+  color: var(--ibm-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root { width: 100vw; height: 100vh; overflow: hidden; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+/* ── Scrollbar (subtle) ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--ibm-border); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: var(--ibm-text-placeholder); }
+::-webkit-scrollbar-thumb { background: var(--ibm-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--ibm-border-strong); }
 
-/* ── IBM-style focus ── */
+/* ── Focus ring (IBM Carbon style) ── */
 *:focus-visible {
-  outline: 2px solid var(--ibm-focus);
+  outline: 2px solid var(--ibm-focus, #ffffff);
   outline-offset: -2px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--ibm-border-interactive);
+  outline-offset: -2px;
+}
+
+/* ── Selection ── */
+::selection {
+  background: rgba(15, 98, 254, 0.35);
+  color: var(--ibm-text-primary);
 }
 
 /* ── Animations ── */
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @keyframes fade-in-scale {
-  from { opacity: 0; transform: scale(0.96); }
+  from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
 }
 @keyframes skeleton {
   0% { background-position: -200% 0; }
@@ -95,30 +111,30 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-.animate-fade-in { animation: fade-in 0.2s ease-out; }
-.animate-fade-in-scale { animation: fade-in-scale 0.25s cubic-bezier(0.2, 0, 0.38, 1); }
-.animate-pulse { animation: pulse 2s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.15s var(--ibm-transition); }
+.animate-fade-in-scale { animation: fade-in-scale 0.2s var(--ibm-transition); }
+.animate-slide-up { animation: slide-up 0.25s cubic-bezier(0, 0, 0.38, 1); }
 .animate-spin-slow { animation: spin-slow 3s linear infinite; }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--ibm-layer-accent) 25%, var(--ibm-layer-hover) 50%, var(--ibm-layer-accent) 75%);
+  background: linear-gradient(90deg, var(--ibm-layer-02) 25%, var(--ibm-layer-03) 50%, var(--ibm-layer-02) 75%);
   background-size: 200% 100%;
   animation: skeleton 1.5s infinite;
 }
 
-/* ── IBM-style inline code ── */
+/* ── Inline code ── */
 .inline-code {
   padding: 0 4px;
   border-radius: var(--ibm-radius-sm);
-  font-size: 0.9em;
+  font-size: 0.875em;
   font-family: var(--ibm-font-mono);
-  background: var(--ibm-layer-accent);
-  color: var(--ibm-text);
+  background: var(--ibm-layer-02);
+  color: var(--ibm-text-secondary);
 }
 .md-link { color: var(--ibm-link); text-decoration: none; }
-.md-link:hover { text-decoration: underline; }
-
-/* ── Resize handle ── */
-.resize-handle { transition: background 0.1s; }
-.resize-handle:hover, .resize-handle:active { background: var(--ibm-primary); }
+.md-link:hover { color: var(--ibm-link-hover); text-decoration: underline; }

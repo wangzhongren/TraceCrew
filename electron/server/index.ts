@@ -29,12 +29,19 @@ export function createServer(frontendDistDir: string): Server {
   app.use('/api/v1/topology', topologyRoutes);
 
   // ── Settings ──
+  app.get('/api/v1/settings', (_req, res) => {
+    res.json({
+      apiKey: process.env.CODEATLAS_LLM_API_KEY || '',
+      baseUrl: process.env.CODEATLAS_LLM_BASE_URL || '',
+      model: process.env.CODEATLAS_LLM_MODEL || '',
+    });
+  });
+
   app.post('/api/v1/settings', (req, res) => {
     const { apiKey, baseUrl, model } = req.body || {};
     if (apiKey) process.env.CODEATLAS_LLM_API_KEY = apiKey;
     if (baseUrl) process.env.CODEATLAS_LLM_BASE_URL = baseUrl;
     if (model) process.env.CODEATLAS_LLM_MODEL = model;
-    // Reset the agent service to pick up new settings
     try {
       const { agentService } = require('./services/agent');
       agentService.reload();
