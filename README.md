@@ -1,155 +1,123 @@
 # CodeAtlas
 
-AI-powered code exploration and editing IDE — visualize architecture, edit code, run commands, all through natural language.
-
-## Features
-
-- **AI Chat Agent** — Read files, search code, browse directories through conversation. Evidence-based: only makes claims backed by actual file content. Supports read-only and execute modes with intent classification.
-- **Planner + Worker** — Complex tasks trigger a two-phase workflow: the Planner explores the project and generates a structured step-by-step plan, the user confirms, then Worker agents execute each step autonomously.
-- **AI Terminal** — Dedicated terminal window with split-pane layout: terminal output on the left, AI chat on the right. Supports ANSI colors, plan-based execution, and interactive conversation.
-- **Project Overview Agent** — Autonomous agent explores your codebase, generates architectural overviews, and detects issues (missing imports, API mismatches, etc.)
-- **Feature Tree** — Hierarchical navigation: Overview → Feature Groups → Features. Click to drill down, lazy-load deeper details on demand. Click files to jump to code.
-- **Code Search** — Agent can search across files using keyword matching. Results include file path, line number, and context.
-- **Code Viewer** — Syntax highlighting, line numbers, clickable function navigation, scroll-to-line.
-- **Markdown Rendering** — Agent responses render with full Markdown support: headers, code blocks, lists, blockquotes, inline code, links.
-- **File Operations** — Create, edit, insert, replace, delete files. Delete moves to trash with backup. All changes are reversible.
-- **Send to Agent** — One click to send feature context (files, functions, descriptions) from the analysis panel to the chat agent.
-- **Background Tasks** — Status bar tracks all running analyses, shell commands, and summaries.
-- **Resizable Panels** — Drag to resize file explorer, code viewer, agent chat, and feature panels.
-- **Streaming Responses** — LLM replies stream token-by-token with reasoning content support. Stop button to cancel mid-generation.
-- **Custom Title Bar** — Frameless window with VSCode-style window controls.
+AI-powered code exploration and editing IDE. Natural language driven, with a 4-agent pipeline that plans, maps, executes, and reviews code changes — all visualized as an interactive call graph.
 
 ## Architecture
 
 ```
-┌──────────┬───────────────────┬──────────────┐
-│ Explorer │    Code Viewer    │  Agent Chat  │
-│   File   │   (highlighting)  │  (streaming) │
-│   Tree   │                   │              │
-├──────────┴───────────────────┤              │
-│    Feature Tree + Detail     │              │
-└──────────────────────────────┴──────────────┘
-
-AI Terminal (separate window):
-┌────────────────────┬──────────────┐
-│    Terminal Log    │  AI Chat     │
-│  (ANSI colors)     │  (Markdown)  │
-│                    │  + Plan UI   │
-└────────────────────┴──────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Title Bar                               │
+├─────────────────────┬────────────────────────────────────────┤
+│                     │                                        │
+│    Chat Panel       │        Call Graph Canvas               │
+│                     │                                        │
+│  Planner            │     ┌──────────┐                       │
+│    ↓                │     │ main.ts  │ ← 蓝色 = 现有代码     │
+│  Mapper             │     └────┬─────┘                       │
+│    ↓                │          │ calls                       │
+│  Executor           │     ┌────▼─────┐                       │
+│    ↓                │     │ auth.ts  │ ← 红色 = 问题节点     │
+│  Reviewer           │     └──────────┘                       │
+│                     │                                        │
+│  [input] [Send]     │    拖拽 / 缩放 / 点击节点              │
+│                     │                                        │
+└─────────────────────┴────────────────────────────────────────┘
 ```
 
-## Agent Modes
+## Agent Pipeline
 
-The agent operates in two modes, determined by automatic intent classification:
+Four specialized agents work independently, each with its own LLM call and context:
 
-- **Read-only mode** (default) — Agent can read files, list directories, and search code. It answers questions and suggests changes but does not modify anything.
-- **Execute mode** — When the user's intent is to make changes (e.g. "fix the bug", "add a feature"), the agent enters execute mode:
-  - For simple changes: directly outputs edit operations
-  - For complex tasks: triggers the **Planner** to explore the project and generate a step-by-step plan. User reviews and confirms, then **Worker** agents execute each step.
+| Agent | Role | Tools |
+|-------|------|-------|
+| **Planner** | Reads code, analyzes structure, creates execution plan | read_file, list_dir |
+| **Mapper** | Takes the plan, reads code, draws the call graph | read_file, list_dir |
+| **Executor** | Executes plan steps — edits code, runs commands | read_file, write_file, run_shell |
+| **Reviewer** | Reviews execution against plan and user intent | read_file |
+
+**Flow**: `User Input → Planner → Mapper → Executor → Reviewer`
+- Reviewer passes → Done ✓
+- Reviewer rejects → Back to Planner with feedback ↻
+
+Each agent has its own system prompt and does not share conversation context. Data is passed between agents as structured output (plan JSON → call graph JSON → execution results → review).
+
+## Call Graph
+
+The **Mapper agent** produces a Node-Link Graph rendered on the canvas:
+
+- 🔵 **Blue** — existing code nodes
+- 🔴 **Red** — problem locations
+- 🟡 **Yellow** — planned changes
+- 🟢 **Green** — new additions
+
+Edges show call relationships (calls, imports, returns). The graph updates in real-time as the Executor and Reviewer progress.
+
+## Features
+
+- **4-Agent Pipeline** — Planner plans, Mapper draws, Executor runs, Reviewer checks
+- **Call Graph Visualization** — Interactive SVG node-link diagram, pan/zoom, click for details
+- **SSE Streaming** — All agent responses stream token-by-token with reasoning support
+- **File Operations** — Read, edit, insert, replace, delete files via natural language
+- **Shell Execution** — Agent runs build/test commands, feeds output back for analysis
+- **Settings Panel** — Configure LLM endpoint, API key, and model from the UI
+- **Dark Theme** — IBM Carbon-inspired design system
+- **Custom Title Bar** — Frameless window with window controls
 
 ## Tech Stack
 
-- **Frontend**: Electron 35, React 19, TypeScript, Zustand, Tailwind CSS, Vite 6
-- **Backend**: FastAPI, SQLite (WAL mode), OpenAI-compatible SDK
-- **Build**: vite-plugin-electron, electron-builder
+- **Frontend**: Electron, React 19, TypeScript, Tailwind CSS, Vite 6
+- **Backend**: Express (embedded in Electron main process), better-sqlite3, OpenAI SDK
+- **Build**: vite-plugin-electron
+
+No external Python process — everything runs in a single Electron application.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 24+
-- Python 3.12+
+- Node.js 20+
 
 ### Setup
 
 ```bash
-# Clone
 git clone https://github.com/wangzhongren/CodeAtlas.git
-cd CodeAtlas
+cd CodeAtlas/frontend
+npm install
+```
 
-# Install frontend deps (includes Electron)
-cd frontend && npm install
+### Configure LLM
 
-# Install backend deps
-cd ../backend && pip install -r requirements.txt
+Click the ⚙️ gear icon in the toolbar to set your API key, base URL, and model — or create a `.env` file:
 
-# Configure API key
+```bash
 cp .env.example .env
-# Edit .env with your LLM API credentials
+```
+
+```
+CODEATLAS_LLM_API_KEY=sk-...
+CODEATLAS_LLM_BASE_URL=https://api.openai.com/v1
+CODEATLAS_LLM_MODEL=gpt-4o
 ```
 
 ### Run
 
 ```bash
-.\start.bat
-```
-
-Or manually:
-
-```bash
-# Terminal 1 — Backend
-cd backend
-python -m uvicorn main:app --port 19850 --reload
-
-# Terminal 2 — Electron
 cd frontend
 npm run electron:dev
 ```
 
-## Configuration
-
-Copy `.env.example` to `.env` and fill in your credentials:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
-|----------|-------------|
-| `CODEATLAS_LLM_API_KEY` | Your LLM API key |
-| `CODEATLAS_LLM_BASE_URL` | LLM API base URL (OpenAI-compatible) |
-| `CODEATLAS_LLM_MODEL` | Model name (e.g. `gpt-4o`, `deepseek-v4-pro`) |
-
-> `.env` is gitignored — never commit your real credentials.
-
-## How It Works
-
-1. **Open a project folder** — The file tree appears on the left
-2. **Ask the Agent** (right panel) — Ask questions, read code, search files. The Agent reads files as evidence before making claims.
-3. **Execute tasks** — When you ask the Agent to make changes (e.g. "fix the login bug"), it classifies your intent and enters execute mode:
-   - Simple changes: directly edits files
-   - Complex tasks: generates a plan with steps for you to review, then executes after confirmation
-4. **AI Terminal** — Click the terminal button in the title bar to open a dedicated window with terminal + chat split view. Ideal for build/run/debug workflows.
-5. **Analyze features** (bottom-left) — Click the refresh icon to generate a feature tree: Overview → Groups → Features
-6. **Drill down** — Click nodes to expand in the left tree. Select nodes to see details. Click "Expand details" to lazy-load deeper analysis.
-7. **Send to Agent** — Click "Ask Agent" on any feature to send context to the chat for targeted edits.
+Or on Windows, double-click `start.bat`.
 
 ## Project Data
 
-All analysis data is stored in `.codeatlas/` inside your opened project directory:
+Analysis data is stored in `.codeatlas/` inside your project directory:
 
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `.codeatlas/codeatlas.db` | SQLite database (feature graph, change queue) |
-
-## Development
-
-```bash
-# Backend with hot-reload
-cd backend && python -m uvicorn main:app --port 19850 --reload
-
-# Frontend only (no Electron)
-cd frontend && npm run dev
-
-# Full Electron app (dev mode)
-cd frontend && npm run electron:dev
-
-# Production build
-cd frontend && npm run build
-```
+| `.codeatlas/codeatlas.db` | SQLite database (feature graph, change queue, meta) |
 
 ## License
 
-CodeAtlas is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
+Apache License, Version 2.0. See [LICENSE](LICENSE).
 
 Copyright 2026 wangzhongren

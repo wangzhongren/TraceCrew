@@ -1,0 +1,50 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+console.log('[preload] codeatlas API registered');
+
+const api = {
+  file: {
+    openProject: () => ipcRenderer.invoke('file:openProject'),
+    listDirectory: (dirPath) => ipcRenderer.invoke('file:listDirectory', dirPath),
+    readFile: (filePath, startLine, endLine) => ipcRenderer.invoke('file:readFile', filePath, startLine, endLine),
+    writeFile: (filePath, content) => ipcRenderer.invoke('file:writeFile', filePath, content),
+    insertLines: (filePath, afterLine, content) =>
+      ipcRenderer.invoke('file:insertLines', filePath, afterLine, content),
+    replaceLines: (filePath, startLine, endLine, content) =>
+      ipcRenderer.invoke('file:replaceLines', filePath, startLine, endLine, content),
+    deleteLines: (filePath, startLine, endLine) =>
+      ipcRenderer.invoke('file:deleteLines', filePath, startLine, endLine),
+    restoreBackup: (backupId) => ipcRenderer.invoke('file:restoreBackup', backupId),
+    getProjectPath: () => ipcRenderer.invoke('file:getProjectPath'),
+    onProjectOpened: (cb) => {
+      ipcRenderer.on('project:opened', (_e, p) => cb(p));
+    },
+  },
+  shell: {
+    run: (command) => ipcRenderer.sendSync('shell:run', command),
+    kill: (id) => ipcRenderer.send('shell:kill', id),
+    getLogFile: (id) => ipcRenderer.invoke('shell:getLogFile', id),
+    readLog: (logFile) => ipcRenderer.invoke('shell:readLog', logFile),
+    onData: (cb) => {
+      ipcRenderer.on('shell:data', (_e, data) => cb(data.id, data.data));
+    },
+    onDone: (cb) => {
+      ipcRenderer.on('shell:done', (_e, data) => cb(data.id, data.code));
+    },
+    onError: (cb) => {
+      ipcRenderer.on('shell:error', (_e, data) => cb(data.id, data.error));
+    },
+  },
+  backend: {
+    getUrl: () => 'http://localhost:19850',
+  },
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    openTerminal: (projectPath) => ipcRenderer.invoke('window:openTerminal', projectPath),
+  },
+};
+
+contextBridge.exposeInMainWorld('codeatlas', api);

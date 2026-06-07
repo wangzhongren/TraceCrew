@@ -14,24 +14,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron'],
-            },
-          },
-        },
-      },
-      {
-        entry: path.resolve(__dirname, '..', 'electron', 'preload.ts'),
-        onstart(args) {
-          args.reload();
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['electron'],
-              output: {
-                entryFileNames: 'preload.js',
-              },
+              external: ['electron', 'better-sqlite3', 'express', 'cors', 'openai', 'dotenv'],
             },
           },
         },

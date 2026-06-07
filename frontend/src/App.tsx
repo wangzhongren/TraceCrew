@@ -1,219 +1,137 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import type { FeatureNode } from './types/feature';
-import WelcomePage from './components/WelcomePage';
-import FileExplorer from './components/FileExplorer';
-import CodeViewer from './components/CodeViewer';
-import type { CodeSelection } from './components/CodeViewer';
-import FeatureList from './components/FeatureList';
-import FeatureDetail from './components/FeatureDetail';
-import AgentPanel from './components/AgentPanel';
-import RunPage from './components/RunPage';
-import ResizeHandle from './components/ResizeHandle';
-import StatusBar from './components/StatusBar';
+import { useState, useCallback, useEffect } from 'react';
+import ChatPanel from './components/ChatPanel';
+import MapCanvas from './components/MapCanvas';
+import type { CallGraph } from './components/MapCanvas';
 import TitleBar from './components/TitleBar';
-import { getInitialLanguage, saveLanguage, tr, type Language } from './i18n';
+import SettingsPanel from './components/SettingsPanel';
 
-const MIN_SIDEBAR = 180;
-const MIN_RIGHT = 280;
-const MIN_AGENT = 160;
-const INITIAL_LEFT = 260;
-const INITIAL_RIGHT = 380;
-const INITIAL_BOTTOM = 280;
-
-function TerminalApp() {
-  const [tp, setTp] = useState<string | null>(() => {
-    const p = new URLSearchParams(window.location.search).get('path');
-    return p ? decodeURIComponent(p) : null;
-  });
-  useEffect(() => {
-    if (!tp) {
-      window.codeatlas?.file.getProjectPath().then((p: string) => { if (p) setTp(p); });
-    }
-  }, [tp]);
-  if (!tp) return <div className="w-screen h-screen flex items-center justify-center" style={{ background: '#0d1117', color: '#8b949e' }}>Loading...</div>;
-  return <RunPage projectPath={tp} onClose={() => window.close()} onFileChanged={() => {}} />;
+export interface PipelineState {
+  phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
+  graph: CallGraph | null;
+  steps?: any[];
 }
 
 export default function App() {
-  if (new URLSearchParams(window.location.search).get('terminal') === '1') {
-    return <TerminalApp />;
-  }
-
   const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [openFile, setOpenFile] = useState<string | null>(null);
-  const [scrollToLine, setScrollToLine] = useState<number | null>(null);
-  const [selection, setSelection] = useState<CodeSelection | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedFeature, setSelectedFeature] = useState<FeatureNode | null>(null);
-  const [agentContext, setAgentContext] = useState('');
-  const [fileVersion, setFileVersion] = useState(0);
-  const [language, setLanguage] = useState<Language>(() => getInitialLanguage());
-  const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-  const handleFileChanged = useCallback(() => {
-    setFileVersion((v) => v + 1);
-    setRefreshKey((k) => k + 1);
-  }, []);
-  const triggerFeatureReload = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
+  const [pipeline, setPipeline] = useState<PipelineState>({
+    phase: 'idle', graph: null,
+  });
 
-  const [leftW, setLeftW] = useState(INITIAL_LEFT);
-  const [rightW, setRightW] = useState(INITIAL_RIGHT);
-  const [bottomH, setBottomH] = useState(INITIAL_BOTTOM);
-
-  const openTerminal = () => {
-    window.codeatlas?.window?.openTerminal(projectPath);
-  };
-
-  const toggleLanguage = useCallback(() => {
-    setLanguage((current) => {
-      const next = current === 'zh' ? 'en' : 'zh';
-      saveLanguage(next);
-      return next;
-    });
-  }, []);
-
-  const handleOpenProject = useCallback((p: string) => {
-    setProjectPath(p);
-    setOpenFile(null);
-    setSelection(null);
-    setSelectedFeature(null);
-  }, []);
+  const handleOpenProject = useCallback((p: string) => setProjectPath(p), []);
 
   useEffect(() => {
-    try { window.codeatlas?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch { /* */ }
+    try { window.codeatlas?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {}
   }, [handleOpenProject]);
 
   useEffect(() => {
     try {
       window.codeatlas?.file.getProjectPath().then((p: string) => { if (p) setProjectPath(p); });
-    } catch { /* */ }
+    } catch {}
   }, []);
-
-  const handleCloseProject = useCallback(() => { setProjectPath(null); setOpenFile(null); }, []);
-  const selectedFeatureRef = useRef(selectedFeature);
-  selectedFeatureRef.current = selectedFeature;
-
-  const handleFeaturesLoaded = useCallback(async (list: FeatureNode[]) => {
-    const current = selectedFeatureRef.current;
-    if (!current) return;
-    const find = (nodes: FeatureNode[], id: string): FeatureNode | null => {
-      for (const n of nodes) {
-        if (n.id === id) return n;
-        const found = find(n.children || [], id);
-        if (found) return found;
-      }
-      return null;
-    };
-    const updated = find(list, current.id);
-    if (updated) {
-      setSelectedFeature(updated);
-      // Children are pre-loaded by the unified analyzer — no auto-drill-down needed
-    }
-  }, []);
-
-  const navigateToFile = (filePath: string, line?: number) => {
-    const isAbs = /^(?:[a-zA-Z]:[\\/]|\/)/.test(filePath || '');
-    const resolved = isAbs ? filePath : `${projectPath?.replace(/\\/g, '/')}/${filePath}`;
-    setOpenFile(resolved);
-    setScrollToLine(line || null);
-  };
-
-  const handleSelectFeature = (node: FeatureNode | null) => {
-    setSelectedFeature(node);
-  };
-
-  const handleDrillDown = (node: FeatureNode) => {
-    setSelectedFeature(node);
-  };
 
   if (!projectPath) {
-    return <WelcomePage onOpenProject={handleOpenProject} language={language} onToggleLanguage={toggleLanguage} />;
+    return (
+      <div className="w-screen h-screen flex items-center justify-center relative" style={{ background: 'var(--ibm-bg)' }}>
+        {/* Close button — for frameless window */}
+        <button
+          onClick={() => {
+            if (window.codeatlas?.window?.close) {
+              window.codeatlas.window.close();
+            } else {
+              window.close();
+            }
+          }}
+          className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center rounded-lg transition-colors"
+          style={{ color: 'var(--ibm-text-placeholder)' }}
+          title="Close"
+          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ibm-layer-hover)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+
+        <div className="text-center space-y-6">
+          <div className="w-16 h-16 mx-auto rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--ibm-primary)' }}>
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="white" strokeWidth="2">
+              <circle cx="7" cy="7" r="2"/><circle cx="25" cy="7" r="2"/><circle cx="16" cy="20" r="2"/>
+              <circle cx="10" cy="25" r="2"/><circle cx="22" cy="25" r="2"/>
+              <line x1="9" y1="8" x2="15" y2="19"/><line x1="23" y1="8" x2="17" y2="19"/>
+            </svg>
+          </div>
+          <h1 className="text-xl font-light tracking-wide" style={{ color: 'var(--ibm-text)' }}>CodeAtlas</h1>
+          <p className="text-sm" style={{ color: 'var(--ibm-text-secondary)' }}>AI-Powered Code Topology</p>
+          <button
+            onClick={async () => {
+              // Electron: use dialog
+              if (typeof window.codeatlas !== 'undefined') {
+                try {
+                  const p = await window.codeatlas.file.openProject();
+                  if (p) handleOpenProject(p);
+                } catch (e) {
+                  console.error('openProject failed:', e);
+                }
+              } else {
+                // Browser fallback
+                const demo = prompt('Enter project path:');
+                if (demo) handleOpenProject(demo);
+              }
+            }}
+            className="px-8 py-3 text-sm font-medium transition-colors rounded-lg"
+            style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
+            Open Folder
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="w-screen h-screen flex flex-col" style={{ background: '#1a1c1e' }}>
-      {/* Title bar */}
-      <TitleBar projectName={projectPath ? (projectPath.split(/[\\/]/).pop() || '') : ''} />
-      <div className="flex items-center justify-between px-4 py-0.5 border-b shrink-0" style={{ borderColor: '#303234', background: '#1a1c1e' }}>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-[10px]" style={{ color: '#5c6166' }}>{projectPath}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={openTerminal}
-            title="AI Terminal — auto analyze, build, run & fix"
-            className="flex items-center gap-1.5 text-[10px] px-3 py-1 rounded-md font-medium transition-all hover:opacity-80 active:scale-[0.97]"
-            style={{ background: '#1a3350', color: '#8ab4f8', border: '1px solid #8ab4f830' }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="#8ab4f8" stroke="none">
-              <polygon points="5,3 19,12 5,21" />
-            </svg>
-            {tr(language, 'run')}
+    <div className="w-screen h-screen flex flex-col" style={{ background: 'var(--ibm-bg)' }}>
+      <TitleBar projectName={projectPath?.split(/[\\/]/).pop() || ''} />
+
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-3 h-7 shrink-0 border-b" style={{ borderColor: 'var(--ibm-border-subtle)', background: 'var(--ibm-layer)' }}>
+        <span className="text-[11px]" style={{ color: 'var(--ibm-text-placeholder)' }}>{projectPath}</span>
+        <div className="flex items-center gap-1">
+          <SettingsBtn />
+          <button onClick={() => setProjectPath(null)}
+            className="text-[11px] px-2 py-0.5 rounded transition-colors hover:bg-white/5"
+            style={{ color: 'var(--ibm-text-secondary)' }}>
+            Close Project
           </button>
-          <button
-            onClick={toggleLanguage}
-            className="text-[10px] px-2 py-0.5 rounded-md hover:bg-white/5 transition-colors"
-            style={{ color: '#8ab4f8', border: '1px solid #303234' }}
-            title="Language">
-            {language === 'zh' ? '中文' : 'EN'}
-          </button>
-          <StatusBar />
-          <button onClick={handleCloseProject} className="text-[10px] px-2 py-0.5 rounded-md hover:bg-white/5 transition-colors" style={{ color: '#8e918f' }}>{tr(language, 'closeProject')}</button>
         </div>
       </div>
 
-      {/* Main row: left+center | right-agent (full height) */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left + Center + Bottom Features (flex column) */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top: Explorer + Code Viewer */}
-          <div className="flex-1 flex overflow-hidden">
-            <div className="shrink-0 border-r overflow-hidden" style={{ width: leftW, borderColor: '#444746' }}>
-              <FileExplorer key={refreshKey} projectPath={projectPath} onSelectFile={setOpenFile} onRefresh={handleRefresh} />
-            </div>
+        {/* Left: Chat Panel */}
+        <aside className="shrink-0 border-r overflow-hidden"
+          style={{ width: 420, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
+          <ChatPanel projectPath={projectPath} onPipelineChange={setPipeline} />
+        </aside>
 
-            <ResizeHandle direction="vertical" onResize={(d) => setLeftW((w) => Math.max(MIN_SIDEBAR, w + d))} />
-
-            <div className="flex-1 flex overflow-hidden">
-              <CodeViewer key={fileVersion} filePath={openFile} projectPath={projectPath} scrollToLine={scrollToLine} onSelectionChange={setSelection} />
-            </div>
-          </div>
-
-          <ResizeHandle direction="horizontal" onResize={(d) => setBottomH((h) => Math.max(MIN_AGENT, h - d))} />
-
-          {/* Bottom: Features + FeatureDetail */}
-          <div className="shrink-0 flex overflow-hidden" style={{ height: bottomH, borderTop: '1px solid #252729' }}>
-            <div className="shrink-0 border-r overflow-hidden" style={{ width: leftW, borderColor: '#303234' }}>
-              <FeatureList
-                projectPath={projectPath}
-                onSelectFeature={handleSelectFeature}
-                selectedId={selectedFeature?.id || null}
-                onFeaturesLoaded={handleFeaturesLoaded}
-                language={language}
-              />
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <FeatureDetail
-                feature={selectedFeature}
-                projectPath={projectPath}
-                onNavigateToFile={navigateToFile}
-                onDrillDown={handleDrillDown}
-                onSendToAgent={setAgentContext}
-                onReloadFeatures={triggerFeatureReload}
-                language={language}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Agent Chat — full height */}
-        <ResizeHandle direction="vertical" onResize={(d) => setRightW((w) => Math.max(MIN_RIGHT, w - d))} />
-        <div className="shrink-0 border-l flex flex-col" style={{ width: rightW, borderColor: '#444746' }}>
-          <AgentPanel projectPath={projectPath} openFilePath={openFile} selection={selection} onClearSelection={() => setSelection(null)} injectContext={agentContext} onConsumeContext={() => setAgentContext('')} onFileChanged={handleFileChanged} language={language} />
-        </div>
+        {/* Right: Call Graph */}
+        <main className="flex-1 overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
+          <MapCanvas graph={pipeline.graph} phase={pipeline.phase} />
+        </main>
       </div>
+    </div>
+  );
+}
 
+function SettingsBtn() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)} title="Settings"
+        className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-white/5"
+        style={{ color: 'var(--ibm-text-placeholder)' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </button>
+      {open && <SettingsPanel onClose={() => setOpen(false)} />}
     </div>
   );
 }

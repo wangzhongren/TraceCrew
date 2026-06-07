@@ -3,7 +3,6 @@ title CodeAtlas
 setlocal enabledelayedexpansion
 
 set ROOT=%~dp0
-set BACKEND_DIR=%ROOT%backend
 set FRONTEND_DIR=%ROOT%frontend
 set PORT=19850
 set LOCK_FILE=%ROOT%.codeatlas.lock
@@ -25,7 +24,7 @@ echo %PID% > "%LOCK_FILE%"
 
 :: ── Kill old processes ───────────────────────────
 
-echo [1/4] Cleaning old processes...
+echo [1/2] Cleaning old processes...
 
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT% " ^| findstr "LISTENING" 2^>nul') do (
     echo [!] Port %PORT% occupied by PID %%a — killing...
@@ -41,13 +40,9 @@ timeout /t 1 /nobreak >nul
 
 echo.
 
-:: ── Start Backend ────────────────────────────────
+:: ── Start Electron (Express backend embedded) ────
 
-echo [2/4] Starting backend (port %PORT%)...
-start "CodeAtlas-Backend" cmd /c "cd /d %BACKEND_DIR% && python -m uvicorn main:app --port %PORT%"
-
-timeout /t 3 /nobreak >nul
-echo [3/4] Starting Electron app...
+echo [2/2] Starting CodeAtlas...
 cd /d %FRONTEND_DIR%
 set ELECTRON_RUN_AS_NODE=
 npm run electron:dev

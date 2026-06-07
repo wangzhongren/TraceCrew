@@ -9,16 +9,28 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "electron:dev": "ELECTRON_RUN_AS_NODE=  vite",
-    "electron:build": "ELECTRON_RUN_AS_NODE=  vite build && electron-builder"
+    "electron:build": "ELECTRON_RUN_AS_NODE=  vite build && electron-builder",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "openai": "^6.42.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "uuid": "^14.0.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.4.0",
     "autoprefixer": "^10.4.20",
     "electron": "^34.5.4",
@@ -28,7 +40,8 @@
     "typescript": "~5.8.0",
     "vite": "^6.3.0",
     "vite-plugin-electron": "^1.0.0",
-    "vite-plugin-electron-renderer": "^1.0.0"
+    "vite-plugin-electron-renderer": "^1.0.0",
+    "vitest": "^4.1.8"
   },
   "build": {
     "appId": "com.codeatlas.coder",

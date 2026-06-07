@@ -1,7 +1,15 @@
+import dotenv from 'dotenv';
+import { existsSync } from 'fs';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
-import { startBackend, stopBackend } from './backendLauncher';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Load .env before any module that uses OpenAI
+dotenv.config({ path: join(__dirname, '..', '..', '.env') });
+
+import { createServer } from './server/index';
+import type { Server } from 'http';
 import {
   listDirectory, readFile, writeFile,
   insertLines, replaceLines, deleteLines, deleteFile,
@@ -10,9 +18,8 @@ import {
   restoreBackup,
 } from './fileManager';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 let mainWindow: BrowserWindow | null = null;
+let httpServer: Server | null = null;
 let projectPath: string = '';
 let cleanedUp = false;
 
@@ -145,9 +152,17 @@ function registerIpcHandlers(): void {
 function getPreloadPath(): string {
   const candidates = [
     join(__dirname, 'preload.cjs'),
+    join(__dirname, '..', '..', 'electron', 'preload.cjs'),
+    join(__dirname, 'preload.js'),
     join(__dirname, 'preload.mjs'),
   ];
   console.log('[main] preload candidates:', candidates);
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      console.log('[main] using preload:', c);
+      return c;
+    }
+  }
   return candidates[0];
 }
 
@@ -186,13 +201,10 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   registerIpcHandlers();
 
-  // Start Python backend
-  try {
-    await startBackend();
-    console.log('Backend started on port 19850');
-  } catch (e) {
-    console.error('Failed to start backend:', e);
-  }
+  // Start embedded Express backend
+  const frontendDist = join(__dirname, '..', 'dist');
+  httpServer = createServer(frontendDist);
+  console.log('[main] Express backend started on port 19850');
 
   createWindow();
 
@@ -203,6 +215,14 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+app.on('before-quit', () => {
+  killAllShells();
+  if (httpServer) {
+    httpServer.close();
+    httpServer = null;
+  }
 });
 
 app.on('before-quit', () => {
