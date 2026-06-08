@@ -20,7 +20,6 @@ type TimelineEntry =
 const AG: Record<string, { name: string; color: string; bg: string }> = {
   planner:  { name: 'Planner',  color: '#6ea8e0', bg: 'rgba(120,169,255,0.04)' },
   mapper:   { name: 'Mapper',   color: '#9685d4', bg: 'rgba(167,139,250,0.04)' },
-  executor: { name: 'Executor', color: '#56b87a', bg: 'rgba(111,220,140,0.04)' },
   reviewer: { name: 'Reviewer', color: '#e0888d', bg: 'rgba(255,179,184,0.04)' },
 };
 
@@ -256,23 +255,6 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     }
   };
 
-  /* ════ Executor ════ */
-  const runExecutor = async (instruction: string, plan: any, graph: CallGraph) => {
-    pushTimeline({ kind: 'agent-start', agent: 'executor' });
-    onPipelineChange({ phase: 'executing', graph });
-
-    const stepsText = (plan.steps || []).map((s: any) => `[${s.id}] ${s.title}: ${s.description}`).join('\n');
-    const { fullText } = await agentLoop('executor',
-      '【角色: Executor】按计划执行。读文件、改代码、运行命令。', `【需求】${instruction}\n【计划】\n${stepsText}`, () => false, true);
-
-    const execData = parseJson(fullText);
-    const updatedGraph = execData?.call_graph
-      ? { nodes: execData.call_graph.nodes.map((n: any) => n.status === 'planned_change' || n.status === 'planned_new' ? { ...n, status: 'done' } : n), edges: execData.call_graph.edges || [] }
-      : { ...graph, nodes: graph.nodes.map((n: any) => n.status === 'planned_change' || n.status === 'planned_new' ? { ...n, status: 'done' } : n) };
-    onPipelineChange({ phase: 'executing', graph: updatedGraph });
-    await runReviewer(instruction, plan, fullText, updatedGraph);
-  };
-
   /* ════ ReviewOnly ════ */
   const runReviewOnly = async (instruction: string, plannerText: string, plan: any) => {
     pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
@@ -296,7 +278,8 @@ ${fullText}` });
     }
   };
 
-  /* ════ Reviewer (with execution) ════ */
+  /* ════ Reviewer (with execution) ════ — reserved for future execute feature */
+  // @ts-expect-error — reserved for manual execution trigger
   const runReviewer = async (instruction: string, plan: any, execText: string, graph: CallGraph) => {
     pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
     onPipelineChange({ phase: 'reviewing', graph });
@@ -334,7 +317,7 @@ ${fullText}` });
       <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--ibm-border-subtle)' }}>
         <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>Agent Pipeline</h2>
         <p className="text-xs mt-0.5 font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
-          Planner&nbsp;→&nbsp;Mapper&nbsp;→&nbsp;Executor&nbsp;→&nbsp;Reviewer
+          Planner&nbsp;→&nbsp;Mapper&nbsp;→&nbsp;Reviewer
         </p>
       </header>
 
@@ -384,8 +367,8 @@ ${fullText}` });
                 </div>
               )}
 
-              {/* Text: only executor + user. Planner/Mapper/Reviewer use cards. */}
-              {entry.kind === 'text' && (entry.agent === 'executor' || entry.agent === 'user') && (
+              {/* Text: only user messages use plain markdown. Agents use cards. */}
+              {entry.kind === 'text' && entry.agent === 'user' && (
                 <div className="flex gap-3 pb-4">
                   {entry.agent === 'user' ? (
                     <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">

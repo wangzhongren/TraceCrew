@@ -52,86 +52,127 @@ const EDGE_COLORS: Record<string, string> = {
 
 /* ── Dagre-like layered layout ── */
 interface LayoutNode extends GraphNode {
-  x: number; y: number;
+  x: number; y: number; h: number;
 }
 
-const NODE_W = 280, NODE_H = 120;
-const X_GAP = 56, Y_GAP = 130;
+const NODE_W = 280;
+const X_GAP = 56, Y_GAP = 60;
 
-function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[] } {
+/** Estimate node height from content length (label auto-wraps in foreignObject) */
+function calcNodeHeight(n: GraphNode): number {
+  const labelW = NODE_W - 42; // text area width in node
+  // Rough estimate: CJK char ~13px, ASCII ~7px → average ~10px
+  const estCharsPerLine = Math.floor(labelW / 10);
+  const labelLines = Math.ceil(n.label.length / estCharsPerLine);
+  const hasFile = !!n.file;
+  const hasKind = !!n.kind;
+  const hasDetail = !!n.detail;
+  // header 24 + label(17/line via foreignObject) + 16 bottom
+  let h = 28 + labelLines * 17 + 16;
+  if (hasKind) h += 14;
+  if (hasFile) h += 14;
+  if (hasDetail) h += 48; // detail area
+  return Math.max(h, 76);
+}
+
+function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge & { back?: boolean })[] } {
   const { nodes, edges } = graph;
   if (nodes.length === 0) return { nodes: [], edges };
 
   // Build adjacency
   const children = new Map<string, string[]>();
-  const parents = new Map<string, string[]>();
-  for (const n of nodes) {
-    children.set(n.id, []);
-    parents.set(n.id, []);
-  }
+  const allParents = new Map<string, string[]>();
+  for (const n of nodes) { children.set(n.id, []); allParents.set(n.id, []); }
   for (const e of edges) {
     children.get(e.from)?.push(e.to);
-    parents.get(e.to)?.push(e.from);
+    allParents.get(e.to)?.push(e.from);
   }
 
-  // Kahn's algorithm for layering
+  // BFS layering — first visit wins (strict execution order)
   const layer = new Map<string, number>();
-  const inDegree = new Map<string, number>();
-  for (const n of nodes) inDegree.set(n.id, parents.get(n.id)?.length || 0);
 
-  const queue: string[] = [];
-  for (const n of nodes) {
-    if (inDegree.get(n.id) === 0) {
-      layer.set(n.id, 0);
-      queue.push(n.id);
-    }
-  }
-  if (queue.length === 0) {
-    // All nodes in a cycle — put first as root
-    layer.set(nodes[0].id, 0);
-    queue.push(nodes[0].id);
-  }
+  // Single root: only the FIRST zero-in-degree node gets layer 0, rest go to layer 1
+  const roots = nodes.filter(n => (allParents.get(n.id)?.length || 0) === 0);
+  if (roots.length === 0) roots.push(nodes[0]);
+  roots.forEach((n, i) => layer.set(n.id, i === 0 ? 0 : 1));
 
+  // BFS layering — first visit wins (strict execution order, shortest path from root)
+  const queue: string[] = [...roots.map(n => n.id)];
+  const visited = new Set(queue);
   while (queue.length > 0) {
     const id = queue.shift()!;
     const currentLayer = layer.get(id) || 0;
     for (const child of children.get(id) || []) {
-      const nd = Math.max(layer.get(child) || 0, currentLayer + 1);
-      layer.set(child, nd);
-      const deg = (inDegree.get(child) || 1) - 1;
-      inDegree.set(child, deg);
-      if (deg === 0 && !queue.includes(child)) queue.push(child);
+      if (!visited.has(child)) {
+        visited.add(child);
+        layer.set(child, currentLayer + 1);
+        queue.push(child);
+      }
+    }
+  }
+  for (const n of nodes) { if (!layer.has(n.id)) layer.set(n.id, 0); }
+
+  // Force all terminal nodes (no outgoing edges) to the bottom layer
+  const termIds = new Set(
+    nodes.filter(n => (children.get(n.id)?.length || 0) === 0).map(n => n.id)
+  );
+  if (termIds.size > 0 && termIds.size < nodes.length) {
+    const maxNonTerminalLayer = Math.max(
+      ...nodes.filter(n => !termIds.has(n.id)).map(n => layer.get(n.id) || 0),
+      0
+    );
+    for (const id of termIds) {
+      layer.set(id, maxNonTerminalLayer + 1);
     }
   }
 
-  // Catch unvisited nodes
-  for (const n of nodes) {
-    if (!layer.has(n.id)) layer.set(n.id, 0);
-  }
+  // Detect back-edges: edge where from-layer >= to-layer (goes up or same level)
+  const backEdges = new Set<number>();
+  const markupEdges = edges.map((e, i) => {
+    const fromL = layer.get(e.from) ?? 0;
+    const toL = layer.get(e.to) ?? 0;
+    if (fromL >= toL) {
+      backEdges.add(i);
+      return { ...e, back: true };
+    }
+    return e;
+  });
 
-  // Group by layer
-  const layerGroups = new Map<number, GraphNode[]>();
+  // Group by layer and calculate dynamic heights
+  const layerGroups = new Map<number, { n: GraphNode; h: number }[]>();
   for (const n of nodes) {
     const l = layer.get(n.id) || 0;
     const g = layerGroups.get(l) || [];
-    g.push(n);
+    g.push({ n, h: calcNodeHeight(n) });
     layerGroups.set(l, g);
   }
 
-  // Assign positions — left to right, top to bottom
-  const layouted: LayoutNode[] = [];
-  const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
+  // Track per-layer max height and cumulative Y
+  const layerMaxH = new Map<number, number>();
+  for (const [l, g] of layerGroups) {
+    layerMaxH.set(l, Math.max(...g.map(x => x.h)));
+  }
 
+  const sortedLayers = [...layerGroups.keys()].sort((a, b) => a - b);
+  const layerY = new Map<number, number>();
+  let yAccum = 0;
   for (const l of sortedLayers) {
-    const group = layerGroups.get(l)!;
+    layerY.set(l, yAccum);
+    yAccum += (layerMaxH.get(l) || 80) + Y_GAP;
+  }
+
+  // Assign positions
+  const layouted: LayoutNode[] = [];
+  for (const [l, group] of layerGroups) {
     const totalW = group.length * (NODE_W + X_GAP) - X_GAP;
     const startX = -totalW / 2;
-    group.forEach((n, i) => {
-      layouted.push({ ...n, x: startX + i * (NODE_W + X_GAP), y: l * (NODE_H + Y_GAP) });
+    const baseY = layerY.get(l) || 0;
+    group.forEach(({ n, h }, i) => {
+      layouted.push({ ...n, x: startX + i * (NODE_W + X_GAP), y: baseY, h });
     });
   }
 
-  return { nodes: layouted, edges };
+  return { nodes: layouted, edges: markupEdges };
 }
 
 /* ══════════════════════════════════════════════════ */
@@ -223,54 +264,66 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
 
         <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
           {/* Edges */}
-          {layouted.edges.map((edge, i) => {
+          {layouted.edges.map((edge: any, i: number) => {
             const from = layouted.nodes.find((n) => n.id === edge.from);
             const to = layouted.nodes.find((n) => n.id === edge.to);
             if (!from || !to) return null;
-            // Chain highlight for edges
             const edgeConnected = selectedNode
-              ? new Set([selectedNode, ...layouted.edges.filter(e => e.from === selectedNode || e.to === selectedNode).flatMap(e => [e.from, e.to])])
+              ? new Set([selectedNode, ...layouted.edges.filter((e: any) => e.from === selectedNode || e.to === selectedNode).flatMap((e: any) => [e.from, e.to])])
               : null;
             const edgeDimmed = edgeConnected && !(edgeConnected.has(edge.from) && edgeConnected.has(edge.to));
 
-            const x1 = from.x + NODE_W / 2;
-            const y1 = from.y + NODE_H;
-            const x2 = to.x + NODE_W / 2;
-            const y2 = to.y;
             const ec = EDGE_COLORS[edge.status] || EDGE_COLORS.existing;
             const isError = edge.status === 'error';
             const isNew = edge.status === 'new';
+            const isBack = edge.back;
+
+            if (isBack) {
+              // Back-edge: loop from right side of source, arc around, enter right side of target
+              const sx = from.x + NODE_W;
+              const sy = from.y + from.h / 2;
+              const tx = to.x + NODE_W;
+              const ty = to.y + to.h / 2;
+              const midX = Math.max(sx, tx) + 50;
+
+              return (
+                <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.15 : 1, transition: 'opacity 0.3s' }}>
+                  <path
+                    d={`M${sx},${sy} C${midX},${sy} ${midX},${ty} ${tx},${ty}`}
+                    fill="none" stroke="#e0556a" strokeWidth={1.5}
+                    strokeDasharray="6,3" opacity={0.6} />
+                  <polygon points={`${tx-6},${ty-4} ${tx-2},${ty} ${tx-6},${ty+4}`}
+                    fill="#e0556a" opacity={0.7} />
+                  <text x={midX - 4} y={(sy + ty) / 2 - 6} textAnchor="end"
+                    fill="#e0556a" fontSize="9" fontFamily="'Segoe UI',sans-serif" opacity={0.6}>
+                    ↩ {edge.label || 'feedback'}
+                  </text>
+                </g>
+              );
+            }
+
+            const x1 = from.x + NODE_W / 2;
+            const y1 = from.y + from.h;
+            const x2 = to.x + NODE_W / 2;
+            const y2 = to.y;
 
             return (
               <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.12 : 1, transition: 'opacity 0.3s' }}>
-                {/* Glow for error/new edges */}
                 {(isError || isNew) && (
                   <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
                     fill="none" stroke={ec} strokeWidth={4} opacity={0.25} />
                 )}
-                {/* Main edge line — orthogonal */}
                 <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
                   fill="none" stroke={ec}
                   strokeWidth={isError || isNew ? 2 : 1.2}
                   strokeDasharray={edge.status === 'removed' ? '6,4' : undefined}
                   opacity={edge.status === 'removed' ? 0.5 : 0.85} />
-                {/* Arrow head */}
                 <polygon
                   points={`${x2-5},${y2-10} ${x2+5},${y2-10} ${x2},${y2-3}`}
                   fill={ec} opacity={0.85} />
-                {/* Edge label — at source node bottom, click to jump to target */}
                 {edge.label && (
-                  <text x={x1 + NODE_W / 2} y={y1 + NODE_H + 16} textAnchor="middle"
-                    fill={ec} fontSize="9" fontFamily="monospace" fontWeight={isError ? 700 : 400}
-                    style={{ cursor: 'pointer' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const target = layouted.nodes.find(n => n.id === edge.to);
-                      if (target) {
-                        onSelectNode(edge.to);
-                        setTransform(t => ({ ...t, x: 300 - target.x * t.scale, y: 100 - target.y * t.scale }));
-                      }
-                    }}>
+                  <text x={(x1+x2)/2} y={(y1+y2)/2 - 6} textAnchor="middle"
+                    fill="#8b949e" fontSize="9" fontFamily="'Segoe UI',sans-serif">
                     {edge.label}
                   </text>
                 )}
@@ -283,17 +336,20 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
             const c = COLORS[node.status] || COLORS.existing;
             const isSelected = selectedNode === node.id;
             const isHovered = hoveredNode === node.id;
-            // Chain highlight: when selected, highlight all connected nodes
             const connected = selectedNode
               ? new Set([selectedNode, ...layouted.edges.filter(e => e.from === selectedNode || e.to === selectedNode).flatMap(e => [e.from, e.to])])
               : null;
             const dimmed = connected ? !connected.has(node.id) : false;
             const isProblem = node.status === 'problem';
-
-            // Wrap detail text to ~5 lines, ~50 chars per line
-            const detailLines = node.detail
-              ? node.detail.match(/.{1,48}/g)?.slice(0, 5) || [node.detail.slice(0, 48)]
-              : [];
+            // Start/end detection
+            const hasIncoming = layouted.edges.some((e: any) => e.to === node.id);
+            const hasOutgoing = layouted.edges.some((e: any) => e.from === node.id);
+            const isStart = !hasIncoming;
+            const isEnd = !hasOutgoing;
+            const labelW = NODE_W - 42;
+            const estPerLine = Math.floor(labelW / 10);
+            const labelLen = Math.ceil(node.label.length / estPerLine);
+            const lineY = node.y + 22;
 
             return (
               <g key={node.id} style={{ cursor: 'pointer', transition: 'opacity 0.2s', opacity: dimmed ? 0.25 : 1 }}
@@ -303,71 +359,114 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
 
                 {/* Problem glow */}
                 {isProblem && (
-                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={NODE_H + 8} rx={10}
+                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={10}
                     fill="none" stroke={c.stroke} strokeWidth={2} opacity={0.2 + (isHovered ? 0.15 : 0)}
                     style={{ transition: 'opacity 0.3s' }} />
                 )}
 
                 {/* Card background */}
-                <rect x={node.x} y={node.y} width={NODE_W} height={NODE_H} rx={8}
+                <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={8}
                   fill={c.fill} stroke={isHovered || isSelected ? c.stroke : c.badge}
                   strokeWidth={isSelected ? 2.5 : isHovered ? 1.8 : 1}
-                  strokeOpacity={isHovered || isSelected ? 1 : 0.5}
-                  style={{ filter: isSelected ? 'brightness(1.2)' : undefined }} />
+                  strokeOpacity={isHovered || isSelected ? 1 : 0.5} />
+
+                {/* Start marker — top-right corner + badge */}
+                {isStart && (
+                  <>
+                    <polygon points={`${node.x+NODE_W},${node.y} ${node.x+NODE_W-26},${node.y} ${node.x+NODE_W},${node.y+26}`}
+                      fill="#4a9eff" opacity={0.95} />
+                    <text x={node.x + NODE_W - 22} y={node.y + 17} fill="#fff" fontSize="11" fontWeight="bold"
+                      fontFamily="sans-serif">▶</text>
+                    <rect x={node.x + NODE_W - 74} y={node.y + 4} width={42} height={18} rx={4}
+                      fill="#4a9eff" opacity={0.15} />
+                    <text x={node.x + NODE_W - 53} y={node.y + 16} textAnchor="middle"
+                      fill="#4a9eff" fontSize="10" fontWeight={700}
+                      fontFamily="'Segoe UI',sans-serif">起点</text>
+                  </>
+                )}
+
+                {/* End marker — full-width bottom bar */}
+                {isEnd && (
+                  <>
+                    <rect x={node.x + 4} y={node.y + node.h - 6} width={NODE_W - 8} height={6} rx={3}
+                      fill="#8b949e" opacity={0.5} />
+                    <rect x={node.x + NODE_W / 2 - 20} y={node.y + node.h - 24} width={40} height={18} rx={4}
+                      fill="#8b949e" opacity={0.15} />
+                    <text x={node.x + NODE_W / 2} y={node.y + node.h - 11} textAnchor="middle"
+                      fill="#8b949e" fontSize="11" fontWeight={700}
+                      fontFamily="'Segoe UI',sans-serif">终点</text>
+                  </>
+                )}
 
                 {/* Left accent bar */}
-                <rect x={node.x} y={node.y + 8} width={3} height={NODE_H - 16} rx={1.5}
+                <rect x={node.x} y={node.y + 8} width={3} height={node.h - 16} rx={1.5}
                   fill={c.badge} opacity={0.8} />
 
                 {/* Status icon */}
-                <text x={node.x + 16} y={node.y + 24} textAnchor="middle"
-                  fill={c.badge} fontSize="13" fontWeight="bold">
-                  {c.icon}
-                </text>
+                <text x={node.x + 16} y={lineY} textAnchor="middle"
+                  fill={c.badge} fontSize="14" fontWeight="bold">{c.icon}</text>
 
-                {/* Label */}
-                <text x={node.x + 34} y={node.y + 24}
-                  fill={c.text} fontSize="13" fontFamily="system-ui, sans-serif" fontWeight={600}>
-                  {node.label.length > 24 ? node.label.slice(0, 23) + '…' : node.label}
-                </text>
+                {/* Label — foreignObject for auto-wrap */}
+                <foreignObject x={node.x + 34} y={lineY - 12} width={NODE_W - 42} height={labelLen * 17 + 2}>
+                  <div style={{
+                    color: c.text, fontSize: 13, fontWeight: 600,
+                    fontFamily: "'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif",
+                    lineHeight: '17px', wordBreak: 'break-word', overflowWrap: 'break-word',
+                    display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}>
+                    {node.label}
+                  </div>
+                </foreignObject>
 
-                {/* Kind tag */}
-                <text x={node.x + 14} y={node.y + 44}
-                  fill={c.badge} fontSize="9" fontFamily="monospace" opacity={0.7}>
-                  {node.kind || ''}
-                </text>
+                {/* Kind */}
+                {node.kind && (
+                  <text x={node.x + 14} y={lineY + labelLen * 16}
+                    fill={c.badge} fontSize="10" fontFamily="'Cascadia Code','JetBrains Mono','Consolas',monospace" opacity={0.7}>{node.kind}</text>
+                )}
 
-                {/* File path */}
+                {/* File */}
                 {node.file && (
-                  <text x={node.x + 14} y={node.y + 56}
-                    fill="#8b949e" fontSize="9" fontFamily="monospace" opacity={0.7}>
-                    {(node.file.length > 34 ? '…' + node.file.slice(-33) : node.file)}{node.line ? `:${node.line}` : ''}
+                  <text x={node.x + 14} y={lineY + labelLen * 16 + (node.kind ? 14 : 0)}
+                    fill="#8b949e" fontSize="10" fontFamily="'Cascadia Code','JetBrains Mono','Consolas',monospace" opacity={0.7}>
+                    {node.file.length > 36 ? '…' + node.file.slice(-35) : node.file}{node.line ? `:${node.line}` : ''}
                   </text>
                 )}
 
-                {/* Detail — multi-line (up to 5 lines) */}
-                {detailLines.map((line, li) => (
-                  <text key={li} x={node.x + 14} y={node.y + 60 + li * 13}
-                    fill="#6e7681" fontSize="10" fontFamily="system-ui, sans-serif">
-                    {line}{li === 4 && detailLines.length > 5 ? '…' : ''}
-                  </text>
-                ))}
+                {/* Detail — foreignObject for auto-wrap */}
+                {node.detail && (
+                  (() => {
+                    const detailY = lineY + labelLen * 16 + (node.kind ? 14 : 0) + (node.file ? 14 : 0);
+                    const detailH = node.h - detailY + node.y - 8;
+                    return (
+                      <foreignObject x={node.x + 14} y={detailY} width={NODE_W - 28} height={detailH}>
+                        <div style={{
+                          color: '#6e7681', fontSize: 11,
+                          fontFamily: "'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif",
+                          lineHeight: '15px', wordBreak: 'break-word', overflowWrap: 'break-word',
+                          overflow: 'hidden',
+                        }}>
+                          {node.detail}
+                        </div>
+                      </foreignObject>
+                    );
+                  })()
+                )}
 
                 {/* Status badge — top right */}
                 {node.status !== 'existing' && (
-                  <rect x={node.x + NODE_W - 58} y={node.y + 8} width={52} height={16} rx={8}
-                    fill={c.badge} opacity={0.2} />
+                  <>
+                    <rect x={node.x + NODE_W - 58} y={node.y + 8} width={52} height={16} rx={8}
+                      fill={c.badge} opacity={0.2} />
+                    <text x={node.x + NODE_W - 32} y={node.y + 19} textAnchor="middle"
+                      fill={c.badge} fontSize="10" fontWeight={700}>
+                      {node.status === 'problem' ? 'ISSUE' :
+                       node.status === 'planned_change' ? 'CHANGE' :
+                       node.status === 'planned_new' ? 'NEW' : 'DONE'}
+                    </text>
+                  </>
                 )}
-                {node.status !== 'existing' && (
-                  <text x={node.x + NODE_W - 32} y={node.y + 19} textAnchor="middle"
-                    fill={c.badge} fontSize="9" fontWeight={700}>
-                    {node.status === 'problem' ? 'ISSUE' :
-                     node.status === 'planned_change' ? 'CHANGE' :
-                     node.status === 'planned_new' ? 'NEW' : 'DONE'}
-                  </text>
-                )}
-
-                </g>
+              </g>
             );
           })}
         </g>
@@ -395,6 +494,14 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
               </div>
             );
           })}
+          {/* Start/End markers */}
+          <div className="w-px h-4 self-center" style={{ background: '#30363d' }}/>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px]" style={{ color: '#4a9eff' }}>▶ 起点</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px]" style={{ color: '#8b949e' }}>━ 终点</span>
+          </div>
           {/* Edge legend */}
           <div className="w-px h-4 self-center" style={{ background: '#30363d' }}/>
           {[
