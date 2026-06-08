@@ -285,7 +285,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
     historyRef.current.push({ role: 'assistant', content: `[Reviewer]
 ${fullText}` });
-    if (passed) {
+    if (review.passed) {
       onPipelineChange({ phase: 'done' });
       setRunning(false);
     } else {
@@ -309,7 +309,7 @@ ${fullText}` });
     pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
     historyRef.current.push({ role: 'assistant', content: `[Reviewer]
 ${fullText}` });
-    if (passed) {
+    if (review.passed) {
       onPipelineChange({ phase: 'done', graph });
       setRunning(false);
     } else {

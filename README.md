@@ -1,67 +1,76 @@
 # CodeAtlas
 
-AI-powered code exploration and editing IDE. Natural language driven, with a 4-agent pipeline that plans, maps, executes, and reviews code changes — all visualized as an interactive call graph.
+AI-powered code exploration and analysis IDE. Natural language driven, with a multi-agent pipeline that plans, maps, and reviews code — visualized as an interactive call graph with annotated change locations.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      Title Bar                               │
-├─────────────────────┬────────────────────────────────────────┤
-│                     │                                        │
-│    Chat Panel       │        Call Graph Canvas               │
-│                     │                                        │
-│  Planner            │     ┌──────────┐                       │
-│    ↓                │     │ main.ts  │ ← 蓝色 = 现有代码     │
-│  Mapper             │     └────┬─────┘                       │
-│    ↓                │          │ calls                       │
-│  Executor           │     ┌────▼─────┐                       │
-│    ↓                │     │ auth.ts  │ ← 红色 = 问题节点     │
-│  Reviewer           │     └──────────┘                       │
-│                     │                                        │
-│  [input] [Send]     │    拖拽 / 缩放 / 点击节点              │
-│                     │                                        │
-└─────────────────────┴────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                         Title Bar                                 │
+├──────────────────────┬───────────────────────────────────────────┤
+│                      │                                           │
+│    Chat Panel        │        Mapper View                        │
+│                      │                                           │
+│  Planner             │  ┌─ TitleBar.tsx ───────────────────┐    │
+│    ↓                 │  │ onClick → action('close')          │    │
+│  Mapper              │  └────────────┬──────────────────────┘    │
+│    ↓                 │               │ IPC invoke                 │
+│  Reviewer            │  ┌────────────▼──────────────────────┐    │
+│                      │  │ ipcMain.handle('window:close')    │    │
+│  ↻ retry on fail    │  │ 🔴 调用 app.quit() 跳过生命周期  │    │
+│                      │  └───────────────────────────────────┘    │
+│  PlanCard            │                                           │
+│  ReviewCard          │  点击节点 → 右侧详情面板                   │
+│                      │  拖拽 / 缩放 / 树形展开                    │
+│  [input] [Send]      │                                           │
+│                      │                                           │
+└──────────────────────┴───────────────────────────────────────────┘
 ```
 
 ## Agent Pipeline
 
-Four specialized agents work independently, each with its own LLM call and context:
+Multiple specialized agents, each with its own LLM context. Tool execution is handled entirely by the backend — frontend sends one request per agent and streams results.
 
-| Agent | Role | Tools |
-|-------|------|-------|
-| **Planner** | Reads code, analyzes structure, creates execution plan | read_file, list_dir |
-| **Mapper** | Takes the plan, reads code, draws the call graph | read_file, list_dir |
-| **Executor** | Executes plan steps — edits code, runs commands | read_file, write_file, run_shell |
-| **Reviewer** | Reviews execution against plan and user intent | read_file |
+| Agent | Role | Status Annotations |
+|-------|------|--------------------|
+| **Planner** | Explores codebase, creates structured execution plan | Identifies problems, key files, and dependencies |
+| **Mapper** | Traces call chains, draws annotated call graph | `existing` / `problem` / `planned_change` / `planned_new` |
+| **Reviewer** | Validates analysis against plan and code evidence | Pass → Done / Fail → Retry Planner |
 
-**Flow**: `User Input → Planner → Mapper → Executor → Reviewer`
-- Reviewer passes → Done ✓
-- Reviewer rejects → Back to Planner with feedback ↻
+**Flow**: `User Input → Planner → Mapper → Reviewer`
+- Planner reads code, outputs structured plan (JSON)
+- Mapper traces relevant call chains, draws annotated graph with change locations
+- Reviewer validates findings — passes or sends back to Planner with feedback ↻
+- Executor (`runExecutor`) is reserved for manual execution trigger (coming soon)
 
-Each agent has its own system prompt and does not share conversation context. Data is passed between agents as structured output (plan JSON → call graph JSON → execution results → review).
+Each agent uses the backend tool loop — the LLM outputs file operations, the backend executes them server-side, and feeds results back. Multiple tool-calling rounds are transparent to the frontend.
 
 ## Call Graph
 
-The **Mapper agent** produces a Node-Link Graph rendered on the canvas:
+The **Mapper agent** produces an annotated call graph displayed in the right panel:
 
-- 🔵 **Blue** — existing code nodes
-- 🔴 **Red** — problem locations
-- 🟡 **Yellow** — planned changes
-- 🟢 **Green** — new additions
+- ◈ **Blue** — existing code nodes (normal flow)
+- ✕ **Red** — problem locations (bugs, bad patterns)
+- ✎ **Yellow** — planned changes (what needs modification)
+- \+ **Green** — new additions (new files/functions)
 
-Edges show call relationships (calls, imports, returns). The graph updates in real-time as the Executor and Reviewer progress.
+**Node cards** show: status icon, label, file path, detail description, and status badge (ISSUE/CHANGE/NEW).
+
+**Edges** show: call relationships with labels (IPC invoke, calls, imports), colored by status — existing (blue-gray), new (green), error (red).
+
+**Two views**: Tree view for hierarchical call chain navigation, and detail panel on node click for full file path and description.
 
 ## Features
 
-- **4-Agent Pipeline** — Planner plans, Mapper draws, Executor runs, Reviewer checks
-- **Call Graph Visualization** — Interactive SVG node-link diagram, pan/zoom, click for details
+- **Multi-Agent Pipeline** — Planner → Mapper → Reviewer, with fail-retry loop
+- **Server-Side Tool Execution** — LLM tools (read, write, search, shell) executed by backend, one request per agent
+- **Call Graph Visualization** — SVG node-link diagram with status annotations, tree view, node detail panel
 - **SSE Streaming** — All agent responses stream token-by-token with reasoning support
-- **File Operations** — Read, edit, insert, replace, delete files via natural language
-- **Shell Execution** — Agent runs build/test commands, feeds output back for analysis
+- **10 File Operations** — list_dir, read_file, search, insert_lines, replace_lines, delete_lines, create_file, delete_file, run_shell
+- **Plan & Review Cards** — Structured display of Planner output and Reviewer pass/fail verdicts
 - **Settings Panel** — Configure LLM endpoint, API key, and model from the UI
-- **Dark Theme** — IBM Carbon-inspired design system
-- **Custom Title Bar** — Frameless window with window controls
+- **Dark Theme** — GitHub-inspired design system (IBM Carbon base)
+- **Custom Title Bar** — Frameless window with native controls
 
 ## Tech Stack
 
@@ -69,7 +78,7 @@ Edges show call relationships (calls, imports, returns). The graph updates in re
 - **Backend**: Express (embedded in Electron main process), better-sqlite3, OpenAI SDK
 - **Build**: vite-plugin-electron
 
-No external Python process — everything runs in a single Electron application.
+Everything runs in a single Electron application — no external processes.
 
 ## Quick Start
 
@@ -87,7 +96,7 @@ npm install
 
 ### Configure LLM
 
-Click the ⚙️ gear icon in the toolbar to set your API key, base URL, and model — or create a `.env` file:
+Create a `.env` file in the project root:
 
 ```bash
 cp .env.example .env
@@ -99,6 +108,8 @@ CODEATLAS_LLM_BASE_URL=https://api.openai.com/v1
 CODEATLAS_LLM_MODEL=gpt-4o
 ```
 
+Or use the ⚙️ gear icon in the toolbar to configure from the UI.
+
 ### Run
 
 ```bash
@@ -106,15 +117,14 @@ cd frontend
 npm run electron:dev
 ```
 
-Or on Windows, double-click `start.bat`.
+On Windows, double-click `start.bat`.
 
 ## Project Data
 
-Analysis data is stored in `.codeatlas/` inside your project directory:
-
 | Path | Purpose |
 |------|---------|
-| `.codeatlas/codeatlas.db` | SQLite database (feature graph, change queue, meta) |
+| `.codeatlas/backups/` | File backups before edits (with meta.json) |
+| `.codeatlas-logs/` | Shell execution logs |
 
 ## License
 
