@@ -17,6 +17,7 @@ router.post('/chat', async (req, res) => {
 /* ── Streaming chat (SSE) ── */
 
 router.post('/chat/stream', async (req, res) => {
+  console.log(`[route /chat/stream] mode=${req.body?.mode} project_path=${(req.body?.project_path || '').slice(-30)}`);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -56,7 +57,10 @@ router.post('/plan/stream', async (req, res) => {
   res.flushHeaders();
 
   try {
-    for await (const ev of agentService.planStream(req.body.instruction || '')) {
+    for await (const ev of agentService.planStream(
+      req.body.instruction || '',
+      req.body.project_path || '',
+    )) {
       if (res.destroyed) break;
       res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
     }
@@ -77,7 +81,10 @@ router.post('/step/stream', async (req, res) => {
   res.flushHeaders();
 
   try {
-    for await (const ev of agentService.runSubAgent(req.body.task || '', req.body.step_id || 0)) {
+    for await (const ev of agentService.runSubAgent(
+      req.body.task || '',
+      req.body.step_id || 0,
+    )) {
       if (res.destroyed) break;
       res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
     }

@@ -40,7 +40,6 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Array<{ role: string; content: string }>>([]);
-  const plannerUsedTools = useRef(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -76,19 +75,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
         if (et === 'token') { full += ed; onToken(ed); }
         else if (et === 'tools') { try { onTools?.(JSON.parse(ed)); } catch {} }
         else if (et === 'done') { try { finalMessage = JSON.parse(ed).message || ''; } catch {} }
-}
-    }
-    // 处理 buf 中残留的最后一个 SSE 事件
-    if (buf.trim()) {
-      const lines = buf.trim().split('\n');
-      let et = '', ed = '';
-      for (const l of lines) {
-        if (l.startsWith('event: ')) et = l.slice(7);
-        else if (l.startsWith('data: ')) ed = l.slice(6);
       }
-      if (et === 'token') { full += ed; onToken(ed); }
-      else if (et === 'tools') { try { onTools?.(JSON.parse(ed)); } catch {} }
-      else if (et === 'done') { try { finalMessage = JSON.parse(ed).message || ''; } catch {} }
     }
     return { text: finalMessage || full };
   };
@@ -136,7 +123,6 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       });
     }, (toolInfo) => {
       // Tool events: show what the backend is executing
-      if (agent === 'planner') plannerUsedTools.current = true;
       for (const op of toolInfo.ops || []) {
         setTimeline((prev) => [...prev, {
           kind: 'tool', agent,
@@ -157,14 +143,56 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   const runPlanner = async (instruction: string) => {
     if (!projectPath) return;
     setRunning(true);
-    plannerUsedTools.current = false;
     abortRef.current = new AbortController();
     const hist = [...historyRef.current, { role: 'user', content: instruction }];
 
     pushTimeline({ kind: 'agent-start', agent: 'planner' });
     onPipelineChange({ phase: 'planning' });
 
-    const { fullText } = await agentLoop('planner', '', '',
+    const { fullText } = await agentLoop('planner',
+      `【角色: Planner / 技术架构师】
+
+你是项目的技术架构师，你的职责是：
+1. 深入理解用户需求——用户想要什么效果？涉及哪些模块？
+2. 探索现有代码——用 read_file、list_dir、search 充分了解项目结构和相关实现
+3. 制定可执行的详细计划——每个步骤必须具体、可验证、有明确的文件路径和改动范围
+
+【探索规则】
+- 阅读与需求相关的上下文代码，充分理解调用链和影响范围后再输出计划
+- 先看入口文件（index.ts/main.ts/App.tsx），再追溯调用链
+- 搜索与需求相关的关键词，确认所有影响范围
+- 如果项目结构不清楚，先用 list_dir 了解目录布局
+- 读文件时先用默认行数，如果关键逻辑在文件后半部分，再指定行号读取
+
+【计划要求】
+- steps 数量 3-8 个，按依赖关系排序
+- 每个步骤必须包含：具体文件路径、改动方式（新增/修改/删除）、改动范围
+- 如果步骤之间有依赖（比如必须先改 A 才能改 B），用 deps 标注
+- key_files 列出所有受影响的文件，给 Mapper 提供准确的调用链入口
+- notes 给 Mapper 补充关键信息：哪些函数调用关系需要重点绘制、边界情况
+
+【输出格式】严格按以下 JSON 格式输出，放在 \`\`\`json 代码块中：
+\`\`\`json
+{
+  "plan_summary": "一句话概述整个计划，如：修复 TitleBar 关闭按钮的 IPC 调用链路",
+  "needs_execution": true,
+  "steps": [
+    {
+      "id": 1,
+      "title": "步骤标题，如：修复 preload.cjs 的 closeWindow 方法",
+      "description": "具体操作细节，如：在 electron/preload.cjs 第48行，将 closeWindow 改为直接调用 window.close",
+      "file": "electron/preload.cjs",
+      "deps": []
+    }
+  ],
+  "key_files": ["electron/main.ts", "electron/preload.cjs", "frontend/src/components/TitleBar.tsx"],
+  "notes": "给 Mapper 的备注：调用链为 TitleBar.onClick → preload.closeWindow → main.ipcMain.handle('window:close')，重点验证 IPC 通道是否注册正确"
+}
+\`\`\`
+
+不需要执行时 needs_execution 为 false，steps 为空数组，notes 改为说明为什么不需要执行。
+你只能读取代码，不能修改任何文件。`,
+      `用户需求: ${instruction}`,
       (text) => !!(parseJson(text)?.plan_summary), false, hist);
 
     const plan = parseJson(fullText);
@@ -173,17 +201,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     historyRef.current = hist;
     pushTimeline({ kind: 'plan', agent: 'planner', plan: plan || { plan_summary: fullText } });
 
-    // Check if Planner actually used tools — use ref since timeline state may be stale
-    const didReadFiles = plannerUsedTools.current;
-
-    if (!didReadFiles) {
-      pushTimeline({ kind: 'system', text: '📖 Planner 未读取文件，跳过后续验证' });
-      onPipelineChange({ phase: 'done' });
-      setRunning(false);
-      return;
-    }
-
-    // Always run Mapper — it decides whether to draw or skip
+    // Always run Mapper — Planner's analysis is context enough even without JSON
     await runMapper(instruction, plan, fullText);
   };
 
@@ -244,15 +262,17 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       console.log(`[Mapper] Graph ready: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
       console.log(`[Mapper] First node:`, JSON.stringify(graph.nodes[0]));
       pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
-      // Save context for execute-on-demand
       flushSync(() => onPipelineChange({ phase: 'planning', graph }));
       console.log(`[Mapper] onPipelineChange called with graph (flushSync)`);
-      // Don't auto-execute — user reviews the map first, then clicks execute
-      await runReviewOnly(instruction, plannerText || '', plan);
+      if (plan?.needs_execution && plan?.steps?.length > 0) {
+        await runExecutor(instruction, plan, graph);
+      } else {
+        await runReviewOnly(instruction, plannerText || '', plan);
+      }
     } else {
-      // Mapper skipped or no valid graph — still run Reviewer
-      console.log(`[Mapper] Skipped or no call_graph, running reviewer`);
-      await runReviewOnly(instruction, plannerText || '', plan);
+      console.log(`[Mapper] No valid call_graph, skipping to done`);
+      onPipelineChange({ phase: 'done', graph: null });
+      setRunning(false);
     }
   };
 
@@ -281,19 +301,11 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       `【需求】${instruction}\n【Planner输出】${plannerText}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}`,
       () => false, false);
 
-    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
-    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
-    historyRef.current.push({ role: 'assistant', content: `[Reviewer]
-${fullText}` });
-    if (passed) {
-      onPipelineChange({ phase: 'done' });
-      setRunning(false);
-    } else {
-      // FAILED → retry Planner, append to existing timeline
-      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
-      setRunning(false);
-      setTimeout(() => runPlanner(instruction), 500);
-    }
+    const passed = /PASSED/i.test(fullText) && !/FAILED/i.test(fullText);
+    pushTimeline({ kind: 'review', agent: 'reviewer', passed, feedback: fullText, issues: [] });
+    onPipelineChange({ phase: passed ? 'done' : 'rejected' });
+    historyRef.current.push({ role: 'assistant', content: passed ? `✓ Passed` : `✗ Rejected` });
+    setRunning(false);
   };
 
   /* ════ Reviewer (with execution) ════ */
@@ -301,22 +313,15 @@ ${fullText}` });
     pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
     onPipelineChange({ phase: 'reviewing', graph });
 
-    const { fullText } = await agentLoop('reviewer_exec', '',
+    const { fullText } = await agentLoop('reviewer', '',
       `【需求】${instruction}\n【计划】${JSON.stringify(plan.steps || [])}\n【关键文件】${(plan.key_files || []).join(', ')}\n【执行输出】${execText}`,
       () => false, false);
 
-    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
-    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
-    historyRef.current.push({ role: 'assistant', content: `[Reviewer]
-${fullText}` });
-    if (passed) {
-      onPipelineChange({ phase: 'done', graph });
-      setRunning(false);
-    } else {
-      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
-      setRunning(false);
-      setTimeout(() => runPlanner(instruction), 500);
-    }
+    const passed = /PASSED/i.test(fullText) && !/FAILED/i.test(fullText);
+    pushTimeline({ kind: 'review', agent: 'reviewer', passed, feedback: fullText, issues: [] });
+    onPipelineChange({ phase: passed ? 'done' : 'rejected', graph });
+    historyRef.current.push({ role: 'assistant', content: passed ? `✓ Passed` : `✗ Rejected` });
+    setRunning(false);
   };
 
   /* ════ Send ════ */
@@ -407,12 +412,10 @@ ${fullText}` });
               {entry.kind === 'graph' && (
                 <div className="flex gap-3 pb-3">
                   <span className="w-[15px] shrink-0" />
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] tracking-wide" style={{ color: AG.mapper.color }}>
-                      Call graph &nbsp;
-                      <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
-                    </span>
-                  </div>
+                  <span className="text-[11px] tracking-wide" style={{ color: AG.mapper.color }}>
+                    Call graph &nbsp;
+                    <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
+                  </span>
                 </div>
               )}
 
@@ -433,11 +436,7 @@ ${fullText}` });
             className="flex-1 py-1 text-sm bg-transparent outline-none resize-none min-h-[44px] focus:outline-none focus:ring-0"
             style={{ fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)' }}
             onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault(); handleSend();
-                }
-              }}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
           />
           <div className="flex items-center gap-2 shrink-0">
             {running ? (

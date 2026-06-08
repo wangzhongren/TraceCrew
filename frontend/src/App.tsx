@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import ChatPanel from './components/ChatPanel';
-import MapCanvas from './components/MapCanvas';
+import MapperView from './components/MapperView';
 import type { CallGraph } from './components/MapCanvas';
 import TitleBar from './components/TitleBar';
 import SettingsPanel from './components/SettingsPanel';
@@ -13,6 +13,7 @@ export interface PipelineState {
 export default function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null });
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const updatePipeline = useCallback((update: Partial<PipelineState>) => {
     setPipeline(prev => ({ ...prev, ...update }));
   }, []);
@@ -73,9 +74,16 @@ export default function App() {
               style={{ width: 420, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
               <ChatPanel projectPath={projectPath} onPipelineChange={updatePipeline} />
             </aside>
-            {/* Right: Call Graph */}
-            <main className="flex-1 overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
-              <MapCanvas graph={pipeline.graph} phase={pipeline.phase} />
+            {/* Right: Call Graph + Detail */}
+            <main className="flex-1 flex overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
+              <div className="flex-1 overflow-hidden">
+                <MapperView
+                  graph={pipeline.graph}
+                  phase={pipeline.phase}
+                  selectedNode={selectedNode}
+                  onSelectNode={setSelectedNode}
+                />
+              </div>
             </main>
           </>
         ) : (

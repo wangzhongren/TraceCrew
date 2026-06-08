@@ -20,9 +20,9 @@ deleteFile: (filePath) => ipcRenderer.invoke('file:deleteFile', filePath),
     getProjectPath: () => ipcRenderer.invoke('file:getProjectPath'),
     onProjectOpened: (cb) => {
       ipcRenderer.on('project:opened', (_e, p) => cb(p));
-shell: {
-    run: (command) => ipcRenderer.invoke('shell:run', command),
-    kill: (id) => ipcRenderer.send('shell:kill', id),
+    },
+  },
+  shell: {
     run: (command) => ipcRenderer.sendSync('shell:run', command),
     kill: (id) => ipcRenderer.send('shell:kill', id),
     getLogFile: (id) => ipcRenderer.invoke('shell:getLogFile', id),

@@ -10,11 +10,26 @@ export default defineConfig({
     electron([
       {
         entry: path.resolve(__dirname, '..', 'electron', 'main.ts'),
+        onstart(args) { args.startup(); },
+        vite: {
+          build: {
+            outDir: 'dist-electron',
+            sourcemap: true,
+            rollupOptions: {
+              external: ['electron', 'better-sqlite3', 'express', 'cors', 'openai', 'dotenv'],
+            },
+          },
+        },
+      },
+      {
+        entry: path.resolve(__dirname, '..', 'electron', 'preload.ts'),
+        onstart(args) { args.reload(); },
         vite: {
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'better-sqlite3', 'express', 'cors', 'openai', 'dotenv'],
+              external: ['electron'],
+              output: { entryFileNames: 'preload.mjs' },
             },
           },
         },

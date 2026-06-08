@@ -117,23 +117,23 @@ function registerIpcHandlers(): void {
     return restoreBackup(projectPath, backupId);
   });
 
-// Shell execution — streaming via event
-  ipcMain.handle('shell:run', (_event, command: string) => {
+  // Shell execution — streaming via event
+  ipcMain.on('shell:run', (event, command: string) => {
     const cwd = projectPath || process.cwd();
     let shellId = '';
     shellId = runShell(
       command, cwd,
       (data) => {
-        mainWindow?.webContents.send('shell:data', { id: shellId, data });
+        event.sender.send('shell:data', { id: shellId, data });
       },
       (code) => {
-        mainWindow?.webContents.send('shell:done', { id: shellId, code });
+        event.sender.send('shell:done', { id: shellId, code });
       },
       (err) => {
-        mainWindow?.webContents.send('shell:error', { id: shellId, error: err });
+        event.sender.send('shell:error', { id: shellId, error: err });
       },
     );
-    return shellId;
+    event.returnValue = shellId;
   });
 
   ipcMain.on('shell:kill', (_e, id: string) => {
@@ -150,9 +150,20 @@ function registerIpcHandlers(): void {
 }
 
 function getPreloadPath(): string {
-  const path = join(__dirname, 'preload.mjs');
-  console.log('[main] preload path:', path);
-  return path;
+  const candidates = [
+    join(__dirname, 'preload.cjs'),
+    join(__dirname, '..', '..', 'electron', 'preload.cjs'),
+    join(__dirname, 'preload.js'),
+    join(__dirname, 'preload.mjs'),
+  ];
+  console.log('[main] preload candidates:', candidates);
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      console.log('[main] using preload:', c);
+      return c;
+    }
+  }
+  return candidates[0];
 }
 
 function createWindow(): void {

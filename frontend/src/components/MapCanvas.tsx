@@ -29,22 +29,25 @@ export interface CallGraph {
 interface Props {
   graph: CallGraph | null;
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
+  selectedNode: string | null;
+  onSelectNode: (id: string | null) => void;
 }
 
 /* ── Color palette ── */
 const COLORS: Record<string, { fill: string; stroke: string; badge: string; text: string; icon: string }> = {
-  existing:       { fill: '#1a1f2e', stroke: '#5a8fd4', badge: '#5a8fd4', text: '#c8d6e5', icon: '⬡' },
-  problem:        { fill: '#2e1a1a', stroke: '#e0556a', badge: '#e0556a', text: '#f0c0c5', icon: '✕' },
-  planned_change: { fill: '#292614', stroke: '#e0b830', badge: '#e0b830', text: '#f0e0b0', icon: '✎' },
-  planned_new:    { fill: '#0f291a', stroke: '#3db86c', badge: '#3db86c', text: '#b8e6cc', icon: '+' },
-  done:           { fill: '#0f291a', stroke: '#3db86c', badge: '#3db86c', text: '#b8e6cc', icon: '✓' },
+  existing:       { fill: '#0f1923', stroke: '#4a9eff', badge: '#4a9eff', text: '#b8d4f8', icon: '◈' },
+  problem:        { fill: '#2a1015', stroke: '#ff4444', badge: '#ff4444', text: '#fcc5c5', icon: '✕' },
+  planned_change: { fill: '#1f1a08', stroke: '#f0c000', badge: '#f0c000', text: '#fae8a0', icon: '✎' },
+  planned_new:    { fill: '#0a1f12', stroke: '#22c55e', badge: '#22c55e', text: '#a0f0c0', icon: '+' },
+  done:           { fill: '#0a1f12', stroke: '#22c55e', badge: '#22c55e', text: '#a0f0c0', icon: '✓' },
+  dim:            { fill: '#0a0d10', stroke: '#1a2a3a', badge: '#1a2a3a', text: '#3a4a5a', icon: '⬡' },
 };
 
 const EDGE_COLORS: Record<string, string> = {
-  existing: '#4a5568',
-  new: '#3db86c',
-  removed: '#e0556a',
-  error: '#e0556a',
+  existing: '#3a5a8c',
+  new: '#22c55e',
+  removed: '#ff4444',
+  error: '#ff4444',
 };
 
 /* ── Dagre-like layered layout ── */
@@ -52,8 +55,8 @@ interface LayoutNode extends GraphNode {
   x: number; y: number;
 }
 
-const NODE_W = 220, NODE_H = 72;
-const X_GAP = 48, Y_GAP = 96;
+const NODE_W = 280, NODE_H = 120;
+const X_GAP = 56, Y_GAP = 130;
 
 function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[] } {
   const { nodes, edges } = graph;
@@ -133,13 +136,12 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: GraphEdge[
 
 /* ══════════════════════════════════════════════════ */
 
-export default function MapCanvas({ graph, phase }: Props) {
+export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ x: 60, y: 40, scale: 1 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
   const layouted = useMemo(
@@ -151,7 +153,7 @@ export default function MapCanvas({ graph, phase }: Props) {
   useEffect(() => {
     if (!graph || graph.nodes.length === 0) return;
     setTransform({ x: 60, y: 40, scale: 0.85 });
-    setSelectedNode(null);
+    onSelectNode(null);
   }, [graph]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -225,6 +227,11 @@ export default function MapCanvas({ graph, phase }: Props) {
             const from = layouted.nodes.find((n) => n.id === edge.from);
             const to = layouted.nodes.find((n) => n.id === edge.to);
             if (!from || !to) return null;
+            // Chain highlight for edges
+            const edgeConnected = selectedNode
+              ? new Set([selectedNode, ...layouted.edges.filter(e => e.from === selectedNode || e.to === selectedNode).flatMap(e => [e.from, e.to])])
+              : null;
+            const edgeDimmed = edgeConnected && !(edgeConnected.has(edge.from) && edgeConnected.has(edge.to));
 
             const x1 = from.x + NODE_W / 2;
             const y1 = from.y + NODE_H;
@@ -235,7 +242,7 @@ export default function MapCanvas({ graph, phase }: Props) {
             const isNew = edge.status === 'new';
 
             return (
-              <g key={`e${i}`}>
+              <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.12 : 1, transition: 'opacity 0.3s' }}>
                 {/* Glow for error/new edges */}
                 {(isError || isNew) && (
                   <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
@@ -251,11 +258,20 @@ export default function MapCanvas({ graph, phase }: Props) {
                 <polygon
                   points={`${x2-5},${y2-10} ${x2+5},${y2-10} ${x2},${y2-3}`}
                   fill={ec} opacity={0.85} />
-                {/* Edge label */}
+                {/* Edge label — at source node bottom, click to jump to target */}
                 {edge.label && (
-                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle"
-                    fill="#8b949e" fontSize="10" fontFamily="monospace" fontWeight={isError ? 700 : 400}>
-                    <tspan fill={isError ? '#e0556a' : '#8b949e'}>{edge.label}</tspan>
+                  <text x={x1 + NODE_W / 2} y={y1 + NODE_H + 16} textAnchor="middle"
+                    fill={ec} fontSize="9" fontFamily="monospace" fontWeight={isError ? 700 : 400}
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const target = layouted.nodes.find(n => n.id === edge.to);
+                      if (target) {
+                        onSelectNode(edge.to);
+                        setTransform(t => ({ ...t, x: 300 - target.x * t.scale, y: 100 - target.y * t.scale }));
+                      }
+                    }}>
+                    {edge.label}
                   </text>
                 )}
               </g>
@@ -267,12 +283,21 @@ export default function MapCanvas({ graph, phase }: Props) {
             const c = COLORS[node.status] || COLORS.existing;
             const isSelected = selectedNode === node.id;
             const isHovered = hoveredNode === node.id;
-            const dimmed = selectedNode && !isSelected;
+            // Chain highlight: when selected, highlight all connected nodes
+            const connected = selectedNode
+              ? new Set([selectedNode, ...layouted.edges.filter(e => e.from === selectedNode || e.to === selectedNode).flatMap(e => [e.from, e.to])])
+              : null;
+            const dimmed = connected ? !connected.has(node.id) : false;
             const isProblem = node.status === 'problem';
+
+            // Wrap detail text to ~5 lines, ~50 chars per line
+            const detailLines = node.detail
+              ? node.detail.match(/.{1,48}/g)?.slice(0, 5) || [node.detail.slice(0, 48)]
+              : [];
 
             return (
               <g key={node.id} style={{ cursor: 'pointer', transition: 'opacity 0.2s', opacity: dimmed ? 0.25 : 1 }}
-                onClick={() => setSelectedNode(isSelected ? null : node.id)}
+                onClick={() => onSelectNode(isSelected ? null : node.id)}
                 onMouseEnter={() => setHoveredNode(node.id)}
                 onMouseLeave={() => setHoveredNode(null)}>
 
@@ -300,27 +325,33 @@ export default function MapCanvas({ graph, phase }: Props) {
                   {c.icon}
                 </text>
 
-                {/* Label — 16 chars max, 13px font */}
+                {/* Label */}
                 <text x={node.x + 34} y={node.y + 24}
                   fill={c.text} fontSize="13" fontFamily="system-ui, sans-serif" fontWeight={600}>
-                  {node.label.length > 16 ? node.label.slice(0, 15) + '…' : node.label}
+                  {node.label.length > 24 ? node.label.slice(0, 23) + '…' : node.label}
                 </text>
 
-                {/* File path — below label */}
+                {/* Kind tag */}
+                <text x={node.x + 14} y={node.y + 44}
+                  fill={c.badge} fontSize="9" fontFamily="monospace" opacity={0.7}>
+                  {node.kind || ''}
+                </text>
+
+                {/* File path */}
                 {node.file && (
-                  <text x={node.x + 34} y={node.y + 42}
-                    fill="#8b949e" fontSize="10" fontFamily="monospace" opacity={0.8}>
-                    {node.file.length > 28 ? '…' + node.file.slice(-27) : node.file}
+                  <text x={node.x + 14} y={node.y + 56}
+                    fill="#8b949e" fontSize="9" fontFamily="monospace" opacity={0.7}>
+                    {(node.file.length > 34 ? '…' + node.file.slice(-33) : node.file)}{node.line ? `:${node.line}` : ''}
                   </text>
                 )}
 
-                {/* Detail — bottom of card */}
-                {node.detail && (
-                  <text x={node.x + 16} y={node.y + NODE_H - 16}
+                {/* Detail — multi-line (up to 5 lines) */}
+                {detailLines.map((line, li) => (
+                  <text key={li} x={node.x + 14} y={node.y + 60 + li * 13}
                     fill="#6e7681" fontSize="10" fontFamily="system-ui, sans-serif">
-                    {node.detail.length > 32 ? node.detail.slice(0, 31) + '…' : node.detail}
+                    {line}{li === 4 && detailLines.length > 5 ? '…' : ''}
                   </text>
-                )}
+                ))}
 
                 {/* Status badge — top right */}
                 {node.status !== 'existing' && (
@@ -336,28 +367,7 @@ export default function MapCanvas({ graph, phase }: Props) {
                   </text>
                 )}
 
-                {/* Selected detail popup */}
-                {isSelected && (
-                  <g>
-                    <rect x={node.x + NODE_W + 12} y={node.y} width={210} height={NODE_H}
-                      rx={6} fill="#161b22" stroke={c.stroke} strokeWidth={1} opacity={0.95} />
-                    <text x={node.x + NODE_W + 22} y={node.y + 20}
-                      fill={c.text} fontSize="12" fontWeight={600}>
-                      {node.kind}
-                    </text>
-                    <text x={node.x + NODE_W + 22} y={node.y + 38}
-                      fill="#8b949e" fontSize="11">
-                      {node.detail?.slice(0, 55)}
-                    </text>
-                    {node.file && (
-                      <text x={node.x + NODE_W + 22} y={node.y + 56}
-                        fill="#6e7681" fontSize="10" fontFamily="monospace">
-                        {node.file.length > 32 ? '…' + node.file.slice(-31) : node.file}
-                      </text>
-                    )}
-                  </g>
-                )}
-              </g>
+                </g>
             );
           })}
         </g>

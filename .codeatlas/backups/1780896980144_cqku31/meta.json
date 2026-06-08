@@ -1,0 +1,6 @@
+{
+  "id": "1780896980144_cqku31",
+  "operation": "replace_lines",
+  "file": "electron/preload.cjs",
+  "createdAt": "2026-06-08T05:36:20.145Z"
+}
