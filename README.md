@@ -13,9 +13,9 @@ AI-powered code exploration and analysis IDE. Natural language driven, with a mu
 │                      │                                           │
 │  Planner             │  ┌─ TitleBar.tsx ───────────────────┐    │
 │    ↓                 │  │ onClick → action('close')          │    │
-│  Mapper              │  └────────────┬──────────────────────┘    │
-│    ↓                 │               │ IPC invoke                 │
-│  Reviewer            │  ┌────────────▼──────────────────────┐    │
+│  Reviewer            │  └────────────┬──────────────────────┘    │
+│    ↓ (pass)          │               │ IPC invoke                 │
+│  Mapper              │  ┌────────────▼──────────────────────┐    │
 │                      │  │ ipcMain.handle('window:close')    │    │
 │  ↻ retry on fail    │  │ 🔴 调用 app.quit() 跳过生命周期  │    │
 │                      │  └───────────────────────────────────┘    │
@@ -35,12 +35,12 @@ Multiple specialized agents, each with its own LLM context. Tool execution is ha
 |-------|------|--------------------|
 | **Planner** | Explores codebase, creates structured execution plan | Identifies problems, key files, and dependencies |
 | **Mapper** | Traces call chains, draws annotated call graph | `existing` / `problem` / `planned_change` / `planned_new` |
-| **Reviewer** | Validates analysis against plan and code evidence | Pass → Done / Fail → Retry Planner |
+| **Reviewer** | Validates Planner's analysis against code evidence | Pass → Mapper / Fail → Retry Planner |
 
-**Flow**: `User Input → Planner → Mapper → Reviewer`
+**Flow**: `User Input → Planner → Reviewer → Mapper`
 - Planner reads code, outputs structured plan (JSON)
-- Mapper traces relevant call chains, draws annotated graph with change locations
-- Reviewer validates findings — passes or sends back to Planner with feedback ↻
+- Reviewer validates the plan against real code — passes or sends back to Planner with feedback ↻
+- Mapper traces relevant call chains, draws annotated graph with change locations (only after plan is approved)
 - Executor (`runExecutor`) is reserved for manual execution trigger (coming soon)
 
 Each agent uses the backend tool loop — the LLM outputs file operations, the backend executes them server-side, and feeds results back. Multiple tool-calling rounds are transparent to the frontend.

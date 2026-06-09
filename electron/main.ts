@@ -42,7 +42,7 @@ function registerIpcHandlers(): void {
     if (mainWindow?.isMaximized()) { mainWindow?.unmaximize(); }
     else { mainWindow?.maximize(); }
   });
-  ipcMain.handle('window:close', () => app.quit());
+ipcMain.handle('window:close', () => mainWindow?.close());
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
 
   ipcMain.handle('window:openTerminal', (_e, path?: string | null) => {

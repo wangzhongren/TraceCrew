@@ -152,6 +152,11 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   /* ── Helpers ── */
   const pushTimeline = (e: TimelineEntry) => setTimeline((p) => [...p, e]);
 
+  /* ════ Pipeline Flow ════
+     Planner → Reviewer (validates plan) → Mapper (draws graph)
+     If Reviewer fails → retry Planner
+     ═══════════════════════════════════════════ */
+
   /* ════ Planner ════ */
   const runPlanner = async (instruction: string) => {
     if (!projectPath) return;
@@ -172,7 +177,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     historyRef.current = hist;
     pushTimeline({ kind: 'plan', agent: 'planner', plan: plan || { plan_summary: fullText } });
 
-    // Check if Planner actually used tools — use ref since timeline state may be stale
+    // Check if Planner actually used tools
     const didReadFiles = plannerUsedTools.current;
 
     if (!didReadFiles) {
@@ -182,124 +187,57 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       return;
     }
 
-    // Always run Mapper — it decides whether to draw or skip
-    await runMapper(instruction, plan, fullText);
+    // Step 2: Reviewer validates the Plan BEFORE drawing the graph
+    await runReviewPlan(instruction, fullText, plan);
   };
 
-  /* ════ Mapper ════ */
+  /* ════ Reviewer (validates Plan only) ════ */
+  const runReviewPlan = async (instruction: string, plannerText: string, plan: any) => {
+    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
+
+    const { fullText } = await agentLoop('reviewer', '',
+      `【需求】${instruction}\n【Planner输出】${plannerText}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}\n\n请验证 Planner 的分析是否基于实际代码，结论是否有证据支撑。`,
+      () => false, false);
+
+    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
+    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
+    historyRef.current.push({ role: 'assistant', content: `[Reviewer] ${fullText}` });
+
+    if (review.passed) {
+      // Plan approved → now draw the call graph
+      await runMapper(instruction, plan, plannerText);
+    } else {
+      // Plan rejected → retry Planner
+      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
+      setRunning(false);
+      setTimeout(() => runPlanner(instruction), 500);
+    }
+  };
+
+  /* ════ Mapper (draws call graph, only runs after review passes) ════ */
   const runMapper = async (instruction: string, plan: any, plannerText?: string) => {
     pushTimeline({ kind: 'agent-start', agent: 'mapper' });
 
     const planCtx = plan?.plan_summary
       ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
       : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
-    const { fullText } = await agentLoop('mapper',
-      `【角色: Mapper / 调用链路绘制者】
-
-**你只能读取代码，不能修改任何文件。**
-
-根据 Planner 的分析，读取相关代码文件，绘制完整的调用链路图。
-
-【节点 status 标注规则 — 必须严格区分】
-- **existing**：正常的现有代码，不需要修改
-- **problem**：问题或 bug 所在的具体位置（Planner 指出的问题点）
-- **planned_change**：需要修改的代码（Planner steps 里涉及的文件/函数）
-- **planned_new**：需要新增的代码（如果需要新建文件或函数）
-
-【边 status 标注规则】
-- **existing**：正常的调用关系
-- **new**：需要新增的调用关系
-- **error**：有问题的调用关系（比如调用了不存在的函数、产生 ReferenceError 的调用）
-
-【要求】
-- 必须读取 Planner 提到的关键文件，验证文件名和函数签名
-- 先画出现有调用链（existing），再在现有链上标注问题点和修改点
-- 每个 Planner step 对应至少一个 planned_change 或 planned_new 节点
-- edges 必须覆盖完整的调用路径，包括 IPC 通道、事件监听等跨文件关系
-
-【输出格式】严格 JSON：
-\`\`\`json
-{
-  "call_graph": {
-    "nodes": [
-      {"id":"a","label":"按钮 onClick","kind":"component","status":"existing","detail":"点击关闭按钮触发 action('close')","file":"src/components/TitleBar.tsx"},
-      {"id":"b","label":"ipcMain window:close","kind":"function","status":"problem","detail":"调用 app.quit() 跳过正常生命周期","file":"electron/main.ts"},
-      {"id":"c","label":"修复: mainWindow.close()","kind":"function","status":"planned_change","detail":"改为先 close 窗口，走正常退出流程","file":"electron/main.ts"}
-    ],
-    "edges": [
-      {"from":"a","to":"b","label":"IPC invoke","status":"existing"},
-      {"from":"b","to":"c","label":"替换为","status":"new"}
-    ]
-  }
-}
-\`\`\``,
+    const { fullText } = await agentLoop('mapper', '',
       `【需求】${instruction}\n${planCtx}`,
       (text) => !!(parseJson(text)?.call_graph), false);
 
     const data = parseJson(fullText);
     console.log(`[Mapper] parsed data:`, data ? `has call_graph=${!!data.call_graph} nodes=${data.call_graph?.nodes?.length || 0}` : 'null', '| last500=', fullText.slice(-500));
+
     if (data?.call_graph?.nodes?.length > 0) {
       const graph: CallGraph = { nodes: data.call_graph.nodes, edges: data.call_graph.edges || [] };
-      console.log(`[Mapper] Graph ready: ${graph.nodes.length} nodes, ${graph.edges.length} edges`);
-      console.log(`[Mapper] First node:`, JSON.stringify(graph.nodes[0]));
       pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
-      // Save context for execute-on-demand
-      flushSync(() => onPipelineChange({ phase: 'planning', graph }));
-      console.log(`[Mapper] onPipelineChange called with graph (flushSync)`);
-      // Don't auto-execute — user reviews the map first, then clicks execute
-      await runReviewOnly(instruction, plannerText || '', plan);
+      flushSync(() => onPipelineChange({ phase: 'done', graph }));
     } else {
-      // Mapper skipped or no valid graph — still run Reviewer
-      console.log(`[Mapper] Skipped or no call_graph, running reviewer`);
-      await runReviewOnly(instruction, plannerText || '', plan);
-    }
-  };
-
-  /* ════ ReviewOnly ════ */
-  const runReviewOnly = async (instruction: string, plannerText: string, plan: any) => {
-    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
-
-    const { fullText } = await agentLoop('reviewer', '',
-      `【需求】${instruction}\n【Planner输出】${plannerText}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}`,
-      () => false, false);
-
-    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
-    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
-    historyRef.current.push({ role: 'assistant', content: `[Reviewer]
-${fullText}` });
-    if (review.passed) {
+      pushTimeline({ kind: 'system', text: '⚠️ Mapper 未生成有效的调用图' });
       onPipelineChange({ phase: 'done' });
-      setRunning(false);
-    } else {
-      // FAILED → retry Planner, append to existing timeline
-      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
-      setRunning(false);
-      setTimeout(() => runPlanner(instruction), 500);
     }
-  };
 
-  /* ════ Reviewer (with execution) ════ — reserved for future execute feature */
-  // @ts-expect-error — reserved for manual execution trigger
-  const runReviewer = async (instruction: string, plan: any, execText: string, graph: CallGraph) => {
-    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
-    onPipelineChange({ phase: 'reviewing', graph });
-
-    const { fullText } = await agentLoop('reviewer_exec', '',
-      `【需求】${instruction}\n【计划】${JSON.stringify(plan.steps || [])}\n【关键文件】${(plan.key_files || []).join(', ')}\n【执行输出】${execText}`,
-      () => false, false);
-
-    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
-    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
-    historyRef.current.push({ role: 'assistant', content: `[Reviewer]
-${fullText}` });
-    if (review.passed) {
-      onPipelineChange({ phase: 'done', graph });
-      setRunning(false);
-    } else {
-      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
-      setRunning(false);
-      setTimeout(() => runPlanner(instruction), 500);
-    }
+    setRunning(false);
   };
 
   /* ════ Send ════ */
@@ -314,10 +252,10 @@ ${fullText}` });
   /* ════ Render ════ */
   return (
     <div className="flex flex-col h-full">
-      <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--ibm-border-subtle)' }}>
+      <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
         <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>Agent Pipeline</h2>
         <p className="text-xs mt-0.5 font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
-          Planner&nbsp;→&nbsp;Mapper&nbsp;→&nbsp;Reviewer
+          Planner&nbsp;→&nbsp;Reviewer&nbsp;→&nbsp;Mapper
         </p>
       </header>
 
@@ -347,7 +285,7 @@ ${fullText}` });
                   <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
                     <span className="w-[5px] h-[5px] rounded-full" style={{ background: AG[entry.agent]?.color || 'var(--ibm-border)' }} />
                   </span>
-                  <span className="text-[12px] font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-secondary)' }}>
+                  <span className="text-sm font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-secondary)' }}>
                     {AG[entry.agent]?.name || entry.agent}
                   </span>
                 </div>
@@ -358,10 +296,10 @@ ${fullText}` });
                   <span className="w-[15px] flex items-center justify-center shrink-0">
                     <span className="w-1 h-1 rounded-full" style={{ background: 'var(--ibm-border-strong)' }} />
                   </span>
-                  <span className="text-[11px] font-mono" style={{ color: 'var(--ibm-text-placeholder)' }}>
+                  <span className="text-xs font-mono" style={{ color: 'var(--ibm-text-placeholder)' }}>
                     {TOOL_LABEL[entry.tool] || entry.tool}
                   </span>
-                  <span className="text-[11px] truncate" style={{ color: 'var(--ibm-text-secondary)' }}>
+                  <span className="text-xs truncate" style={{ color: 'var(--ibm-text-secondary)' }}>
                     {entry.detail}
                   </span>
                 </div>
@@ -391,7 +329,7 @@ ${fullText}` });
                 <div className="flex gap-3 pb-3">
                   <span className="w-[15px] shrink-0" />
                   <div className="flex items-center gap-3">
-                    <span className="text-[11px] tracking-wide" style={{ color: AG.mapper.color }}>
+                    <span className="text-xs tracking-wide" style={{ color: AG.mapper.color }}>
                       Call graph &nbsp;
                       <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
                     </span>
@@ -408,8 +346,8 @@ ${fullText}` });
       </div>
 
       {/* Input */}
-      <footer className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--ibm-border-subtle)' }}>
-        <div className="flex items-end gap-3 p-2 rounded-lg" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--ibm-border)' }}>
+      <footer className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
+        <div className="flex items-end gap-3 p-2 rounded-lg" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--color-border-default)' }}>
           <textarea value={input} onChange={(e) => setInput(e.target.value)}
             placeholder="Describe what you want to build or fix..."
             disabled={running} rows={2}
@@ -441,10 +379,10 @@ ${fullText}` });
           </div>
         </div>
         <div className="flex justify-between mt-2 px-2">
-          <span className="text-[10px]" style={{ color: 'var(--ibm-text-disabled)' }}>
+          <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
             Enter to send, Shift+Enter for new line
           </span>
-          <span className="text-[10px]" style={{ color: 'var(--ibm-text-disabled)' }}>
+          <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
             {input.length} / 4000
           </span>
         </div>
@@ -470,7 +408,7 @@ function Markdown({ text, muted }: { text: string; muted?: boolean }) {
   if (!cleaned) return null;
 
   return (
-    <div className="text-[13px] leading-relaxed" style={{ color: muted ? 'var(--ibm-text-placeholder)' : 'var(--ibm-text-secondary)' }}>
+    <div className="text-body leading-relaxed" style={{ color: muted ? 'var(--ibm-text-placeholder)' : 'var(--ibm-text-secondary)' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}
         components={{
           code: ({ className, children, ...props }: any) => {

@@ -113,19 +113,19 @@ function MarkdownRenderer({ text }: { text: string }) {
       {blocks.map((block, i) => {
         switch (block.type) {
           case 'code': return (
-            <div key={i} className="rounded-lg overflow-hidden border" style={{ borderColor: '#2a2a2a', background: '#0a0a0a' }}>
-              {block.lang && <div className="px-3 py-1.5 border-b text-[10px] font-medium uppercase tracking-wider" style={{ borderColor: '#1f1f1f', color: '#666' }}>{block.lang}</div>}
-              <pre className="px-4 py-3 text-[12px] leading-relaxed overflow-x-auto font-mono whitespace-pre" style={{ color: '#c9d1d9' }}><code>{block.content}</code></pre>
+            <div key={i} className="rounded-lg overflow-hidden border" style={{ borderColor: '#2a2a2a', background: 'var(--color-bg-code)' }}>
+              {block.lang && <div className="px-3 py-1.5 border-b text-caption font-medium uppercase tracking-wider" style={{ borderColor: '#1f1f1f', color: '#666' }}>{block.lang}</div>}
+              <pre className="px-4 py-3 text-sm leading-relaxed overflow-x-auto font-mono whitespace-pre" style={{ color: 'var(--color-text-secondary)' }}><code>{block.content}</code></pre>
             </div>);
           case 'header': {
             const Tag = block.lang === '1' ? 'h2' as const : block.lang === '2' ? 'h3' as const : 'h4' as const;
-            const sizes = { '1': 'text-[15px] font-bold tracking-tight', '2': 'text-[13px] font-semibold', '3': 'text-[12px] font-medium' };
-            return <Tag key={i} className={`${sizes[block.lang as '1'|'2'|'3'] || sizes['3']} mt-3 first:mt-0`} style={{ color: '#e6e6e6' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
+            const sizes = { '1': 'text-[15px] font-bold tracking-tight', '2': 'text-body font-semibold', '3': 'text-sm font-medium' };
+            return <Tag key={i} className={`${sizes[block.lang as '1'|'2'|'3'] || sizes['3']} mt-3 first:mt-0`} style={{ color: 'var(--color-text-primary)' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
           }
-          case 'list-item': return <div key={i} className="flex gap-2 pl-1"><span className="text-[10px] mt-0.5 shrink-0" style={{ color: '#555' }}>•</span><span className="text-[13px]" style={{ color: '#c9d1d9' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} /></div>;
-          case 'blockquote': return <div key={i} className="border-l-2 pl-3 py-1 text-[13px] italic" style={{ borderColor: '#2a2a2a', color: '#888' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
+          case 'list-item': return <div key={i} className="flex gap-2 pl-1"><span className="text-caption mt-0.5 shrink-0" style={{ color: '#555' }}>•</span><span className="text-body" style={{ color: 'var(--color-text-secondary)' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} /></div>;
+          case 'blockquote': return <div key={i} className="border-l-2 pl-3 py-1 text-body italic" style={{ borderColor: '#2a2a2a', color: '#888' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
           case 'hr': return <hr key={i} className="my-2" style={{ borderColor: '#1e1e1e' }} />;
-          default: return <p key={i} className="text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#c9d1d9' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
+          default: return <p key={i} className="text-body leading-relaxed whitespace-pre-wrap break-words" style={{ color: 'var(--color-text-secondary)' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
         }
       })}
     </div>
@@ -300,7 +300,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
         <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a3350, #1a4a6e)' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M8 12h8M12 8v8"/></svg>
         </div>
-        <span className="text-[11px] font-medium" style={{ color: '#ccc' }}>AI 助手</span>
+        <span className="text-xs font-medium" style={{ color: '#ccc' }}>AI 助手</span>
         {sending && <span className="w-1.5 h-1.5 rounded-full animate-pulse ml-auto" style={{ background: '#3fb950' }} />}
       </div>
 
@@ -311,8 +311,8 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #1a3350, #1a4a6e)' }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" strokeWidth="1.5"><path d="M12 2a4 4 0 014 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 014-4z"/><path d="M9 18h6"/><path d="M12 14v4"/></svg>
             </div>
-            <div className="text-[13px] font-medium mb-1" style={{ color: '#aaa' }}>{tr(language, 'askAnything')}</div>
-            <div className="text-[11px] text-center leading-relaxed" style={{ color: '#555' }}>{tr(language, 'agentHint')}</div>
+            <div className="text-body font-medium mb-1" style={{ color: '#aaa' }}>{tr(language, 'askAnything')}</div>
+            <div className="text-xs text-center leading-relaxed" style={{ color: '#555' }}>{tr(language, 'agentHint')}</div>
           </div>
         )}
 
@@ -321,9 +321,9 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             {msg.role === 'user' && (
               <div className="px-4 py-3">
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-medium" style={{ background: '#1a3350', color: '#8ab4f8' }}>你</div>
+                  <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-caption font-medium" style={{ background: '#1a3350', color: '#8ab4f8' }}>你</div>
                   <div className="flex-1 min-w-0 pt-1">
-                    <div className="text-[13px] leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#d4d4d4' }}>{msg.content}</div>
+                    <div className="text-body leading-relaxed whitespace-pre-wrap break-words" style={{ color: '#d4d4d4' }}>{msg.content}</div>
                   </div>
                 </div>
               </div>
@@ -332,19 +332,19 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             {msg.role === 'agent' && (
               <div className="px-4 py-3" style={{ background: i % 2 === 0 ? '#0a0a0a' : 'transparent' }}>
                 <div className="flex items-start gap-3">
-                  <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[10px] font-medium mt-0.5" style={{ background: '#12261a', color: '#3fb950' }}>AI</div>
+                  <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-caption font-medium mt-0.5" style={{ background: '#12261a', color: '#3fb950' }}>AI</div>
                   <div className="flex-1 min-w-0">
                     {msg.content ? (
-                      <div className="text-[13px] leading-relaxed" style={{ color: '#c9d1d9' }}>
+                      <div className="text-body leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
                         <MarkdownRenderer text={msg.content} />
                       </div>
                     ) : (i === messages.length - 1 && planThinking) ? (
-                      <div className="text-[11px] leading-relaxed" style={{ color: '#888' }}>
+                      <div className="text-xs leading-relaxed" style={{ color: '#888' }}>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="flex gap-1"><span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8' }} /><span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8', animationDelay: '150ms' }} /><span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8', animationDelay: '300ms' }} /></span>
-                          <span className="text-[10px]" style={{ color: '#555' }}>分析项目中...</span>
+                          <span className="text-caption" style={{ color: '#555' }}>分析项目中...</span>
                         </div>
-                        <div className="text-[10px] opacity-60 whitespace-pre-wrap">{planThinking.slice(-200)}</div>
+                        <div className="text-caption opacity-60 whitespace-pre-wrap">{planThinking.slice(-200)}</div>
                       </div>
                     ) : (i === messages.length - 1 && sending) ? (
                       <div className="flex items-center gap-1.5 py-1">
@@ -362,7 +362,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
                           return (
                             <div key={si}>
                               <button onClick={() => step.content && setExpandedSteps(prev => { const next = new Set(prev); next.has(stepKey) ? next.delete(stepKey) : next.add(stepKey); return next; })}
-                                className={`flex items-center gap-2 text-[11px] w-full text-left transition-colors ${step.content ? 'cursor-pointer hover:bg-white/[0.03] rounded px-1 -mx-1' : ''}`}
+                                className={`flex items-center gap-2 text-xs w-full text-left transition-colors ${step.content ? 'cursor-pointer hover:bg-white/[0.03] rounded px-1 -mx-1' : ''}`}
                                 style={{ color: step.done ? '#666' : '#999' }}>
                                 <span className="w-4 text-center shrink-0">{step.icon}</span>
                                 <span className="truncate flex-1">{step.text}</span>
@@ -374,8 +374,8 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
                                 {step.done && <span className="text-[9px] shrink-0" style={{ color: '#3fb950' }}>✓</span>}
                               </button>
                               {isExpanded && step.content && (
-                                <div className="mt-1 ml-6 rounded-lg overflow-hidden border" style={{ borderColor: '#2a2a2a', background: '#0a0a0a' }}>
-                                  <pre className="px-3 py-2 text-[10px] leading-relaxed overflow-x-auto max-h-48 whitespace-pre-wrap font-mono" style={{ color: '#c9d1d9' }}>{step.content}</pre>
+                                <div className="mt-1 ml-6 rounded-lg overflow-hidden border" style={{ borderColor: '#2a2a2a', background: 'var(--color-bg-code)' }}>
+                                  <pre className="px-3 py-2 text-caption leading-relaxed overflow-x-auto max-h-48 whitespace-pre-wrap font-mono" style={{ color: 'var(--color-text-secondary)' }}>{step.content}</pre>
                                 </div>
                               )}
                             </div>
@@ -389,7 +389,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
                         {msg.operations.map((op, j) => {
                           const s = OP_STYLE[op.type] || OP_STYLE.read_file;
                           return (
-                            <span key={j} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono" style={{ color: s.color, background: s.bg }}>
+                            <span key={j} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-caption font-mono" style={{ color: s.color, background: s.bg }}>
                               <span>{s.icon}</span>
                               <span className="max-w-[140px] truncate">{op.file}</span>
                               {op.start_line && <span style={{ opacity: 0.5 }}>:{op.start_line}</span>}
@@ -409,12 +409,12 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
       {/* Plan action bar */}
       {plan && !sending && (
         <div className="px-4 py-3 border-t shrink-0 space-y-2" style={{ borderColor: '#1e1e1e', background: '#111111' }}>
-          <div className="text-[10px] font-medium" style={{ color: '#888' }}>📋 {plan.steps.length} 个步骤，确认后开始执行</div>
+          <div className="text-caption font-medium" style={{ color: '#888' }}>📋 {plan.steps.length} 个步骤，确认后开始执行</div>
           <div className="flex gap-2">
-            <button onClick={executePlan} className="flex-1 px-4 py-2.5 rounded-xl text-[12px] font-medium transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #1a6e3a, #1a8a4a)', color: '#fff' }}>
+            <button onClick={executePlan} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #1a6e3a, #1a8a4a)', color: '#fff' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>开始执行
             </button>
-            <button onClick={() => setPlan(null)} className="px-4 py-2.5 rounded-xl text-[12px] transition-all hover:bg-white/5" style={{ background: '#1e1e1e', color: '#888' }}>取消</button>
+            <button onClick={() => setPlan(null)} className="px-4 py-2.5 rounded-xl text-sm transition-all hover:bg-white/5" style={{ background: '#1e1e1e', color: '#888' }}>取消</button>
           </div>
         </div>
       )}
@@ -424,7 +424,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
       <div className="border-t shrink-0" style={{ borderColor: '#1e1e1e', background: '#0d0d0d' }}>
         {injectContext && (
           <div className="px-4 pt-2">
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px]" style={{ background: '#1a3350', color: '#8ab4f8' }}>
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-caption" style={{ background: '#1a3350', color: '#8ab4f8' }}>
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               {tr(language, 'contextFromFeature')}
               <button onClick={onConsumeContext} className="opacity-50 hover:opacity-100 ml-0.5"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
@@ -433,7 +433,7 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
         )}
         {selection && (
           <div className="px-4 pt-2">
-            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px]" style={{ background: '#0f2e1a', color: '#7ee787' }}>
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-caption" style={{ background: '#0f2e1a', color: '#7ee787' }}>
               {selection.filePath.split(/[\\/]/).pop()} L{selection.startLine}-L{selection.endLine}
               <button onClick={onClearSelection} className="opacity-50 hover:opacity-100 ml-0.5"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
             </span>
@@ -449,8 +449,8 @@ export default function AgentPanel({ projectPath, openFilePath, selection, onCle
             <textarea
               value={input} onChange={(e) => setInput(e.target.value)}
               placeholder={tr(language, 'askAnything')} disabled={sending} rows={1}
-              className="flex-1 px-4 py-2.5 text-[13px] leading-relaxed outline-none resize-none rounded-xl transition-colors"
-              style={{ background: '#161616', border: '1px solid #2a2a2a', color: '#c9d1d9', fontFamily: 'inherit', opacity: sending ? 0.5 : 1 }}
+              className="flex-1 px-4 py-2.5 text-body leading-relaxed outline-none resize-none rounded-xl transition-colors"
+              style={{ background: '#161616', border: '1px solid #2a2a2a', color: 'var(--color-text-secondary)', fontFamily: 'inherit', opacity: sending ? 0.5 : 1 }}
               onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             />

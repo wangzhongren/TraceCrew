@@ -66,9 +66,9 @@ function MarkdownRenderer({ text }: { text: string }) {
   if (blocks.length === 0) return <span className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: formatInline(text) }} />;
   return (<div className="space-y-1">{blocks.map((block, i) => {
     switch (block.type) {
-      case 'code': return (<div key={i} className="rounded-lg overflow-hidden border" style={{ borderColor: '#30363d', background: '#0d1117' }}>{block.lang && <div className="px-3 py-1 border-b text-[10px] font-medium uppercase" style={{ borderColor: '#21262d', color: '#8b949e' }}>{block.lang}</div>}<pre className="px-3 py-2 text-[11px] leading-relaxed overflow-x-auto font-mono whitespace-pre" style={{ color: '#c9d1d9' }}><code>{block.content}</code></pre></div>);
-      case 'header': { const Tag = block.lang === '1' ? 'h2' as const : block.lang === '2' ? 'h3' as const : 'h4' as const; const sizes = { '1': 'text-[14px] font-bold', '2': 'text-[12px] font-semibold', '3': 'text-[11px] font-medium' }; return <Tag key={i} className={sizes[block.lang as '1'|'2'|'3'] || sizes['3']} style={{ color: '#e3e2e6' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />; }
-      default: return <p key={i} className="text-[12px] leading-snug whitespace-pre-wrap break-words" style={{ color: '#c9d1d9' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
+      case 'code': return (<div key={i} className="rounded-lg overflow-hidden border" style={{ borderColor: 'var(--color-border-default)', background: '#0d1117' }}>{block.lang && <div className="px-3 py-1 border-b text-caption font-medium uppercase" style={{ borderColor: 'var(--color-border-subtle)', color: '#8b949e' }}>{block.lang}</div>}<pre className="px-3 py-2 text-xs leading-relaxed overflow-x-auto font-mono whitespace-pre" style={{ color: 'var(--color-text-secondary)' }}><code>{block.content}</code></pre></div>);
+      case 'header': { const Tag = block.lang === '1' ? 'h2' as const : block.lang === '2' ? 'h3' as const : 'h4' as const; const sizes = { '1': 'text-md font-bold', '2': 'text-sm font-semibold', '3': 'text-xs font-medium' }; return <Tag key={i} className={sizes[block.lang as '1'|'2'|'3'] || sizes['3']} style={{ color: 'var(--color-text-primary)' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />; }
+      default: return <p key={i} className="text-sm leading-snug whitespace-pre-wrap break-words" style={{ color: 'var(--color-text-secondary)' }} dangerouslySetInnerHTML={{ __html: formatInline(block.content) }} />;
     }
   })}</div>);
 }
@@ -228,22 +228,22 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
     <div className="fixed inset-0 z-50 flex flex-col" style={{ background: '#0c0c0c' }}>
       <div className="flex items-center justify-between h-9 shrink-0 px-4 border-b select-none" style={{ borderColor: '#2d2d2d', background: '#161616' }}>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] font-medium tracking-wide" style={{ color: '#cccccc' }}>AI 终端</span>
-          <span className="text-[10px]" style={{ color: '#666666' }}>{projectPath.split(/[\\/]/).pop()}</span>
-          <span className="text-[10px] flex items-center gap-1.5" style={{ color: statusColor }}>
+          <span className="text-xs font-medium tracking-wide" style={{ color: '#cccccc' }}>AI 终端</span>
+          <span className="text-caption" style={{ color: '#666666' }}>{projectPath.split(/[\\/]/).pop()}</span>
+          <span className="text-caption flex items-center gap-1.5" style={{ color: statusColor }}>
             <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor, animation: running ? 'pulse 1.5s infinite' : undefined }} />{PHASE_LABELS[phase]}
           </span>
         </div>
-        <button onClick={running ? () => { abortRef.current?.abort(); setRunning(false); } : onClose} className="px-3 py-0.5 rounded text-[11px] transition-colors hover:bg-white/5" style={{ color: '#888888' }}>{running ? '停止' : '×'}</button>
+        <button onClick={running ? () => { abortRef.current?.abort(); setRunning(false); } : onClose} className="px-3 py-0.5 rounded text-xs transition-colors hover:bg-white/5" style={{ color: '#888888' }}>{running ? '停止' : '×'}</button>
       </div>
       <div className="flex-1 flex overflow-hidden">
         {/* Terminal */}
         <div className="flex-1 flex flex-col" style={{ background: '#0c0c0c' }}>
           <div className="px-3 py-1 flex items-center gap-3 shrink-0 border-b" style={{ borderColor: '#1e1e1e', background: '#111111' }}>
-            <span className="text-[10px] font-medium tracking-wide" style={{ color: '#888888' }}>TERMINAL</span>
-            <span className="text-[10px] px-2 py-0.5 rounded" style={{ background: '#1a3350', color: '#8ab4f8' }}>bash</span>
+            <span className="text-caption font-medium tracking-wide" style={{ color: '#888888' }}>TERMINAL</span>
+            <span className="text-caption px-2 py-0.5 rounded" style={{ background: '#1a3350', color: '#8ab4f8' }}>bash</span>
           </div>
-          <div ref={logRef} className="flex-1 overflow-y-auto p-4 font-mono text-[13px] leading-relaxed" style={{ color: '#c9d1d9', background: '#0c0c0c' }}>
+          <div ref={logRef} className="flex-1 overflow-y-auto p-4 font-mono text-body leading-relaxed" style={{ color: 'var(--color-text-secondary)', background: '#0c0c0c' }}>
             {log ? <div className="whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: ansiToHtml(log) }} /> : (
               <div style={{ color: '#555555' }}>
                 <div className="mb-1">Last login: {new Date().toLocaleString()} on ttys001</div>
@@ -260,7 +260,7 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
             <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #1a3350, #1a4a6e)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" strokeWidth="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M8 12h8M12 8v8"/></svg>
             </div>
-            <span className="text-[11px] font-medium" style={{ color: '#cccccc' }}>AI 助手</span>
+            <span className="text-xs font-medium" style={{ color: '#cccccc' }}>AI 助手</span>
             {running && <span className="w-1.5 h-1.5 rounded-full animate-pulse ml-auto" style={{ background: '#3fb950' }} />}
           </div>
 
@@ -269,19 +269,19 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
             {planThinking && (
               <div className="flex gap-3">
                 <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center mt-0.5" style={{ background: '#1a3350' }}>
-                  <span className="text-[10px]" style={{ color: '#8ab4f8' }}>AI</span>
+                  <span className="text-caption" style={{ color: '#8ab4f8' }}>AI</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="rounded-2xl rounded-tl-sm px-4 py-3 text-[12px] leading-relaxed" style={{ background: '#161616', color: '#888888' }}>
+                  <div className="rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed" style={{ background: '#161616', color: '#888888' }}>
                     <div className="flex items-center gap-2 mb-2">
                       <span className="flex gap-1">
                         <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8', animationDelay: '0ms' }} />
                         <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8', animationDelay: '150ms' }} />
                         <span className="w-1 h-1 rounded-full animate-bounce" style={{ background: '#8ab4f8', animationDelay: '300ms' }} />
                       </span>
-                      <span className="text-[10px]" style={{ color: '#555' }}>分析项目中...</span>
+                      <span className="text-caption" style={{ color: '#555' }}>分析项目中...</span>
                     </div>
-                    <div className="text-[10px] leading-relaxed whitespace-pre-wrap opacity-60">{planThinking.slice(-200)}</div>
+                    <div className="text-caption leading-relaxed whitespace-pre-wrap opacity-60">{planThinking.slice(-200)}</div>
                   </div>
                 </div>
               </div>
@@ -292,8 +292,8 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
                 <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #1a3350, #1a4a6e)' }}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" strokeWidth="1.5"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="M8 12h8M12 8v8"/></svg>
                 </div>
-                <div className="text-[13px] font-medium mb-1" style={{ color: '#aaaaaa' }}>AI 终端助手</div>
-                <div className="text-[11px] leading-relaxed text-center" style={{ color: '#555555' }}>
+                <div className="text-body font-medium mb-1" style={{ color: '#aaaaaa' }}>AI 终端助手</div>
+                <div className="text-xs leading-relaxed text-center" style={{ color: '#555555' }}>
                   告诉我你想做什么<br />我来规划并执行
                 </div>
               </div>
@@ -303,19 +303,19 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
               <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center mt-0.5 ${msg.role === 'user' ? '' : ''}`}
                   style={msg.role === 'user' ? { background: '#1a3350' } : { background: '#12261a' }}>
-                  <span className="text-[10px] font-medium" style={msg.role === 'user' ? { color: '#8ab4f8' } : { color: '#3fb950' }}>
+                  <span className="text-caption font-medium" style={msg.role === 'user' ? { color: '#8ab4f8' } : { color: '#3fb950' }}>
                     {msg.role === 'user' ? '你' : 'AI'}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="rounded-2xl px-4 py-3 text-[12px] leading-relaxed"
+                  <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed"
                     style={msg.role === 'user'
-                      ? { background: '#1a3350', color: '#c9d1d9', borderTopRightRadius: '4px' }
+                      ? { background: '#1a3350', color: 'var(--color-text-secondary)', borderTopRightRadius: '4px' }
                       : { background: '#161616', color: '#d4d4d4', borderTopLeftRadius: '4px' }}>
                     {msg.role === 'agent' && msg.reasoning && (
                       <details className="mb-2">
-                        <summary className="text-[10px] cursor-pointer select-none hover:opacity-80" style={{ color: '#666' }}>思考过程</summary>
-                        <div className="mt-2 text-[10px] leading-relaxed whitespace-pre-wrap border-l-2 pl-3 py-1" style={{ color: '#777', borderColor: '#2a2a2a' }}>{msg.reasoning}</div>
+                        <summary className="text-caption cursor-pointer select-none hover:opacity-80" style={{ color: '#666' }}>思考过程</summary>
+                        <div className="mt-2 text-caption leading-relaxed whitespace-pre-wrap border-l-2 pl-3 py-1" style={{ color: '#777', borderColor: '#2a2a2a' }}>{msg.reasoning}</div>
                       </details>
                     )}
                     <MarkdownRenderer text={msg.content} />
@@ -328,16 +328,16 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
           {/* Plan actions */}
           {plan && !running && (
             <div className="px-4 py-3 border-t shrink-0 space-y-2" style={{ borderColor: '#1e1e1e', background: '#111111' }}>
-              <div className="text-[10px] font-medium mb-1" style={{ color: '#888' }}>📋 {plan.steps.length} 个步骤，确认后开始执行</div>
+              <div className="text-caption font-medium mb-1" style={{ color: '#888' }}>📋 {plan.steps.length} 个步骤，确认后开始执行</div>
               <div className="flex gap-2">
                 <button onClick={executePlan}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-[12px] font-medium transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
                   style={{ background: 'linear-gradient(135deg, #1a6e3a, #1a8a4a)', color: '#fff' }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg>
                   开始执行
                 </button>
                 <button onClick={() => setPlan(null)}
-                  className="px-4 py-2.5 rounded-xl text-[12px] transition-all hover:bg-white/5"
+                  className="px-4 py-2.5 rounded-xl text-sm transition-all hover:bg-white/5"
                   style={{ background: '#1e1e1e', color: '#888' }}>取消</button>
               </div>
             </div>
@@ -355,8 +355,8 @@ export default function RunPage({ projectPath, onClose, onFileChanged }: Props) 
                   placeholder="输入你想做的事..."
                   disabled={running}
                   rows={1}
-                  className="flex-1 px-4 py-2.5 rounded-xl text-[12px] outline-none border resize-none"
-                  style={{ background: '#161616', color: '#c9d1d9', borderColor: '#2a2a2a', opacity: running ? 0.5 : 1, maxHeight: '80px' }}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none border resize-none"
+                  style={{ background: '#161616', color: 'var(--color-text-secondary)', borderColor: '#2a2a2a', opacity: running ? 0.5 : 1, maxHeight: '80px' }}
                 />
                 <button onClick={handleSend} disabled={running || !input.trim()}
                   className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-[0.95]"

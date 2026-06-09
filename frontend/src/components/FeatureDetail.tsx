@@ -43,17 +43,17 @@ function Markdown({ text }: { text: string }) {
   // Split into blocks by double newline
   const blocks = text.split(/\n\n+/);
   return (
-    <div className="text-[12px] leading-relaxed space-y-2" style={{ color: '#c9d1d9' }}>
+    <div className="text-sm leading-relaxed space-y-2" style={{ color: 'var(--color-text-secondary)' }}>
       {blocks.map((block, i) => {
         // Headers
         if (block.match(/^### /)) {
-          return <div key={i} className="text-[12px] font-medium pt-1" style={{ color: '#e3e2e6' }}>{block.replace(/^### /, '')}</div>;
+          return <div key={i} className="text-sm font-medium pt-1" style={{ color: '#e3e2e6' }}>{block.replace(/^### /, '')}</div>;
         }
         if (block.match(/^## /)) {
-          return <div key={i} className="text-[13px] font-semibold pt-2" style={{ color: '#f0f0f0' }}>{block.replace(/^## /, '')}</div>;
+          return <div key={i} className="text-body font-semibold pt-2" style={{ color: '#f0f0f0' }}>{block.replace(/^## /, '')}</div>;
         }
         if (block.match(/^# /)) {
-          return <div key={i} className="text-[14px] font-bold pt-3" style={{ color: '#fff' }}>{block.replace(/^# /, '')}</div>;
+          return <div key={i} className="text-md font-bold pt-3" style={{ color: '#fff' }}>{block.replace(/^# /, '')}</div>;
         }
         // List items
         if (block.match(/^[-*] /m)) {
@@ -61,7 +61,7 @@ function Markdown({ text }: { text: string }) {
           return (
             <ul key={i} className="space-y-0.5 pl-4" style={{ listStyle: 'disc', color: '#8b949e' }}>
               {items.map((item, j) => (
-                <li key={j} style={{ color: '#c9d1d9' }}>
+                <li key={j} style={{ color: 'var(--color-text-secondary)' }}>
                   {renderInline(item.replace(/^[-*] /, ''))}
                 </li>
               ))}
@@ -72,7 +72,7 @@ function Markdown({ text }: { text: string }) {
         if (block.startsWith('```')) {
           const code = block.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
           return (
-            <pre key={i} className="rounded-lg p-3 text-[11px] overflow-x-auto" style={{ background: '#0d1117', color: '#c9d1d9', border: '1px solid #21262d' }}>
+            <pre key={i} className="rounded-lg p-3 text-xs overflow-x-auto" style={{ background: '#0d1117', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-subtle)' }}>
               <code>{code}</code>
             </pre>
           );
@@ -98,7 +98,7 @@ function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={i} className="px-0.5 rounded text-[11px]" style={{ background: '#21262d', color: '#f778ba' }}>{part.slice(1, -1)}</code>;
+      return <code key={i} className="px-0.5 rounded text-xs" style={{ background: '#21262d', color: '#f778ba' }}>{part.slice(1, -1)}</code>;
     }
     if (part.startsWith('**') && part.endsWith('**')) {
       return <strong key={i}>{part.slice(2, -2)}</strong>;
@@ -258,7 +258,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
         <div className="flex-1 overflow-y-auto scrollable-panel">
           {/* Loading */}
           {overviewLoading && !overviewHtml && (
-            <div className="px-4 py-4 text-[11px] flex items-center gap-2" style={{ color: '#5c6166' }}>
+            <div className="px-4 py-4 text-xs flex items-center gap-2" style={{ color: '#5c6166' }}>
               <span className="w-1.5 h-1.5 rounded-full animate-pulse-dot" style={{ background: '#8ab4f8' }} />
                 {language === 'zh' ? '正在分析结构和问题... (10-30 秒)' : 'Analyzing structure & issues... (10-30s)'}
             </div>
@@ -268,7 +268,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           {(overviewHtml || feature.flow_description || feature.description) && (
             <div className="px-4 py-3 border-b" style={{ borderColor: COL.outlineSoft }}>
               <div className="mb-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'overview')}</span>
+                <span className="text-caption font-medium uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'overview')}</span>
               </div>
               <Markdown text={overviewHtml || feature.flow_description || feature.description || ''} />
             </div>
@@ -277,17 +277,17 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           {/* File links */}
           {(feature.files.length > 0 || overviewFiles.length > 0) && (
             <div className="px-4 py-3 border-b" style={{ borderColor: COL.outlineSoft }}>
-              <div className="text-[10px] font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'keyFiles')}</div>
+              <div className="text-caption font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>{tr(language, 'keyFiles')}</div>
               <div className="space-y-1.5">
                 {(overviewFiles.length > 0 ? overviewFiles : feature.files.map((f: string) => ({ path: f, description: '' }))).map((f: any) => (
                   <div key={f.path} className="flex items-start gap-2">
                     <button onClick={() => onNavigateToFile(resolvePath(f.path, projectPath))}
-                      className="text-[11px] px-2 py-0.5 rounded font-mono transition-colors hover:bg-white/10 shrink-0"
+                      className="text-xs px-2 py-0.5 rounded font-mono transition-colors hover:bg-white/10 shrink-0"
                       style={{ background: COL.surfaceVariant, color: COL.primary }}>
                       {f.path.split(/[\\/]/).pop()}
                     </button>
                     {f.description && (
-                      <span className="text-[10px] leading-relaxed" style={{ color: '#5c6166' }}>{f.description}</span>
+                      <span className="text-caption leading-relaxed" style={{ color: '#5c6166' }}>{f.description}</span>
                     )}
                   </div>
                 ))}
@@ -298,7 +298,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
           {/* Children: groups or features */}
           {children.length > 0 && (
             <div className="px-4 py-3">
-              <div className="text-[10px] font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>
+              <div className="text-caption font-medium mb-2 uppercase tracking-wide" style={{ color: '#5c6166' }}>
                 {feature.level === 0 ? 'Feature Groups' : 'Features'}
               </div>
               <div className="grid grid-cols-1 gap-1.5">
@@ -310,9 +310,9 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                     style={{ border: '1px solid #30323440' }}>
                     <div className="w-2 h-2 rounded-full shrink-0" style={{ background: LV[child.level] || '#8e918f' }} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-medium truncate" style={{ color: '#c9d1d9' }}>{child.label}</div>
+                      <div className="text-xs font-medium truncate" style={{ color: 'var(--color-text-secondary)' }}>{child.label}</div>
                       {(child.description || child.flow_description) && (
-                        <div className="text-[10px] mt-0.5 truncate" style={{ color: '#5c6166' }}>
+                        <div className="text-caption mt-0.5 truncate" style={{ color: '#5c6166' }}>
                           {(child.description || child.flow_description).slice(0, 60)}
                         </div>
                       )}
@@ -350,7 +350,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
             <div className="px-3 py-2 border-b" style={{ borderColor: COL.outlineSoft }}>
               {feature.functions.length > 0 && (
                 <div className="mb-2">
-                  <div className="text-[10px] font-medium mb-1 uppercase tracking-wide" style={{ color: '#5c6166' }}>
+                  <div className="text-caption font-medium mb-1 uppercase tracking-wide" style={{ color: '#5c6166' }}>
                     {language === 'zh' ? '方法' : 'Functions'}
                   </div>
                   <div className="flex flex-col gap-0.5">
@@ -361,7 +361,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                         <button key={fn}
                           onClick={() => { if (targetFile) onNavigateToFile(resolvePath(targetFile, projectPath), line); }}
                           disabled={!targetFile}
-                          className="text-left text-[11px] font-mono py-0.5 px-2 rounded transition-colors hover:underline disabled:opacity-40"
+                          className="text-left text-xs font-mono py-0.5 px-2 rounded transition-colors hover:underline disabled:opacity-40"
                           style={{ color: '#d29922', background: '#161b2220' }}>
                           {name}(){line ? `:${line}` : ''}
                         </button>
@@ -400,12 +400,12 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                   )}
                 </button>
                 {expandError && (
-                  <div className="text-[10px]" style={{ color: '#f85149' }}>{expandError}</div>
+                  <div className="text-caption" style={{ color: '#f85149' }}>{expandError}</div>
                 )}
               </div>
             ) : children.length === 0 ? (
               <div className="flex items-center justify-center h-full">
-                <div className="text-[11px]" style={{ color: '#5c6166' }}>
+                <div className="text-xs" style={{ color: '#5c6166' }}>
                   {tr(language, 'noFurtherDetails')}
                 </div>
               </div>
@@ -446,7 +446,7 @@ export default function FeatureDetail({ feature, projectPath, onNavigateToFile, 
                         return (
                           <button key={fn}
                             onClick={() => { const t = node.files[0]; if (t) onNavigateToFile(resolvePath(t, projectPath), line); }}
-                            className="text-left text-[11px] font-mono py-0.5 px-2 rounded transition-colors hover:underline"
+                            className="text-left text-xs font-mono py-0.5 px-2 rounded transition-colors hover:underline"
                             style={{ color: '#d29922', background: 'transparent' }}>
                             {name}(){line ? `:${line}` : ''}
                           </button>

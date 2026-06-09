@@ -64,8 +64,8 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     fontFamily: 'var(--ibm-font-mono)',
     color: 'var(--ibm-text)',
     background: 'var(--ibm-bg)',
-    border: '1px solid var(--ibm-border)',
-    borderRadius: 'var(--ibm-radius-sm)',
+    border: '1px solid var(--color-border-default)',
+    borderRadius: 'var(--radius-sm)',
     outline: 'none',
   };
 
@@ -90,7 +90,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>Loading from .env...</div>
         )}
         <label className="block">
-          <span className="text-[11px] font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>API Key</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>API Key</span>
           <input
             type="password"
             value={settings.apiKey}
@@ -102,7 +102,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-[11px] font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Base URL</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Base URL</span>
           <input
             type="text"
             value={settings.baseUrl}
@@ -114,7 +114,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-[11px] font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Model</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Model</span>
           <input
             type="text"
             value={settings.model}
@@ -128,7 +128,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
-        <span className="text-[11px]" style={{ color: saved ? '#24a148' : 'transparent' }}>
+        <span className="text-xs" style={{ color: saved ? '#24a148' : 'transparent' }}>
           ✓ Saved
         </span>
         <button onClick={handleSave}

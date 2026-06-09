@@ -2,12 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ═══════════════════════════════════════════════════
-   IBM Carbon Design System — Dark Theme
-   Refined for premium feel
-   ═══════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════
+   Layer 1: Design Tokens (CSS Custom Properties)
+   IBM Carbon base + semantic aliases
+   ══════════════════════════════════════════════════════ */
 
 :root {
+  /* ── IBM Carbon primitives (keep existing) ── */
   --ibm-bg: #161616;
   --ibm-layer-01: #1c1c1c;
   --ibm-layer-02: #262626;
@@ -54,7 +55,158 @@
   --ibm-radius-md: 8px;
 
   --ibm-transition: 150ms cubic-bezier(0.2, 0, 0.38, 1);
+
+  /* ── Semantic tokens: backgrounds (GitHub Dark) ── */
+  --color-bg-primary: #0d1117;
+  --color-bg-layer: #161b22;
+  --color-bg-layer-hover: rgba(255,255,255,0.04);
+  --color-bg-code: #0a0a0a;
+  --color-bg-alt: #1a1c1e;
+  --color-bg-surface: #282a2d;
+
+  /* ── Semantic tokens: text (GitHub Dark) ── */
+  --color-text-primary: #e6e6e6;
+  --color-text-secondary: #c9d1d9;
+  --color-text-muted: #8b949e;
+  --color-text-disabled: #484f58;
+  --color-text-link: #58a6ff;
+  --color-text-subtle: #8e918f;
+  --color-text-dim: #5c6166;
+
+  /* ── Semantic tokens: borders (GitHub Dark) ── */
+  --color-border-subtle: #21262d;
+  --color-border-default: #30363d;
+  --color-border-strong: #444746;
+
+  /* ── Semantic tokens: accent & functional ── */
+  --color-accent: #8ab4f8;
+  --color-warning: #d29922;
+  --color-error: #f85149;
+
+  /* ── Semantic tokens: status colors ── */
+  --color-status-existing: #4a9eff;
+  --color-status-problem: #ff4444;
+  --color-status-change: #f0c000;
+  --color-status-new: #22c55e;
+  --color-status-done: #22c55e;
+
+  /* ── Semantic tokens: spacing ── */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+
+  /* ── Semantic tokens: typography sizes ── */
+  --font-size-caption: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-body: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+
+  /* ── Semantic tokens: typography families ── */
+  --font-family-ui: var(--ibm-font);
+  --font-family-mono: var(--ibm-font-mono);
+
+  /* ── Semantic tokens: radius ── */
+  --radius-sm: var(--ibm-radius-sm);
+  --radius-md: var(--ibm-radius-md);
+  --radius-lg: 12px;
 }
+
+/* ══════════════════════════════════════════════════════
+   Layer 2: Global CSS Classes (semantic aliases)
+   ══════════════════════════════════════════════════════ */
+
+/* ── Text colors ── */
+.text-primary   { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-muted     { color: var(--color-text-muted); }
+.text-disabled  { color: var(--color-text-disabled); }
+.text-link      { color: var(--color-text-link); }
+
+/* ── Backgrounds ── */
+.bg-primary     { background: var(--color-bg-primary); }
+.bg-layer       { background: var(--color-bg-layer); }
+.bg-layer-hover { background: var(--color-bg-layer-hover); }
+.bg-code        { background: var(--color-bg-code); }
+.bg-alt         { background: var(--color-bg-alt); }
+.bg-surface     { background: var(--color-bg-surface); }
+
+/* ── Borders ── */
+.border-subtle  { border-color: var(--color-border-subtle); }
+.border-default { border-color: var(--color-border-default); }
+.border-strong  { border-color: var(--color-border-strong); }
+
+/* ── Typography ── */
+.font-ui   { font-family: var(--font-family-ui); }
+.font-mono { font-family: var(--font-family-mono); }
+.text-caption { font-size: var(--font-size-caption); }
+.text-subtle    { color: var(--color-text-subtle); }
+.text-dim       { color: var(--color-text-dim); }
+.text-accent    { color: var(--color-accent); }
+.text-warning   { color: var(--color-warning); }
+.text-error     { color: var(--color-error); }
+
+/* ── Interactions ── */
+.hover-bright { transition: filter 0.15s; }
+.hover-bright:hover { filter: brightness(1.15); }
+.active-press { transition: transform 0.1s; }
+.active-press:active { transform: scale(0.97); }
+
+/* ── Common component patterns ── */
+.btn-ghost {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 8px; border-radius: var(--radius-md);
+  transition: background-color 0.15s, color 0.15s;
+  font-size: var(--font-size-xs); color: var(--color-text-muted);
+  cursor: pointer;
+}
+.btn-ghost:hover { color: var(--color-text-primary); background: var(--color-bg-layer-hover); }
+
+.card-panel {
+  background: var(--color-bg-layer);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.code-block {
+  background: var(--color-bg-code);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: var(--font-size-caption);
+  font-family: var(--font-family-mono);
+}
+
+.dot-pulse {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s infinite;
+}
+
+.dot-bounce {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  animation: bounce-dot 1.4s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+/* ══════════════════════════════════════════════════════
+   Base & Reset (keep existing)
+   ══════════════════════════════════════════════════════ */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -132,5 +284,6 @@ body {
   background: var(--ibm-layer-02);
   color: var(--ibm-text-secondary);
 }
+
 .md-link { color: var(--ibm-link); text-decoration: none; }
 .md-link:hover { color: var(--ibm-link-hover); text-decoration: underline; }

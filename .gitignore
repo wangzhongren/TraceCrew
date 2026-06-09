@@ -18,3 +18,4 @@ __pycache__/
 Thumbs.db
 .codeatlas.lock
 .codeatlas-logs/
+.codeatlas/

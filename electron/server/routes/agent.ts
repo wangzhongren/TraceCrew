@@ -96,4 +96,35 @@ router.post('/step/stream', async (req, res) => {
   if (!res.destroyed) res.end();
 });
 
+/* ── Action stream ── */
+
+router.post('/action/stream', async (req, res) => {
+  const { action, node, instruction, project_path, downstream_nodes } = req.body || {};
+  console.log(`[route /action/stream] action=${action} node=${node?.label} project=${(project_path || '').slice(-30)}`);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  try {
+    for await (const ev of agentService.runActionStream({
+      action: action || 'explain',
+      node: node || {},
+      instruction: instruction || '',
+      project_path: project_path || '',
+      downstream_nodes: downstream_nodes || [],
+    })) {
+      if (res.destroyed) break;
+      res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
+    }
+  } catch (e: any) {
+    if (!res.destroyed) {
+      res.write(`event: done\ndata: ${JSON.stringify({ success: false, message: e.message, review_passed: null })}\n\n`);
+    }
+  }
+  if (!res.destroyed) res.end();
+});
+
 export default router;

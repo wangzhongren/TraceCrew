@@ -17,11 +17,11 @@ export default function TitleBar({ projectName }: { projectName: string }) {
           <line x1="8.5" y1="11" x2="8.5" y2="22"/><line x1="23.5" y1="11" x2="23.5" y2="22"/>
           <line x1="16" y1="7" x2="16" y2="22"/>
         </svg>
-        <span className="text-[13px] font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>CodeAtlas</span>
+        <span className="text-body font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>CodeAtlas</span>
         {projectName && (
           <>
-            <span className="text-[13px] font-light" style={{ color: 'var(--ibm-text-disabled)' }}>/</span>
-            <span className="text-[13px] font-light" style={{ color: 'var(--ibm-text-secondary)' }}>{projectName}</span>
+            <span className="text-body font-light" style={{ color: 'var(--ibm-text-disabled)' }}>/</span>
+            <span className="text-body font-light" style={{ color: 'var(--ibm-text-secondary)' }}>{projectName}</span>
           </>
         )}
       </div>

@@ -70,12 +70,11 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
   };
 
   return (
-    <div className="w-screen h-screen flex items-center justify-center relative" style={{ background: '#1a1c1e' }}>
+    <div className="w-screen h-screen flex items-center justify-center relative bg-alt">
       {/* Close button (top-right, for frameless window) */}
       <button
         onClick={() => { try { window.codeatlas?.window?.close(); } catch { window.close(); } }}
-        className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10"
-        style={{ color: '#8e918f' }}
+        className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10 text-subtle"
         title="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M18 6L6 18M6 6l12 12" />
@@ -83,8 +82,8 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
       </button>
       <button
         onClick={onToggleLanguage}
-        className="absolute top-3 right-14 h-9 px-3 flex items-center justify-center rounded-lg text-[11px] transition-colors hover:bg-white/10"
-        style={{ color: '#8ab4f8', border: '1px solid #303234' }}
+        className="absolute top-3 right-14 h-9 px-3 flex items-center justify-center rounded-lg text-xs transition-colors hover:bg-white/10 text-accent"
+        style={{ border: '1px solid var(--color-accent)' }}
         title="Language">
         {language === 'zh' ? '中文' : 'EN'}
       </button>
@@ -93,7 +92,7 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
         <div className="mb-8">
           <div className="w-20 h-20 mx-auto rounded-3xl flex items-center justify-center mb-4"
             style={{ background: 'linear-gradient(135deg, #003a75, #1a3a5c)' }}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8ab4f8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" className="text-accent" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="5" r="2" />
               <circle cx="5" cy="12" r="2" />
               <circle cx="19" cy="12" r="2" />
@@ -106,8 +105,8 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
               <line x1="12" y1="17" x2="17" y2="14" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold mb-1" style={{ color: '#e3e2e6' }}>CodeAtlas</h1>
-          <p className="text-sm" style={{ color: '#8e918f' }}>{language === 'zh' ? 'AI 代码地图' : 'CodeAtlas · AI Code Topology'}</p>
+          <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--color-text-primary)' }}>CodeAtlas</h1>
+          <p className="text-sm text-subtle">{language === 'zh' ? 'AI 代码地图' : 'CodeAtlas · AI Code Topology'}</p>
         </div>
 
         {/* Open Folder — primary CTA */}
@@ -115,21 +114,21 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
           onClick={handleOpen}
           disabled={checking}
           className="w-full px-6 py-3 rounded-2xl text-sm font-medium mb-6 transition-all hover:opacity-90 disabled:opacity-50"
-          style={{ background: '#8ab4f8', color: '#003a75' }}
+          style={{ background: 'var(--color-accent)', color: '#003a75' }}
         >
           {checking ? tr(language, 'loading') : tr(language, 'openFolder')}
         </button>
 
         {/* Connection status */}
-        <div className="flex items-center justify-center gap-1.5 mb-8 text-[10px]" style={{ color: '#5c6166' }}>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: checking ? '#fdd663' : isElectron ? '#34a853' : '#8e918f' }} />
+        <div className="flex items-center justify-center gap-1.5 mb-8 text-caption text-dim">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: checking ? '#fdd663' : isElectron ? '#34a853' : 'var(--color-text-subtle)' }} />
           {checking ? tr(language, 'initializing') : isElectron ? tr(language, 'electronReady') : tr(language, 'browserMode')}
         </div>
 
         {/* Recent projects */}
         {recent.length > 0 && (
           <div className="text-left">
-            <div className="text-xs font-medium uppercase tracking-wide mb-3" style={{ color: '#8e918f' }}>
+            <div className="text-xs font-medium uppercase tracking-wide mb-3 text-subtle">
               {tr(language, 'recent')}
             </div>
             <div className="space-y-1">
@@ -143,8 +142,8 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
                     <path d="M2 6a2 2 0 0 1 2-2h5l2 2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
                   </svg>
                   <div className="flex-1 truncate">
-                    <div style={{ color: '#e3e2e6' }}>{p.split(/[\\/]/).pop()}</div>
-                    <div className="text-[11px] truncate" style={{ color: '#5c6166' }}>{p}</div>
+                    <div style={{ color: 'var(--color-text-primary)' }}>{p.split(/[\\/]/).pop()}</div>
+                    <div className="text-xs truncate text-dim">{p}</div>
                   </div>
                   <span
                     onClick={(e) => handleRemoveRecent(e, p)}
@@ -153,7 +152,7 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
                     onKeyDown={(e) => e.key === 'Enter' && handleRemoveRecent(e as any, p)}
                     className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-white/10 transition-all cursor-pointer"
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8e918f" strokeWidth="2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-subtle" strokeWidth="2">
                       <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                   </span>
@@ -164,12 +163,9 @@ export default function WelcomePage({ onOpenProject, language, onToggleLanguage 
         )}
 
         {/* Keyboard hint */}
-        <div className="mt-8 text-[11px]" style={{ color: '#5c6166' }}>
-          <span style={{
-            background: '#303234', padding: '2px 6px', borderRadius: 4, marginRight: 4,
-            fontFamily: 'monospace', fontSize: 10,
-          }}>Ctrl+K</span>
-          <span style={{ background: '#303234', padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 10 }}>Ctrl+O</span>
+        <div className="mt-8 text-xs text-dim">
+          <span className="inline-flex items-center px-1.5 py-0.5 mr-1 rounded text-caption font-mono" style={{ background: 'var(--color-border-subtle)' }}>Ctrl+K</span>
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-caption font-mono" style={{ background: 'var(--color-border-subtle)' }}>Ctrl+O</span>
           <span className="ml-1">{tr(language, 'openFolderHint')}</span>
         </div>
       </div>

@@ -19,21 +19,21 @@ interface Props {
 }
 
 const COL = {
-  surface: '#1a1c1e',
-  surfaceVariant: '#282a2d',
-  onSurface: '#e3e2e6',
-  onSurfaceVariant: '#c4c7c5',
-  outline: '#444746',
-  outlineSoft: '#303234',
-  primary: '#8ab4f8',
+  surface: 'var(--color-bg-alt)',
+  surfaceVariant: 'var(--color-bg-surface)',
+  onSurface: 'var(--color-text-primary)',
+  onSurfaceVariant: 'var(--color-text-secondary)',
+  outline: 'var(--color-border-strong)',
+  outlineSoft: 'var(--color-border-subtle)',
+  primary: 'var(--color-accent)',
   green: '#3fb950',
-  yellow: '#d29922',
+  yellow: 'var(--color-warning)',
 };
 
 const LEVEL_COLORS: Record<number, string> = {
-  1: '#8ab4f8',
+  1: 'var(--color-accent)',
   2: '#3fb950',
-  3: '#d29922',
+  3: 'var(--color-warning)',
 };
 
 export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
@@ -160,7 +160,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
           <button
             onClick={handleGenerate}
             disabled={loading || !projectPath}
-            className="text-[10px] px-2 py-1 rounded-full transition-colors hover:opacity-80 disabled:opacity-30"
+            className="text-caption px-2 py-1 rounded-full transition-colors hover:opacity-80 disabled:opacity-30"
             style={{ background: '#003a75', color: COL.primary }}
           >
             {loading ? 'Analyzing...' : features.length > 0 ? 'Refresh' : 'Analyze'}
@@ -177,7 +177,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
             </span>
             <span className="text-xs font-medium" style={{ color: COL.onSurface }}>{selected.label}</span>
           </div>
-          <div className="text-[11px] leading-relaxed" style={{ color: COL.onSurfaceVariant }}>
+          <div className="text-xs leading-relaxed" style={{ color: COL.onSurfaceVariant }}>
             {selected.description || selected.flow_description}
           </div>
           {/* Files */}
@@ -190,7 +190,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
                     const isAbs = /^[a-zA-Z]:[\\/]/.test(f);
                     onNavigateToFile(isAbs ? f : (projectPath ? `${projectPath.replace(/\\/g, '/')}/${f}` : f));
                   }}
-                  className="text-[10px] px-1.5 py-0.5 rounded font-mono transition-colors hover:bg-white/10"
+                  className="text-caption px-1.5 py-0.5 rounded font-mono transition-colors hover:bg-white/10"
                   style={{ background: COL.surfaceVariant, color: COL.primary }}
                   title={f}
                 >
@@ -203,7 +203,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
           {selected.functions.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {selected.functions.map((fn) => (
-                <span key={fn} className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                <span key={fn} className="text-caption px-1.5 py-0.5 rounded font-mono"
                   style={{ background: '#262016', color: '#fce8b2' }}>
                   {fn}()
                 </span>
@@ -224,7 +224,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
               <line x1="17" y1="13" x2="19" y2="10" /><line x1="12" y1="17" x2="7" y2="14" />
               <line x1="12" y1="17" x2="17" y2="14" />
             </svg>
-            <div className="text-xs text-center" style={{ color: '#5c6166' }}>
+            <div className="text-xs text-center text-dim">
               Click <span style={{ color: COL.primary }}>Analyze</span> to discover project features
             </div>
           </div>
@@ -239,7 +239,7 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
             style={{ borderColor: COL.outlineSoft }}
           >
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: LEVEL_COLORS[node.level] || '#8e918f' }} />
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ background: LEVEL_COLORS[node.level] || 'var(--color-text-subtle)' }} />
               <span className="text-xs font-medium truncate" style={{ color: COL.onSurface }}>
                 {node.label}
                 {drilling === node.id && <span className="ml-1 animate-pulse" style={{ color: COL.yellow }}>...</span>}
@@ -250,10 +250,10 @@ export default function FeaturePanel({ projectPath, onNavigateToFile }: Props) {
                 </svg>
               )}
               {node.generated && node.children.length > 0 && (
-                <span className="ml-auto text-[9px] shrink-0" style={{ color: '#5c6166' }}>{node.children.length}</span>
+                <span className="ml-auto text-[9px] shrink-0 text-dim">{node.children.length}</span>
               )}
             </div>
-            <div className="text-[10px] mt-0.5 ml-4 truncate" style={{ color: '#5c6166' }}>
+            <div className="text-caption mt-0.5 ml-4 truncate text-dim">
               {node.description.slice(0, 60) || node.flow_description.slice(0, 60)}
             </div>
           </button>

@@ -1,27 +1,16 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useTopologyStore } from '../store/topologyStore';
 import type { TopologyNode, TopologyCommand } from '../types/topology';
+import { NODE_TYPE_COLORS, TOPOLOGY_EDGE_COLORS } from '../types/theme';
 
 const COL = {
-  bg: '#1a1c1e',
-  surface: '#282a2d',
-  onSurface: '#e3e2e6',
-  onSurfaceVariant: '#c4c7c5',
-  outline: '#444746',
-  outlineSoft: '#303234',
-  primary: '#8ab4f8',
-};
-
-const NODE_COLORS: Record<string, { fill: string; stroke: string; text: string; dot: string }> = {
-  module:  { fill: '#1e2535', stroke: '#8ab4f8', text: '#d6e3ff', dot: '#8ab4f8' },
-  class:   { fill: '#1b2a1e', stroke: '#b4d7a8', text: '#cce8c7', dot: '#b4d7a8' },
-  function:{ fill: '#262016', stroke: '#fdd663', text: '#fce8b2', dot: '#fdd663' },
-};
-
-const EDGE_COLORS: Record<string, string> = {
-  call: '#fdd663',
-  inherit: '#b4d7a8',
-  depend: '#8ab4f8',
+  bg: 'var(--color-bg-alt)',
+  surface: 'var(--color-bg-surface)',
+  onSurface: 'var(--color-text-primary)',
+  onSurfaceVariant: 'var(--color-text-secondary)',
+  outline: 'var(--color-border-strong)',
+  outlineSoft: 'var(--color-border-subtle)',
+  primary: 'var(--color-accent)',
 };
 
 /* ── Simple layered graph layout ── */
@@ -62,7 +51,7 @@ function NodePopup({ node, onClose, onGotoFile }: {
       style={{ background: COL.surface, border: `1px solid ${COL.outlineSoft}` }}>
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
-          <div className="w-2.5 h-2.5 rounded-full" style={{ background: NODE_COLORS[node.type]?.dot || '#8e918f' }} />
+          <div className="w-2.5 h-2.5 rounded-full" style={{ background: NODE_TYPE_COLORS[node.type]?.dot || '#8e918f' }} />
           <span className="text-xs font-medium" style={{ color: COL.onSurface }}>{node.label}</span>
         </div>
         <button onClick={onClose} style={{ color: COL.onSurfaceVariant }}>
@@ -71,11 +60,11 @@ function NodePopup({ node, onClose, onGotoFile }: {
           </svg>
         </button>
       </div>
-      <div className="text-[10px] font-mono mb-3 px-2 py-1 rounded-lg break-all"
+      <div className="text-caption font-mono mb-3 px-2 py-1 rounded-lg break-all"
         style={{ background: '#0d1117', color: '#8e918f' }}>
         {node.id}
       </div>
-      <div className="flex gap-2 text-[10px]">
+      <div className="flex gap-2 text-caption">
         <span className="px-2 py-0.5 rounded-full" style={{ background: COL.outlineSoft, color: COL.onSurfaceVariant, textTransform: 'capitalize' }}>
           {node.type}
         </span>
@@ -151,8 +140,8 @@ export default function TopologyCanvas({ onNavigateToFile }: { onNavigateToFile?
           <span className="text-xs font-medium uppercase tracking-wide" style={{ color: COL.onSurfaceVariant }}>Graph</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px]" style={{ color: '#5c6166' }}>{nodes.length} nodes · {edges.length} edges</span>
-          <button onClick={handleClear} className="text-[10px] px-2 py-0.5 rounded-full border transition-colors hover:bg-white/5"
+          <span className="text-caption" style={{ color: '#5c6166' }}>{nodes.length} nodes · {edges.length} edges</span>
+          <button onClick={handleClear} className="text-caption px-2 py-0.5 rounded-full border transition-colors hover:bg-white/5"
             style={{ borderColor: COL.outline, color: COL.onSurfaceVariant }}>Clear</button>
         </div>
       </div>
@@ -166,7 +155,7 @@ export default function TopologyCanvas({ onNavigateToFile }: { onNavigateToFile?
             {['call', 'inherit', 'depend'].map((t) => (
               <marker key={t} id={`gh-${t}`} viewBox="0 0 10 10" refX="9" refY="5"
                 markerWidth="5" markerHeight="5" orient="auto-start-reverse">
-                <path d="M0 0l10 5-10 5z" fill={EDGE_COLORS[t]} />
+                <path d="M0 0l10 5-10 5z" fill={TOPOLOGY_EDGE_COLORS[t]} />
               </marker>
             ))}
             <filter id="gh-glow">
@@ -182,7 +171,7 @@ export default function TopologyCanvas({ onNavigateToFile }: { onNavigateToFile?
               const tgt = positions.get(edge.target);
               if (!src || !tgt) return null;
               const active = hoveredNode === edge.source || hoveredNode === edge.target;
-              const color = EDGE_COLORS[edge.type] || COL.outline;
+              const color = TOPOLOGY_EDGE_COLORS[edge.type] || COL.outline;
               return (
                 <g key={`e-${i}`}>
                   <path d={edgePath(src, tgt)} fill="none" stroke={color}
@@ -198,7 +187,7 @@ export default function TopologyCanvas({ onNavigateToFile }: { onNavigateToFile?
           {nodes.map((node) => {
             const pos = positions.get(node.id);
             if (!pos) return null;
-            const c = NODE_COLORS[node.type] || NODE_COLORS.function;
+            const c = NODE_TYPE_COLORS[node.type] || NODE_TYPE_COLORS.function;
             const isSelected = selectedNode?.id === node.id;
             const isHovered = hoveredNode === node.id;
             const NODE_W = isSelected ? 200 : 160;
@@ -230,7 +219,7 @@ export default function TopologyCanvas({ onNavigateToFile }: { onNavigateToFile?
                 {/* Label */}
                 <text x={x + 30} y={y + NODE_H / 2 + 1} dominantBaseline="middle"
                   fill={c.text} fontSize={13} fontWeight={isSelected ? 600 : 500}
-                  fontFamily="'JetBrains Mono','Google Sans',monospace">
+                  fontFamily="var(--font-family-mono)">
                   {node.label.length > (isSelected ? 22 : 16) ? node.label.slice(0, (isSelected ? 22 : 16) - 1) + '…' : node.label}
                 </text>
               </g>

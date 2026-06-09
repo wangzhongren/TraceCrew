@@ -189,7 +189,7 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
   return (
     <div className="flex flex-col h-full" style={{ background: COL.surfaceVariant }}>
       <div className="flex items-center justify-between px-3 py-1.5 border-b shrink-0" style={{ borderColor: COL.outline }}>
-        <span className="text-[10px] font-medium uppercase tracking-wide" style={{ color: COL.onSurfaceVariant }}>
+        <span className="text-caption font-medium uppercase tracking-wide" style={{ color: COL.onSurfaceVariant }}>
           {tr(language, 'features')}
         </span>
         <div className="flex items-center gap-1.5">
@@ -240,7 +240,7 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
                     {ICONS[phase.icon]}
                   </span>
                   {/* Label */}
-                  <span className="text-[10px] truncate transition-colors duration-300"
+                  <span className="text-caption truncate transition-colors duration-300"
                     style={{ color: isActive ? COL.primary : isComplete ? '#8b949e' : COL.muted }}>
                     {label}
                   </span>
@@ -268,7 +268,7 @@ export default function FeatureList({ projectPath, onSelectFeature, selectedId, 
         )}
         {features.length === 0 && !loading && (
           <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <button onClick={handleGenerate} className="text-[10px] px-3 py-1 rounded-full transition-colors hover:bg-white/10"
+            <button onClick={handleGenerate} className="text-caption px-3 py-1 rounded-full transition-colors hover:bg-white/10"
               style={{ border: `1px solid ${COL.outline}`, color: COL.primary }}>
               {tr(language, 'analyze')}
             </button>
@@ -326,7 +326,7 @@ function TreeNode({ node, depth, expanded, selectedId, onToggle, onSelect }: {
           )}
           {!hasChildren && <span className="w-2 shrink-0" />}
           <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: LV_DOT[node.level] || '#8e918f' }} />
-          <span className="text-[11px] font-medium truncate" style={{ color: '#c9d1d9' }}>{node.label}</span>
+          <span className="text-xs font-medium truncate" style={{ color: 'var(--color-text-secondary)' }}>{node.label}</span>
           {node.children?.length > 0 && !isExpanded && (
             <span className="ml-auto text-[9px]" style={{ color: '#5c6166' }}>{node.children.length}</span>
           )}

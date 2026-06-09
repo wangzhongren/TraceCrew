@@ -40,8 +40,8 @@ function shouldIgnore(name: string): boolean {
   });
 }
 
-export function listDirectory(dirPath: string, depth = 3): FileEntry[] {
-  if (depth <= 0) return [];
+export function listDirectory(dirPath: string, depth = 0): FileEntry[] {
+  if (depth < 0) return [];
   try {
     const entries = readdirSync(dirPath, { withFileTypes: true });
     const result: FileEntry[] = [];
@@ -50,8 +50,8 @@ export function listDirectory(dirPath: string, depth = 3): FileEntry[] {
       if (shouldIgnore(entry.name)) continue;
       const fullPath = join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        const children = listDirectory(fullPath, depth - 1);
-        result.push({ name: entry.name, path: fullPath, type: 'directory', children });
+        const children = depth > 0 ? listDirectory(fullPath, depth - 1) : [];
+        result.push({ name: entry.name + '/', path: fullPath, type: 'directory', children: children.length > 0 ? children : undefined });
       } else if (entry.isFile()) {
         result.push({ name: entry.name, path: fullPath, type: 'file' });
       }

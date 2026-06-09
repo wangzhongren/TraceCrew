@@ -42,7 +42,7 @@ export interface CodeAtlasAPI {
     openTerminal: (projectPath?: string | null) => Promise<void>;
   };
   shell: {
-    run: (command: string) => string;
+    run: (command: string) => Promise<string>;
     kill: (id: string) => void;
     getLogFile: (id: string) => Promise<string | null>;
     readLog: (logFile: string) => Promise<string>;

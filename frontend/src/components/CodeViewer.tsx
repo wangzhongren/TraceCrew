@@ -190,7 +190,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
 
       {/* Code area */}
       <div ref={containerRef} className="flex-1 overflow-auto" onMouseUp={handleSelection}>
-        <table ref={tableRef} className="w-full border-collapse font-mono text-sm leading-6" style={{ fontFamily: "'JetBrains Mono','Cascadia Code',monospace" }}>
+        <table ref={tableRef} className="w-full border-collapse font-mono text-sm leading-6" style={{ fontFamily: 'var(--font-family-mono)' }}>
           <tbody>
             {content.lines.map((line, i) => (
               <tr

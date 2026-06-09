@@ -100,15 +100,26 @@ const MAPPER_SYSTEM_PROMPT = `你是 CodeAtlas 的调用链路绘制者。你拥
 2. 如果需要画图，读取 Planner 提到的关键文件，验证后输出 JSON
 3. 如果不需要画图，直接输出 skip 标记
 
+【核心规则 1：统一维度】
+所有节点 kind 必须统一，按需求选一个：
+- Bug 修复/功能改动 → 函数调用链（kind="function"）
+- 模块重构/架构调整 → 模块依赖链（kind="module"）
+- UI 交互流程 → 组件树（kind="component"）
+
+【核心规则 2：标注问题位置 — status 字段】
+每个节点必须标注 status：
+- "existing"：正常代码，不需修改
+- "problem"：问题位置。detail 必须包含两部分：①现状（当前有什么问题）②修复（应该改成什么）。例如 detail="现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程"
+- "planned_new"：需要新建的文件/函数。detail 描述要新建什么
+
+**注意**：同一个位置有 bug 又要修改的，合并为一个 "problem" 节点，不要拆成两个。每个 Planner step 必须对应至少一个 "problem" 或 "planned_new" 节点。
+
 【输出格式】
-- 需要画图时，输出 JSON：
 \`\`\`json
-{"call_graph":{"nodes":[...],"edges":[...]}}
+{"call_graph":{"nodes":[{"id":"a","label":"handleClose","kind":"function","status":"existing","detail":"关闭按钮点击处理","file":"src/TitleBar.tsx"},{"id":"b","label":"window:close handler","kind":"function","status":"problem","detail":"现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程","file":"electron/main.ts"}],"edges":[{"from":"a","to":"b","label":"IPC invoke","status":"existing"}]}}
 \`\`\`
 
-- 不需要画图时，只需输出：
-**skip_map**: true
-（然后输出简单的文字分析即可）
+不需要画图时，输出 **skip_map**: true
 
 ${PROTOCOL_READONLY}`;
 
@@ -149,6 +160,82 @@ const WORKER_SYSTEM_PROMPT = `你是代码执行者。收到任务后直接输�
 - 直接动手，先输出操作标签，最后再总结
 - path 使用相对路径
 - 不要输出"我来读取..."之类的废话，直接 <read-file>`;
+
+/* ═══════════════════════════════════════════════════════════
+   Action system prompts — for the action toolbar
+   ═══════════════════════════════════════════════════════════ */
+
+const ACTION_EXPLAIN_PROMPT = `你是 CodeAtlas 的代码文档专家。你的任务是为指定节点生成详细的 Markdown 文档。
+
+【工作流程】
+1. 读取节点关联的源代码文件
+2. 分析代码逻辑、调用关系、数据流向
+3. 输出结构化的 Markdown 文档
+
+【文档必须包含】
+- 功能概述与业务背景
+- 调用链路分析（上游谁调用了它，它调用了谁）
+- 关键函数/类签名与参数说明
+- 数据流与状态变更
+- 上下游依赖关系
+- 边界情况与异常处理
+
+【输出格式】完成分析后直接输出 Markdown，在最后加上 <done>文档生成完成</done>。
+
+${PROTOCOL_READONLY}`;
+
+const ACTION_FIX_PROMPT = `你是 CodeAtlas 的 Bug 修复专家。精确修复指定节点的问题，最小化改动范围。
+
+【铁律】
+- 只改与目标节点直接相关的代码，不波及其他模块
+- 修改前必须先 read_file 确认当前代码
+- 保持与周围代码风格一致
+- 一次改完相关文件后输出 <done>修复完成</done>
+
+${PROTOCOL_EXECUTE}`;
+
+const ACTION_REFACTOR_PROMPT = `你是 CodeAtlas 的重构专家。以指定节点为起点，重构该节点及其所有下游节点。
+
+【重构原则】
+- 改善代码结构而不改变外部行为
+- 提取重复逻辑、简化复杂条件、优化命名
+- 保持向后兼容，不破坏现有接口
+- 先读取所有相关文件再动手
+
+【范围】重构从目标节点开始，沿调用链向下覆盖所有下游节点。用户会提供下游节点列表。
+
+${PROTOCOL_EXECUTE}`;
+
+const ACTION_TEST_PROMPT = `你是 CodeAtlas 的测试专家。为指定节点及其调用链编写测试。
+
+【流程】
+1. 先读取目标节点的源代码，理解功能和边界情况
+2. 检查项目是否已有测试框架和测试文件
+3. 编写单元测试覆盖核心逻辑、边界情况、异常路径
+4. 如有必要，编写集成测试覆盖调用链
+5. 运行测试确认通过
+6. 输出 <done>测试完成</done>
+
+${PROTOCOL_EXECUTE}`;
+
+const ACTION_DEVELOP_PROMPT = `你是 CodeAtlas 的功能开发专家。完成指定新功能节点的开发。
+
+【流程】
+1. 读取调用链上游代码，理解现有接口和约定
+2. 创建新文件或在新文件中实现功能
+3. 建立与上下游的调用关系
+4. 确保代码风格和模式与项目一致
+5. 完成后输出 <done>开发完成</done>
+
+${PROTOCOL_EXECUTE}`;
+
+const ACTION_SYSTEM_PROMPTS: Record<string, string> = {
+  explain: ACTION_EXPLAIN_PROMPT,
+  fix: ACTION_FIX_PROMPT,
+  refactor: ACTION_REFACTOR_PROMPT,
+  test: ACTION_TEST_PROMPT,
+  develop: ACTION_DEVELOP_PROMPT,
+};
 
 /* ── Tag-to-operation mapping ── */
 
@@ -705,6 +792,252 @@ export class AgentService {
         data: JSON.stringify({ step_id: stepId, error: e.message }),
       };
     }
+  }
+
+  /* ── Action stream ── */
+
+  async *runActionStream(req: {
+    action: string;
+    node: Record<string, unknown>;
+    instruction?: string;
+    project_path: string;
+    downstream_nodes?: Record<string, unknown>[];
+  }): AsyncGenerator<{ event: string; data: string }> {
+    const { action, node, instruction, project_path, downstream_nodes } = req;
+    const projectPath = project_path || '';
+
+    // Phase 1: Action agent
+    yield { event: 'phase', data: JSON.stringify({ phase: 'action', action }) };
+
+    const systemPrompt = ACTION_SYSTEM_PROMPTS[action] || PROTOCOL_EXECUTE;
+    const isReadOnly = action === 'explain';
+
+    // Build user message
+    const parts: string[] = [];
+    parts.push(`【任务类型】${action}`);
+    parts.push(`【目标节点】`);
+    parts.push(`  - 名称: ${node.label || '(未知)'}`);
+    parts.push(`  - 类型: ${node.kind || 'function'}`);
+    parts.push(`  - 状态: ${node.status || 'existing'}`);
+    if (node.detail) parts.push(`  - 描述: ${node.detail}`);
+    if (node.file) parts.push(`  - 文件: ${node.file}${node.line ? `:${node.line}` : ''}`);
+    parts.push(`【项目路径】${projectPath}`);
+
+    if (downstream_nodes && downstream_nodes.length > 0) {
+      parts.push(`【下游节点列表】(共${downstream_nodes.length}个)`);
+      for (const dn of downstream_nodes) {
+        parts.push(`  - ${dn.label || '(未知)'} [${dn.kind || 'function'}] ${dn.file ? `@ ${dn.file}` : ''}`);
+      }
+    }
+
+    if (instruction) {
+      parts.push(`【用户补充说明】${instruction}`);
+    }
+
+    if (isReadOnly) {
+      parts.push(`\n请读取相关文件并直接输出文档内容。`);
+    } else {
+      parts.push(`\n请开始处理。先读取相关文件，然后执行修改。`);
+    }
+
+    const userMsg = parts.join('\n');
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMsg },
+    ];
+
+    // ── Tool loop ──
+    let turn = 0;
+    let emptyCount = 0;
+    let madeChanges = false;
+    let finalMessage = '';
+    let actionSuccess = false;
+    const WRITE_OPS = new Set(['insert_lines', 'replace_lines', 'delete_lines', 'create_file', 'delete_file']);
+
+    while (turn < 30) {
+      turn++;
+
+      let fullText = '';
+      try {
+        const stream = await this.client.chat.completions.create({
+          model: this.model,
+          messages,
+          temperature: 0.0,
+          stream: true,
+        });
+
+        for await (const chunk of stream) {
+          const delta = (chunk.choices[0]?.delta as any) || {};
+          if (delta.reasoning_content) {
+            yield { event: 'reasoning', data: delta.reasoning_content };
+          }
+          const token = delta.content || '';
+          if (token) {
+            fullText += token;
+            yield { event: 'token', data: token };
+          }
+        }
+      } catch (e: any) {
+        yield { event: 'done', data: JSON.stringify({ success: false, message: `处理出错: ${e.message?.slice(0, 200)}`, review_passed: null }) };
+        return;
+      }
+
+      // Parse operations
+      let operations: Record<string, unknown>[] = [];
+      let agentMessage = fullText;
+      try {
+        const parsed = this.parseXmlLike(fullText);
+        operations = parsed.operations;
+        agentMessage = parsed.message;
+      } catch {
+        // No XML ops — might be final output
+      }
+
+      messages.push({ role: 'assistant', content: fullText });
+
+      if (operations.length === 0) {
+        // Check for done tag
+        if (/<done>/i.test(fullText) || /文档生成完成/.test(fullText)) {
+          finalMessage = agentMessage;
+          actionSuccess = true;
+          break;
+        }
+        if (fullText.trim().length < 5) {
+          emptyCount++;
+          if (emptyCount >= 3) {
+            finalMessage = 'LLM 连续返回空响应';
+            break;
+          }
+          messages.push({ role: 'user', content: '请继续。' });
+          continue;
+        }
+        emptyCount = 0;
+        // No ops and no done tag — probably final output
+        finalMessage = agentMessage;
+        actionSuccess = true;
+        break;
+      }
+      emptyCount = 0;
+
+      // Track write operations
+      for (const op of operations) {
+        if (WRITE_OPS.has(op.type as string)) {
+          madeChanges = true;
+          break;
+        }
+      }
+
+      // Yield tool info
+      yield {
+        event: 'tools',
+        data: JSON.stringify({ count: operations.length, ops: operations.map((o) => ({ type: o.type, file: o.file })) }),
+      };
+
+      // Execute tools
+      let toolResults = '';
+      for (const op of operations) {
+        const result = await this.executeTool(op, projectPath);
+        toolResults += result + '\n\n';
+      }
+
+      // Feed results back
+      messages.push({
+        role: 'user',
+        content: `【工具执行结果】\n${toolResults.trim()}\n\n请基于以上结果继续处理。`,
+      });
+    }
+
+    if (turn >= 30) {
+      yield { event: 'done', data: JSON.stringify({ success: false, message: '已达到最大轮次限制', review_passed: null }) };
+      return;
+    }
+
+    if (!actionSuccess) {
+      yield { event: 'done', data: JSON.stringify({ success: false, message: finalMessage || '处理未完成', review_passed: null }) };
+      return;
+    }
+
+    // Phase 2: Reviewer (only for write actions that made changes)
+    if (madeChanges && !isReadOnly) {
+      yield { event: 'phase', data: JSON.stringify({ phase: 'review' }) };
+
+      const reviewMsg = `【审查任务】
+你是一位独立代码审查者。刚才执行了"${action}"操作，目标是节点"${node.label || '(未知)'}"。
+
+请读取被修改的文件，验证：
+1. 修改是否正确完成了任务
+2. 代码风格是否与项目一致
+3. 是否引入了新的问题
+4. 边界情况是否处理得当
+
+输出 JSON：
+{"passed": true/false, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}`;
+
+      const reviewMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+        { role: 'system', content: REVIEWER_EXEC_SYSTEM_PROMPT },
+        { role: 'user', content: reviewMsg },
+      ];
+
+      let reviewText = '';
+      try {
+        const reviewStream = await this.client.chat.completions.create({
+          model: this.model,
+          messages: reviewMessages,
+          temperature: 0.0,
+          stream: true,
+        });
+
+        for await (const chunk of reviewStream) {
+          const delta = (chunk.choices[0]?.delta as any) || {};
+          const token = delta.content || delta.reasoning_content || '';
+          if (token) {
+            reviewText += token;
+            yield { event: 'review_token', data: token };
+          }
+        }
+      } catch (e: any) {
+        yield { event: 'done', data: JSON.stringify({ success: true, message: finalMessage || '完成', review_passed: null, review_error: e.message }) };
+        return;
+      }
+
+      // Parse reviewer output
+      let reviewPassed: boolean | null = null;
+      let reviewFeedback = '';
+      let reviewIssues: unknown[] = [];
+      try {
+        const cleaned = reviewText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+        const reviewJson = JSON.parse(cleaned.match(/\{[\s\S]*"passed"[\s\S]*\}/)?.[0] || cleaned);
+        reviewPassed = !!reviewJson.passed;
+        reviewFeedback = reviewJson.feedback || '';
+        reviewIssues = reviewJson.issues || [];
+      } catch {
+        // If can't parse JSON, check for PASSED/FAILED
+        reviewPassed = /PASSED/i.test(reviewText) && !/FAILED/i.test(reviewText);
+        reviewFeedback = reviewText;
+      }
+
+      yield {
+        event: 'done',
+        data: JSON.stringify({
+          success: true,
+          message: finalMessage || '完成',
+          review_passed: reviewPassed,
+          review_feedback: reviewFeedback,
+          review_issues: reviewIssues,
+        }),
+      };
+      return;
+    }
+
+    // No reviewer needed (read-only or no changes)
+    yield {
+      event: 'done',
+      data: JSON.stringify({
+        success: true,
+        message: finalMessage || '完成',
+        review_passed: null,
+      }),
+    };
   }
 }
 

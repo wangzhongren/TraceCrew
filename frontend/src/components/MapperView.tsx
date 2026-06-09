@@ -1,23 +1,34 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import MapCanvas from './MapCanvas';
-import type { CallGraph } from './MapCanvas';
+import type { CallGraph, GraphNode } from './MapCanvas';
+import ActionDialog, { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
+import type { ActionType } from './ActionDialog';
+import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
+import type { NodeStatus } from '../types/theme';
 
 interface Props {
   graph: CallGraph | null;
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
   onSelectNode: (id: string | null) => void;
   selectedNode: string | null;
+  projectPath: string | null;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  existing: '#4a9eff', problem: '#ff4444', planned_change: '#f0c000', planned_new: '#22c55e', done: '#22c55e',
-};
-const STATUS_ICONS: Record<string, string> = {
-  existing: '◈', problem: '✕', planned_change: '✎', planned_new: '+', done: '✓',
-};
-const STATUS_LABEL: Record<string, string> = {
-  existing: '现有', problem: '问题', planned_change: '待改', planned_new: '新增', done: '完成',
-};
+interface StreamState {
+  running: boolean;
+  phase: 'action' | 'review' | null;
+  actionOutput: string;
+  reviewOutput: string;
+  tools: Array<{ type: string; file: string }>;
+  result: {
+    success?: boolean;
+    message?: string;
+    review_passed?: boolean | null;
+    review_feedback?: string;
+    review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
+  } | null;
+  error: string | null;
+}
 
 /** Get sub-graph reachable from given root */
 function subGraph(rootId: string, nodes: any[], edges: any[]): CallGraph {
@@ -115,7 +126,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
 
   const renderTreeNode = (node: TreeNode, depth: number, isLast: boolean): React.ReactNode => {
     if (hideByFilter(node)) return null;
-    const c = STATUS_COLORS[node.status] || STATUS_COLORS.existing;
+    const c = STATUS_COLORS_SIMPLE[node.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
     const isSel = sel === node.id;
     const isCollapsed = collapsed.has(node.id);
     const hasKids = node.children.length > 0;
@@ -127,8 +138,8 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
           {/* Tree connector */}
           {depth > 0 && (
             <div className="flex items-stretch shrink-0" style={{ width: 20 }}>
-              <div className="w-2.5 border-b-2 self-center" style={{ borderColor: '#21262d' }} />
-              <div className="w-px self-stretch" style={{ background: isLast ? 'transparent' : '#21262d' }} />
+              <div className="w-2.5 border-b-2 self-center border-subtle" />
+              <div className="w-px self-stretch" style={{ background: isLast ? 'transparent' : 'var(--color-border-subtle)' }} />
             </div>
           )}
           {/* Card */}
@@ -136,17 +147,17 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
             onClick={() => hasKids ? toggleCollapse(node.id) : onSelect(node.id)}
             onDoubleClick={() => onSelect(node.id)}
             className="flex-1 flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-colors hover:bg-white/5 mb-0.5"
-            style={{ background: isSel ? c + '10' : '#0d1117', border: `1px solid ${isSel ? c + '40' : 'transparent'}` }}>
+            style={{ background: isSel ? c + '10' : 'var(--color-bg-primary)', border: `1px solid ${isSel ? c + '40' : 'transparent'}` }}>
             {/* Status icon + expand */}
             <div className="flex items-center gap-1 shrink-0 mt-0.5">
               {hasKids ? (
-                <span className="text-[8px] w-3" style={{ color: '#8b949e' }}>{isCollapsed ? '▸' : '▾'}</span>
+                <span className="text-[8px] w-3" style={{ color: 'var(--color-text-muted)' }}>{isCollapsed ? '▸' : '▾'}</span>
               ) : <span className="w-3" />}
               <span className="text-sm">{STATUS_ICONS[node.status]}</span>
             </div>
             {/* Content */}
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-medium leading-tight mb-0.5" style={{ color: '#c9d1d9' }}>{node.label}</div>
+              <div className="text-xs font-medium leading-tight mb-0.5" style={{ color: 'var(--color-text-secondary)' }}>{node.label}</div>
               {node.detail && (
                 <div className="text-[9px] leading-snug mb-1" style={{ color: '#6e7681' }}>
                   {node.detail.length > 60 ? node.detail.slice(0, 59) + '…' : node.detail}
@@ -157,7 +168,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
                 {node.kind && <span className="text-[8px] font-mono" style={{ color: '#484f58' }}>{node.kind}</span>}
                 {node.status !== 'existing' && (
                   <span className="text-[8px] px-1 py-0.5 rounded" style={{ background: c + '15', color: c }}>
-                    {STATUS_LABEL[node.status]}
+                    {STATUS_LABELS[node.status]}
                   </span>
                 )}
               </div>
@@ -174,9 +185,9 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
 
   return (
     <div ref={popupRef} className="absolute top-full left-0 mt-2 z-30 rounded-xl border shadow-2xl"
-      style={{ width: 460, maxHeight: 520, background: '#161b22', borderColor: '#30363d', overflow: 'hidden' }}>
-      <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: '#21262d' }}>
-        <span className="text-[11px] font-medium tracking-wide" style={{ color: '#8b949e' }}>调用链</span>
+      style={{ width: 460, maxHeight: 520, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', overflow: 'hidden' }}>
+      <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--color-border-subtle)' }}>
+        <span className="text-xs font-medium tracking-wide" style={{ color: 'var(--color-text-muted)' }}>调用链</span>
         <div className="flex items-center gap-1">
           {[
             { key: 'all', label: '全部' },
@@ -191,7 +202,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
             </button>
           ))}
           <button onClick={() => setCollapsed(prev => prev.size === 0 ? new Set(trees.flatMap(t => getAllIds(t))) : new Set())}
-            className="text-[9px] px-2 py-0.5 rounded" style={{ color: '#8b949e' }}>
+            className="text-[9px] px-2 py-0.5 rounded" style={{ color: 'var(--color-text-muted)' }}>
             {collapsed.size > 0 ? '展开' : '折叠'}
           </button>
         </div>
@@ -207,9 +218,123 @@ function getAllIds(node: TreeNode): string[] {
   return [node.id, ...node.children.flatMap(getAllIds)];
 }
 
-export default function MapperView({ graph, phase, onSelectNode, selectedNode }: Props) {
+export default function MapperView({ graph, phase, onSelectNode, selectedNode, projectPath }: Props) {
   const [showCards, setShowCards] = useState(false);
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<ActionType | null>(null);
+  const [stream, setStream] = useState<StreamState>({
+    running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, error: null,
+  });
+
+  /** Compute downstream nodes for the selected node (used by refactor action) */
+  const downstreamNodes = useMemo((): GraphNode[] => {
+    if (!graph || !selectedNode) return [];
+    const visited = new Set<string>();
+    const result: GraphNode[] = [];
+    const queue = [selectedNode];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (visited.has(id)) continue;
+      visited.add(id);
+      // Collect children via edges (from this node)
+      for (const e of graph.edges) {
+        if (e.from === id && !visited.has(e.to)) {
+          queue.push(e.to);
+        }
+      }
+    }
+    // Return all downstream nodes except the selected one
+    for (const id of visited) {
+      if (id !== selectedNode) {
+        const n = graph.nodes.find((x) => x.id === id);
+        if (n) result.push(n);
+      }
+    }
+    return result;
+  }, [graph, selectedNode]);
+
+  const selectedNodeData = useMemo(() => {
+    if (!selectedNode || !graph) return null;
+    return graph.nodes.find(n => n.id === selectedNode) || null;
+  }, [graph, selectedNode]);
+
+  const handleActionConfirm = useCallback(async (instruction: string) => {
+    if (!projectPath || !selectedNodeData) return;
+
+    // Start streaming
+    setStream({ running: true, phase: 'action', actionOutput: '', reviewOutput: '', tools: [], result: null, error: null });
+
+    try {
+      const res = await fetch('/api/v1/agent/action/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: activeAction,
+          node: selectedNodeData,
+          instruction,
+          project_path: projectPath,
+          downstream_nodes: activeAction === 'refactor' ? downstreamNodes : [],
+        }),
+      });
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setStream(prev => ({ ...prev, running: false, error: '无法读取响应流' }));
+        return;
+      }
+
+      const dec = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop() || '';
+
+        for (const part of parts) {
+          const lines = part.split('\n');
+          let event = '', data = '';
+          for (const l of lines) {
+            if (l.startsWith('event: ')) event = l.slice(7).trim();
+            else if (l.startsWith('data: ')) data = l.slice(6);
+          }
+          if (!event) continue;
+
+          try {
+            const payload = JSON.parse(data);
+            setStream(prev => {
+              switch (event) {
+                case 'phase':
+                  return { ...prev, phase: payload.phase || 'action' };
+                case 'token':
+                  return { ...prev, actionOutput: prev.actionOutput + data };
+                case 'reasoning':
+                  return prev; // reasoning is shown inline with tokens
+                case 'review_token':
+                  return { ...prev, reviewOutput: prev.reviewOutput + data };
+                case 'tools':
+                  return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
+                case 'done':
+                  return { ...prev, running: false, result: payload };
+                default:
+                  return prev;
+              }
+            });
+          } catch {
+            if (event === 'token') {
+              setStream(prev => ({ ...prev, actionOutput: prev.actionOutput + data }));
+            } else if (event === 'review_token') {
+              setStream(prev => ({ ...prev, reviewOutput: prev.reviewOutput + data }));
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      setStream(prev => ({ ...prev, running: false, error: e.message || '网络错误' }));
+    }
+  }, [activeAction, selectedNodeData, projectPath, downstreamNodes]);
 
   const entryPoints = useMemo(() => {
     if (!graph || graph.nodes.length === 0) return [] as any[];
@@ -225,11 +350,6 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode }:
     }
   }, [graph, entryPoints, activeRoot]);
 
-  const selectedNodeData = useMemo(() => {
-    if (!selectedNode || !graph) return null;
-    return graph.nodes.find(n => n.id === selectedNode) || null;
-  }, [graph, selectedNode]);
-
   const activeGraph = useMemo(() => {
     if (!graph || !activeRoot) return graph;
     return subGraph(activeRoot, graph.nodes, graph.edges);
@@ -237,22 +357,22 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode }:
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className="flex flex-col h-full" style={{ background: '#0d1117' }}>
+      <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
         <MapCanvas graph={null} phase={phase} selectedNode={null} onSelectNode={() => {}} />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: '#0d1117' }}>
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
       {/* ════ Top nav ════ */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b" style={{ borderColor: '#21262d' }}>
+      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
         {/* Cards dropdown */}
         <div className="relative">
           <button
             onClick={() => setShowCards(!showCards)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors hover:bg-white/5 text-[11px]"
-            style={{ border: `1px solid ${showCards ? '#30363d' : 'transparent'}`, color: '#c9d1d9' }}>
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors hover:bg-white/5 text-xs"
+            style={{ border: `1px solid ${showCards ? '#30363d' : 'transparent'}`, color: 'var(--color-text-secondary)' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/>
               <rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/>
@@ -274,12 +394,12 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode }:
         {entryPoints.length > 1 && (
           <div className="flex items-center gap-0.5">
             {entryPoints.map((ep: any) => {
-              const c = STATUS_COLORS[ep.status] || STATUS_COLORS.existing;
+              const c = STATUS_COLORS_SIMPLE[ep.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
               const isActive = activeRoot === ep.id;
               return (
                 <button key={ep.id}
                   onClick={() => setActiveRoot(ep.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-[10px] transition-colors hover:bg-white/5"
+                  className="flex items-center gap-1 px-2 py-1 rounded text-caption transition-colors hover:bg-white/5"
                   style={{ color: isActive ? '#e6e6e6' : '#8b949e', background: isActive ? c + '10' : undefined }}>
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: c }}/>
                   <span className="max-w-[100px] truncate">{ep.label}</span>
@@ -291,22 +411,56 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode }:
 
         {/* Selected node breadcrumb */}
         {selectedNodeData && (
-          <div className="flex items-center gap-1 ml-2 text-[10px] overflow-hidden">
+          <div className="flex items-center gap-1 ml-2 text-caption overflow-hidden">
             <span style={{ color: '#484f58' }}>选中:</span>
-            <span style={{ color: STATUS_COLORS[selectedNodeData.status] || '#888' }}>
+            <span style={{ color: STATUS_COLORS_SIMPLE[selectedNodeData.status as NodeStatus] || '#888' }}>
               {STATUS_ICONS[selectedNodeData.status]}
             </span>
-            <span style={{ color: '#c9d1d9' }} className="truncate max-w-[200px]">
+            <span style={{ color: 'var(--color-text-secondary)' }} className="truncate max-w-[200px]">
               {selectedNodeData.label}
             </span>
-            <button onClick={() => onSelectNode(null)} className="text-[10px] hover:opacity-80 shrink-0" style={{ color: '#484f58' }}>✕</button>
+            <button onClick={() => onSelectNode(null)} className="text-caption hover:opacity-80 shrink-0" style={{ color: '#484f58' }}>✕</button>
           </div>
         )}
 
-        <div className="ml-auto text-[10px] shrink-0" style={{ color: '#484f58' }}>
+        <div className="ml-auto text-caption shrink-0" style={{ color: '#484f58' }}>
           {graph.nodes.length} 节点 · {graph.edges.length} 边
         </div>
       </div>
+
+      {/* ════ Action toolbar ════ */}
+      {selectedNode && selectedNodeData && (() => {
+        const actions = getActionsForNode(selectedNodeData.status);
+        if (actions.length === 0) return null;
+        return (
+          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-primary)' }}>
+            <span className="text-caption mr-1" style={{ color: '#484f58' }}>操作:</span>
+            {actions.map((a) => {
+              const cfg = ACTION_CONFIGS[a];
+              const isRefactorWithDownstream = a === 'refactor';
+              return (
+                <button
+                  key={a}
+                  onClick={() => setActiveAction(a)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:brightness-125 active:scale-[0.97]"
+                  style={{
+                    background: cfg.color + '15',
+                    color: cfg.color,
+                    border: `1px solid ${cfg.color}25`,
+                  }}
+                  title={cfg.description + (isRefactorWithDownstream && downstreamNodes.length > 0 ? `（含${downstreamNodes.length}个下游节点）` : '')}
+                >
+                  <span className="text-xs">{cfg.icon}</span>
+                  <span>{cfg.label}</span>
+                  {isRefactorWithDownstream && downstreamNodes.length > 0 && (
+                    <span className="text-[9px] opacity-60 ml-0.5">+{downstreamNodes.length}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ════ Bottom: MapCanvas — one sub-graph per entry ════ */}
       <div className="flex-1 overflow-hidden">
@@ -317,6 +471,24 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode }:
           onSelectNode={onSelectNode}
         />
       </div>
+
+      {/* ════ Action Dialog ════ */}
+      {activeAction && selectedNodeData && (
+        <ActionDialog
+          action={activeAction}
+          node={selectedNodeData}
+          downstreamNodes={activeAction === 'refactor' ? downstreamNodes : undefined}
+          onClose={() => { setActiveAction(null); setStream({ running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, error: null }); }}
+          onConfirm={handleActionConfirm}
+          streamRunning={stream.running}
+          streamPhase={stream.phase}
+          streamActionOutput={stream.actionOutput}
+          streamReviewOutput={stream.reviewOutput}
+          streamTools={stream.tools}
+          streamResult={stream.result}
+          streamError={stream.error}
+        />
+      )}
     </div>
   );
 }

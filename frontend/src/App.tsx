@@ -18,7 +18,11 @@ export default function App() {
     setPipeline(prev => ({ ...prev, ...update }));
   }, []);
 
-  const handleOpenProject = useCallback((p: string) => setProjectPath(p), []);
+  const handleOpenProject = useCallback((p: string) => {
+    setProjectPath(p);
+    setPipeline({ phase: 'idle', graph: null });
+    setSelectedNode(null);
+  }, []);
 
   useEffect(() => {
     try { window.codeatlas?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {}
@@ -72,16 +76,18 @@ export default function App() {
             {/* Left: Chat Panel */}
             <aside className="shrink-0 border-r overflow-hidden"
               style={{ width: 420, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
-              <ChatPanel projectPath={projectPath} onPipelineChange={updatePipeline} />
+              <ChatPanel key={projectPath} projectPath={projectPath} onPipelineChange={updatePipeline} />
             </aside>
             {/* Right: Call Graph + Detail */}
             <main className="flex-1 flex overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
               <div className="flex-1 overflow-hidden">
                 <MapperView
+                  key={projectPath}
                   graph={pipeline.graph}
                   phase={pipeline.phase}
                   selectedNode={selectedNode}
                   onSelectNode={setSelectedNode}
+                  projectPath={projectPath}
                 />
               </div>
             </main>

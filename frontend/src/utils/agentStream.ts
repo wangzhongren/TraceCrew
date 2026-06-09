@@ -78,13 +78,13 @@ export async function streamAgentResponse(
 }
 
 /** Execute a shell command and wait for completion. Returns output + exit code. */
-export function executeShellAndWait(
+export async function executeShellAndWait(
   command: string,
   onData?: (data: string) => void,
   timeoutMs = 60000,
 ): Promise<{ output: string; exitCode: number }> {
+  const shellId = await window.codeatlas.shell.run(command);
   return new Promise((resolve) => {
-    const shellId = window.codeatlas.shell.run(command);
     let output = '';
     let resolved = false;
 

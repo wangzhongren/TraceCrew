@@ -14,6 +14,8 @@ const api = {
       ipcRenderer.invoke('file:replaceLines', filePath, startLine, endLine, content),
     deleteLines: (filePath: string, startLine: number, endLine: number) =>
       ipcRenderer.invoke('file:deleteLines', filePath, startLine, endLine),
+    deleteFile: (filePath: string) => ipcRenderer.invoke('file:deleteFile', filePath),
+    search: (query: string, dirPath: string) => ipcRenderer.invoke('file:search', query, dirPath),
     restoreBackup: (backupId: string) => ipcRenderer.invoke('file:restoreBackup', backupId),
     getProjectPath: () => ipcRenderer.invoke('file:getProjectPath'),
     onProjectOpened: (cb: (path: string) => void) => {
@@ -21,7 +23,7 @@ const api = {
     },
   },
   shell: {
-    run: (command: string) => ipcRenderer.sendSync('shell:run', command) as string,
+    run: (command: string) => ipcRenderer.invoke('shell:run', command) as Promise<string>,
     kill: (id: string) => ipcRenderer.send('shell:kill', id),
     getLogFile: (id: string) => ipcRenderer.invoke('shell:getLogFile', id) as Promise<string | null>,
     readLog: (logFile: string) => ipcRenderer.invoke('shell:readLog', logFile) as Promise<string>,
