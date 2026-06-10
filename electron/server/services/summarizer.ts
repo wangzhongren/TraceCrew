@@ -6,6 +6,7 @@ interface SummarizeJob {
   projectPath: string;
   filePath: string;
   content: string;
+  totalLines: number;
 }
 
 const SUMMARIZE_PROMPT = `你是代码摘要专家。请分析以下代码，输出 JSON（直接输出纯 JSON，不要 markdown 包裹）：
@@ -28,11 +29,12 @@ export class SummarizerService {
 
   constructor(
     private callLLM: (messages: Array<{ role: string; content: string }>) => Promise<string>,
+    private modelName: string = '',
   ) {}
 
   /** External: called after read_file (non-blocking) */
-  enqueue(projectPath: string, filePath: string, content: string): void {
-    this.queue.push({ projectPath, filePath, content });
+  enqueue(projectPath: string, filePath: string, content: string, totalLines: number): void {
+    this.queue.push({ projectPath, filePath, content, totalLines });
     if (!this.processing) {
       this.processQueue();
     }
@@ -45,7 +47,7 @@ export class SummarizerService {
       try {
         await this.summarizeFile(job);
       } catch (e: any) {
-        console.log(`[summarizer] Failed for ${job.filePath}: ${e.message?.slice(0, 100)}`);
+        console.log(`[summarizer] Failed for ${job.filePath} | model=${this.modelName} | content=${job.content.length}c | lines=${job.totalLines} | ${e.message?.slice(0, 120)}`);
       }
     }
     this.processing = false;
@@ -71,6 +73,11 @@ export class SummarizerService {
       { role: 'user', content: truncated },
     ]);
 
+    if (!response || response.trim().length === 0) {
+      console.log(`[summarizer] Empty LLM response for ${filePath} | model=${this.modelName} | content=${content.length} chars | truncated=${truncated.length} chars`);
+      return;
+    }
+
     const summary = this.parseSummaryResponse(response, filePath);
     if (!summary) return;
 
@@ -84,6 +91,7 @@ export class SummarizerService {
       file_hash: fileHash,
       tokens: Math.ceil(content.length / 3),
       summary_tokens: Math.ceil(JSON.stringify(summary).length / 3),
+      total_lines: job.totalLines,
     });
 
     console.log(`[summarizer] Saved summary for ${filePath} (${summary.key_exports.length} exports, ${summary.dependencies.length} deps)`);
@@ -95,16 +103,37 @@ export class SummarizerService {
         .replace(/```json\s*/gi, '')
         .replace(/```\s*/gi, '')
         .trim();
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (!match) return null;
-      const json = JSON.parse(match[0]);
+
+      // Find first '{' and track brace balance to find matching '}'
+      const startIdx = cleaned.indexOf('{');
+      if (startIdx === -1) {
+        console.log(`[summarizer] No JSON object found in response for ${filePath}`);
+        return null;
+      }
+
+      let depth = 0;
+      let endIdx = -1;
+      for (let i = startIdx; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') depth++;
+        else if (cleaned[i] === '}') {
+          depth--;
+          if (depth === 0) { endIdx = i; break; }
+        }
+      }
+
+      if (endIdx === -1) {
+        console.log(`[summarizer] Unmatched braces in response for ${filePath}`);
+        return null;
+      }
+
+      const json = JSON.parse(cleaned.slice(startIdx, endIdx + 1));
       return {
         summary: json.summary || '',
         key_exports: json.key_exports || [],
         dependencies: json.dependencies || [],
       };
-    } catch {
-      console.log(`[summarizer] Failed to parse JSON response for ${filePath}`);
+    } catch (e: any) {
+      console.log(`[summarizer] Failed to parse JSON for ${filePath}: ${e.message?.slice(0, 80)} | raw: ${response.slice(0, 150)}`);
       return null;
     }
   }

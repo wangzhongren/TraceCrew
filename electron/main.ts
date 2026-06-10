@@ -109,8 +109,8 @@ ipcMain.handle('window:close', () => mainWindow?.close());
     return deleteFile(resolveProjectPath(filePath), projectPath);
   });
 
-  ipcMain.handle('file:search', async (_e, query: string, dirPath: string) => {
-    return await searchInFiles(query, resolveProjectPath(dirPath || '.'));
+  ipcMain.handle('file:search', async (_e, query: string, dirPath: string, options?: import('./fileManager').SearchOptions) => {
+    return await searchInFiles(query, resolveProjectPath(dirPath || '.'), options);
   });
 
   ipcMain.handle('file:restoreBackup', (_e, backupId: string) => {

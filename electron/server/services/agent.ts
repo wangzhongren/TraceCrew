@@ -7,20 +7,7 @@ import {
 } from '../../fileManager';
 import { existsSync } from 'fs';
 import { SummarizerService } from './summarizer';
-import { getFileSummariesForContext } from './db';
-
-const STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','i','you','he','she','it','we','they','me','him','her','us','them','my','your','his','its','our','their','this','that','these','those','in','on','at','to','for','of','with','by','from','up','about','into','through','during','before','after','above','below','between','and','but','or','nor','not','so','yet','both','either','neither','each','every','all','any','few','more','most','other','some','such','no','only','own','same','than','too','very','just','because','as','until','while','if','when','where','how','what','which','who','whom','请','的','了','吗','呢','吧','啊','在','是','不','要','有','我','你','他','她','它','们','这','那','和','与','或','也','都','就','还','但','把','被','让','从','对','以','到','所','能','会','可以','需要','没有','已经','因为','所以','如果','虽然','但是','然而','因此','然后','接着','之后','之前','之后','里面','外面','旁边','现在','将来','过去','一个','一些','每个','所有','这个','那个','这些','那些','什么','怎么','为什么','哪里','什么时候','谁','多少','怎么']);
-
-function extractKeywords(text: string): string[] {
-  const words = text.replace(/[^\w一-鿿]/g, ' ').split(/\s+/).filter(w => w.length > 2);
-  const freq = new Map<string, number>();
-  for (const w of words) {
-    const lower = w.toLowerCase();
-    if (STOP_WORDS.has(lower)) continue;
-    freq.set(lower, (freq.get(lower) || 0) + 1);
-  }
-  return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(e => e[0]);
-}
+import { getFileSummary } from './db';
 
 const MAX_CONTEXT_CHARS = 24000;
 
@@ -144,9 +131,15 @@ const MAPPER_SYSTEM_PROMPT = `你是 CodeAtlas 的调用链路绘制者。你拥
 
 **注意**：同一个位置有 bug 又要修改的，合并为一个 "problem" 节点，不要拆成两个。每个 Planner step 必须对应至少一个 "problem" 或 "planned_new" 节点。
 
+【核心规则 4：定位行号】
+每个节点必须标注 line 字段，值为该函数/类/组件定义的第一行行号：
+- 从 read-file 的输出中（带行号前缀）找到定义所在行
+- line 为数字类型，不是字符串
+- 这是必填字段，用于代码查看器跳转到准确位置
+
 【输出格式】
 \`\`\`json
-{"call_graph":{"nodes":[{"id":"a","label":"[前端] handleClose","kind":"function","status":"existing","detail":"关闭按钮点击处理","file":"frontend/src/components/TitleBar.tsx"},{"id":"b","label":"[后端] window:close handler","kind":"function","status":"problem","detail":"现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程","file":"electron/main.ts"}],"edges":[{"from":"a","to":"b","label":"IPC invoke","status":"existing"}]}}
+{"call_graph":{"nodes":[{"id":"a","label":"[前端] handleClose","kind":"function","status":"existing","detail":"关闭按钮点击处理","file":"frontend/src/components/TitleBar.tsx","line":47},{"id":"b","label":"[后端] window:close handler","kind":"function","status":"problem","detail":"现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程","file":"electron/main.ts","line":121}],"edges":[{"from":"a","to":"b","label":"IPC invoke","status":"existing"}]}}
 \`\`\`
 
 不需要画图时，输出 **skip_map**: true
@@ -330,11 +323,14 @@ export class AgentService {
         const resp = await this.client.chat.completions.create({
           model: this.model,
           messages: msgs as any,
-          temperature: 0.0,
-          max_tokens: 1024,
+          temperature: 0.1,
         });
-        return resp.choices[0].message.content || '';
-      });
+        const content = resp.choices[0].message.content;
+        if (!content || content.trim().length === 0) {
+          console.log(`[summarizer] LLM returned empty | finish_reason=${resp.choices[0].finish_reason} | usage=${JSON.stringify(resp.usage)} | model=${this.model}`);
+        }
+        return content || '';
+      }, this.model);
     }
     return this._summarizer;
   }
@@ -600,31 +596,6 @@ export class AgentService {
       messages.unshift({ role: 'system', content: systemPrompt});
     }
 
-    // Inject file summaries into the first user message (if available)
-    if (projectPath) {
-      try {
-        const userMsg = messages.find(m => m.role === 'user');
-        if (userMsg) {
-          const keywords = extractKeywords(userMsg.content);
-          if (keywords.length > 0) {
-            const summaries = getFileSummariesForContext(projectPath, keywords);
-            if (summaries.length > 0) {
-              const lines = ['\n【已知文件摘要 — 可直接使用，无需重复读取】'];
-              for (const s of summaries.slice(0, 10)) {
-                const exports = s.key_exports?.length
-                  ? s.key_exports.map((e: any) => `${e.kind} ${e.name}(${e.signature || ''})`).join(', ')
-                  : '';
-                lines.push(`- ${s.file_path}: ${s.summary}${exports ? ` | ${exports}` : ''}`);
-              }
-              userMsg.content += '\n' + lines.join('\n');
-            }
-          }
-        }
-      } catch (e: any) {
-        console.log(`[processStream] Summary injection skipped: ${e.message?.slice(0, 80)}`);
-      }
-    }
-
     console.log("2222222222"+ systemPrompt)
     console.log(messages[0])
     console.log(`[processStream] mode=${mode} msgs=${messages.length}`);
@@ -694,7 +665,7 @@ export class AgentService {
         // Explicit done marker
         if (/<final\/>/i.test(fullText)) {
           const clean = fullText.replace(/<final\/>/gi, '').trim();
-          yield { event: 'done', data: JSON.stringify({ message: clean || agentMessage, operations: [] }) };
+          yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
           return;
         }
         if (fullText.trim().length < 5) {
@@ -756,14 +727,27 @@ export class AgentService {
           const result = readFile(fullPath, startLine, endLine);
           // Async summarizer: only when reading the full file (no line range)
           if (!op.start_line && !op.end_line && projectPath) {
-            this.summarizer.enqueue(projectPath, filePath, result.content);
+            this.summarizer.enqueue(projectPath, filePath, result.content, result.lineCount);
+          }
+          // Attach existing summary if available (path-based lookup)
+          let summaryNote = '';
+          if (projectPath) {
+            try {
+              const existing = getFileSummary(projectPath, filePath);
+              if (existing) {
+                const exports = existing.key_exports?.length
+                  ? existing.key_exports.map((e: any) => `${e.kind} ${e.name}() L${e.line}`).join(', ')
+                  : '无';
+                summaryNote = `\n【已有摘要】${existing.summary} (共${existing.total_lines || '?'}行)\n关键导出: ${exports}\n`;
+              }
+            } catch { /* ignore */ }
           }
           // Add line numbers so the LLM can reference specific lines
           const numbered = result.lines
             .map((l: string, i: number) => `${String(startLine + i).padStart(4, ' ')}| ${l}`)
             .join('\n');
           const truncated = this.truncate(numbered, 12000);
-          return `[read_file ${filePath} L${startLine}${endLine ? `-L${endLine}` : `-L${startLine + result.lineCount - 1}`} (${result.lineCount} lines)]\n\`\`\`\n${truncated}\n\`\`\``;
+          return `${summaryNote}[read_file ${filePath} L${startLine}${endLine ? `-L${endLine}` : `-L${startLine + result.lineCount - 1}`} (${result.lineCount} lines)]\n\`\`\`\n${truncated}\n\`\`\``;
         }
         case 'search': {
           const query = (op.content as string) || '';
@@ -784,20 +768,20 @@ export class AgentService {
         case 'insert_lines': {
           const afterLine = (op.after_line as number) || 0;
           const content = (op.content as string) || '';
-          const r = insertLines(fullPath, afterLine, content);
+          const r = await insertLines(fullPath, afterLine, content);
           return `[insert_lines ${filePath} after L${afterLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
         }
         case 'replace_lines': {
           const startLine = (op.start_line as number) || 1;
           const endLine = (op.end_line as number) || 1;
           const content = (op.content as string) || '';
-          const r = replaceLines(fullPath, startLine, endLine, content);
+          const r = await replaceLines(fullPath, startLine, endLine, content);
           return `[replace_lines ${filePath} L${startLine}-L${endLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
         }
         case 'delete_lines': {
           const startLine = (op.start_line as number) || 1;
           const endLine = (op.end_line as number) || 1;
-          const r = deleteLines(fullPath, startLine, endLine);
+          const r = await deleteLines(fullPath, startLine, endLine);
           return `[delete_lines ${filePath} L${startLine}-L${endLine}]\n${r.success ? '✅ 成功' : '❌ 失败: ' + r.error}`;
         }
         case 'create_file': {

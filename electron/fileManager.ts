@@ -1,8 +1,10 @@
 import {
   readdirSync, readFileSync, writeFileSync, existsSync,
   mkdirSync, statSync, copyFileSync, renameSync, createWriteStream,
+  createReadStream,
 } from 'fs';
 import { readdir, readFile, stat } from 'fs/promises';
+import { createInterface } from 'readline';
 import { join, dirname, relative, basename } from 'path';
 
 export interface FileEntry {
@@ -146,9 +148,82 @@ export function writeFile(filePath: string, content: string): EditResult {
   }
 }
 
-export function insertLines(filePath: string, afterLine: number, content: string): EditResult {
+/** Stream lines from source to temp file, applying an edit operation.
+ *  Only keeps one line in memory at a time — safe for 10MB+ files. */
+function streamEdit(
+  filePath: string,
+  op: 'insert' | 'replace' | 'delete',
+  targetLine: number,    // insert: after this line; replace/delete: start line
+  rangeEnd: number,       // replace/delete: end line (inclusive)
+  content?: string,
+): Promise<EditResult> {
+  return new Promise((resolve) => {
+    const tmpPath = filePath + '.tmp.' + Date.now();
+    const input = createReadStream(filePath, 'utf-8');
+    const output = createWriteStream(tmpPath, { flags: 'w' });
+    const rl = createInterface({ input, crlfDelay: Infinity });
+
+    const newChunk = content ? content.split('\n') : [];
+    let lineNum = 0;
+    let skipping = false;
+
+    rl.on('line', (line) => {
+      lineNum++;
+      if (skipping) {
+        if (lineNum > rangeEnd) {
+          skipping = false;
+          output.write(line + '\n');
+        }
+        return;
+      }
+
+      if (op === 'replace' && lineNum === targetLine) {
+        for (const l of newChunk) output.write(l + '\n');
+        if (rangeEnd > targetLine) skipping = true;
+        return;
+      }
+
+      if (op === 'delete' && lineNum === targetLine) {
+        if (rangeEnd > targetLine) skipping = true;
+        return;
+      }
+
+      if (op === 'insert' && lineNum === targetLine) {
+        output.write(line + '\n');
+        for (const l of newChunk) output.write(l + '\n');
+        return;
+      }
+
+      output.write(line + '\n');
+    });
+
+    rl.on('close', () => {
+      output.end(() => {
+        try {
+          renameSync(tmpPath, filePath);
+          resolve({ success: true, file: filePath });
+        } catch (e: any) {
+          resolve({ success: false, error: e.message, file: filePath });
+        }
+      });
+    });
+
+    rl.on('error', (err) => {
+      output.end();
+      resolve({ success: false, error: err.message, file: filePath });
+    });
+  });
+}
+
+export async function insertLines(filePath: string, afterLine: number, content: string): Promise<EditResult> {
   try {
     const backupId = createBackup(filePath, 'insert_lines');
+    // Use streaming for large files, in-memory for small ones
+    const st = statSync(filePath);
+    if (st.size > 500_000) {
+      const r = await streamEdit(filePath, 'insert', afterLine + 1, afterLine + 1, content);
+      return { ...r, backupId };
+    }
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(afterLine, 0, ...content.split('\n'));
@@ -159,11 +234,16 @@ export function insertLines(filePath: string, afterLine: number, content: string
   }
 }
 
-export function replaceLines(
+export async function replaceLines(
   filePath: string, startLine: number, endLine: number, content: string
-): EditResult {
+): Promise<EditResult> {
   try {
     const backupId = createBackup(filePath, 'replace_lines');
+    const st = statSync(filePath);
+    if (st.size > 500_000) {
+      const r = await streamEdit(filePath, 'replace', startLine, endLine, content);
+      return { ...r, backupId };
+    }
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(startLine - 1, endLine - startLine + 1, ...content.split('\n'));
@@ -174,9 +254,14 @@ export function replaceLines(
   }
 }
 
-export function deleteLines(filePath: string, startLine: number, endLine: number): EditResult {
+export async function deleteLines(filePath: string, startLine: number, endLine: number): Promise<EditResult> {
   try {
     const backupId = createBackup(filePath, 'delete_lines');
+    const st = statSync(filePath);
+    if (st.size > 500_000) {
+      const r = await streamEdit(filePath, 'delete', startLine, endLine);
+      return { ...r, backupId };
+    }
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
     newLines.splice(startLine - 1, endLine - startLine + 1);

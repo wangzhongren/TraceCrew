@@ -83,12 +83,18 @@ function initTables(db: Database.Database): void {
       file_hash TEXT DEFAULT '',
       tokens INTEGER DEFAULT 0,
       summary_tokens INTEGER DEFAULT 0,
+      total_lines INTEGER DEFAULT 0,
       generated_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (project_path, file_path)
     );
     CREATE INDEX IF NOT EXISTS idx_fs_project ON file_summaries(project_path);
   `);
+
+  // Migration: add total_lines column
+  try {
+    db.exec("ALTER TABLE file_summaries ADD COLUMN total_lines INTEGER DEFAULT 0");
+  } catch { /* column already exists */ }
 }
 
 function toJson(val: unknown): string {
@@ -291,18 +297,19 @@ export interface FileSummary {
   file_hash: string;
   tokens: number;
   summary_tokens: number;
+  total_lines?: number;
 }
 
 export function upsertFileSummary(s: FileSummary): void {
   const db = connect(s.project_path);
   db.prepare(`
     INSERT OR REPLACE INTO file_summaries
-      (project_path, file_path, summary, key_exports, dependencies, file_hash, tokens, summary_tokens, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      (project_path, file_path, summary, key_exports, dependencies, file_hash, tokens, summary_tokens, total_lines, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).run(
     s.project_path, s.file_path, s.summary,
     JSON.stringify(s.key_exports), JSON.stringify(s.dependencies),
-    s.file_hash, s.tokens, s.summary_tokens,
+    s.file_hash, s.tokens, s.summary_tokens, s.total_lines ?? 0,
   );
 }
 

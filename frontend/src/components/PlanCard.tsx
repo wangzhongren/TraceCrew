@@ -9,6 +9,7 @@ function cleanTags(text: string): string {
     .replace(/<done>[^<]*<\/done>/gi, '')
     .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
     .replace(/<all-done>[^<]*<\/all-done>/gi, '')
+    .replace(/<final\/>/gi, '')
     .replace(/\n{3,}/g, '\n\n').trim();
 }
 

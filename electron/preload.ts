@@ -15,7 +15,7 @@ const api = {
     deleteLines: (filePath: string, startLine: number, endLine: number) =>
       ipcRenderer.invoke('file:deleteLines', filePath, startLine, endLine),
     deleteFile: (filePath: string) => ipcRenderer.invoke('file:deleteFile', filePath),
-    search: (query: string, dirPath: string) => ipcRenderer.invoke('file:search', query, dirPath),
+search: (query: string, dirPath: string, options?: import('./fileManager').SearchOptions) => ipcRenderer.invoke('file:search', query, dirPath, options),
     restoreBackup: (backupId: string) => ipcRenderer.invoke('file:restoreBackup', backupId),
     getProjectPath: () => ipcRenderer.invoke('file:getProjectPath'),
     onProjectOpened: (cb: (path: string) => void) => {

@@ -7,6 +7,7 @@ function cleanTags(text: string): string {
     .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
     .replace(/<done>[^<]*<\/done>/gi, '')
+    .replace(/<final\/>/gi, '')
     .replace(/\n{3,}/g, '\n\n').trim();
 }
 
