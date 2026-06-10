@@ -44,19 +44,32 @@ interface LayoutNode extends GraphNode {
 const NODE_W = 280;
 const X_GAP = 56, Y_GAP = 60;
 
-/** Estimate node height from content length (label auto-wraps in foreignObject) */
+/** Estimate node height from content length */
 function calcNodeHeight(n: GraphNode): number {
   const labelW = NODE_W - 42;
-  const estCharsPerLine = Math.floor(labelW / 10);
-  const labelLines = Math.ceil(n.label.length / estCharsPerLine);
-  const hasFile = !!n.file;
+  const labelCJK = ((n.label.match(/[一-鿿]/g) || []).length) * 13;
+  const labelASCII = (n.label.replace(/[一-鿿]/g, '').length) * 7;
+  const labelLines = Math.max(1, Math.ceil((labelCJK + labelASCII) / labelW));
+
   const hasKind = !!n.kind;
+  const hasFile = !!n.file;
   const hasDetail = !!n.detail;
+
+  // Base: header(28) + label(17/line) + bottom(16)
   let h = 28 + labelLines * 17 + 16;
   h += 14; // status label row
   if (hasKind) h += 14;
   if (hasFile) h += 14;
-  if (hasDetail) h += 48;
+
+  // Detail area (font-size 11, line-height 15, width NODE_W-28)
+  if (hasDetail) {
+    const dW = NODE_W - 28;
+    const dCJK = ((n.detail.match(/[一-鿿]/g) || []).length) * 11;
+    const dASCII = (n.detail.replace(/[一-鿿]/g, '').length) * 6;
+    const dLines = Math.max(1, Math.ceil((dCJK + dASCII) / dW));
+    h += dLines * 15 + 12;
+  }
+
   return Math.max(h, 76);
 }
 
@@ -391,14 +404,17 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
                 {node.detail && (
                   (() => {
                     const detailY = lineY + labelLen * 16 + 14 + (node.kind ? 14 : 0) + (node.file ? 14 : 0);
-                    const detailH = node.h - detailY + node.y - 8;
+                    const detailW = NODE_W - 28;
+                    const dcjk = ((node.detail.match(/[一-鿿]/g) || []).length) * 11;
+                    const dasc = (node.detail.replace(/[一-鿿]/g, '').length) * 6;
+                    const dlines = Math.max(1, Math.ceil((dcjk + dasc) / detailW));
+                    const detailH = dlines * 15 + 12;
                     return (
-                      <foreignObject x={node.x + 14} y={detailY} width={NODE_W - 28} height={detailH}>
+                      <foreignObject x={node.x + 14} y={detailY} width={detailW} height={detailH}>
                         <div style={{
                           color: '#6e7681', fontSize: 11,
                           fontFamily: 'var(--font-family-ui)',
                           lineHeight: '15px', wordBreak: 'break-word', overflowWrap: 'break-word',
-                          overflow: 'hidden',
                         }}>
                           {node.detail}
                         </div>

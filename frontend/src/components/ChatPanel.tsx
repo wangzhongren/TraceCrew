@@ -305,40 +305,53 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
                 </div>
               )}
 
-              {/* Text: only user messages use plain markdown. Agents use cards. */}
+              {/* Text: user messages */}
               {entry.kind === 'text' && entry.agent === 'user' && (
                 <div className="flex gap-3 pb-4">
-                  {entry.agent === 'user' ? (
-                    <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
-                      <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--ibm-text-secondary)' }} />
-                    </span>
-                  ) : (
-                    <span className="w-[15px] shrink-0" />
-                  )}
+                  <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
+                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--ibm-text-secondary)' }} />
+                  </span>
                   <div className="flex-1 min-w-0">
                     <Markdown text={entry.text} muted={false} />
                   </div>
                 </div>
               )}
 
+              {/* Agent: streaming text — check if agent has completed later */}
+              {entry.kind === 'text' && entry.agent !== 'user' && entry.text && (() => {
+                const doneKinds = new Set(['plan', 'graph', 'review']);
+                const hasCompleted = timeline.slice(i + 1).some(
+                  (e: any) => e.agent === entry.agent && doneKinds.has(e.kind)
+                );
+                return (
+                  <AgentBlock text={entry.text} color={AG[entry.agent]?.color || '#8b949e'} name={AG[entry.agent]?.name || entry.agent} status={hasCompleted ? 'done' : 'thinking'} />
+                );
+              })()}
+
+              {/* Agent: plan result */}
               {entry.kind === 'plan' && (
-                <PlanCard planSummary={entry.plan?.plan_summary || ''} color={AG.planner.color} />
+                <AgentBlock color={AG.planner.color} name="Planner" status="done">
+                  <PlanCard planSummary={entry.plan?.plan_summary || ''} color={AG.planner.color} />
+                </AgentBlock>
               )}
 
+              {/* Agent: graph summary */}
               {entry.kind === 'graph' && (
-                <div className="flex gap-3 pb-3">
-                  <span className="w-[15px] shrink-0" />
-                  <div className="flex items-center gap-3">
+                <AgentBlock color={AG.mapper.color} name="Mapper" status="done">
+                  <div className="flex items-center gap-3 pb-2">
                     <span className="text-xs tracking-wide" style={{ color: AG.mapper.color }}>
                       Call graph &nbsp;
                       <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
                     </span>
                   </div>
-                </div>
+                </AgentBlock>
               )}
 
+              {/* Agent: review result */}
               {entry.kind === 'review' && (
-                <ReviewCard passed={entry.passed} feedback={entry.feedback} issues={entry.issues} color={AG.reviewer.color} />
+                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'}>
+                  <ReviewCard passed={entry.passed} feedback={entry.feedback} issues={entry.issues} color={AG.reviewer.color} />
+                </AgentBlock>
               )}
             </div>
           ))}
@@ -387,6 +400,60 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
           </span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── Agent collapsible block (streaming text or result card) ── */
+
+function AgentBlock({ text, color, name, status, children }: {
+  text?: string; color: string; name: string;
+  status?: 'thinking' | 'done' | 'failed';
+  children?: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const label = status === 'failed' ? '未通过' : status === 'done' ? '完成' : text ? `${Math.round((text || '').length / 100)} 字` : '思考中...';
+  const spinner = status === 'thinking' || (!status && (text || '').length < 10);
+
+  return (
+    <div className="flex gap-3 pb-4 animate-fade-in">
+      <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0 mt-0.5">
+        <span className="w-[7px] h-[7px] rounded-full" style={{
+          background: color,
+          animation: spinner ? 'pulse-dot 1.5s infinite' : 'none',
+        }} />
+      </span>
+
+      <div className="flex-1 min-w-0">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-white/[0.03]"
+          style={{ background: color + '08', border: `1px solid ${color}15` }}>
+          {spinner ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"
+              className="animate-spin-slow shrink-0">
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.2" />
+              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+            </svg>
+          ) : (
+            <span className="text-xs shrink-0" style={{ color }}>
+              {status === 'failed' ? '✕' : status === 'done' ? '✓' : '◉'}
+            </span>
+          )}
+          <span className="text-xs font-medium" style={{ color }}>{name}</span>
+          <span className="text-xs" style={{ color: status === 'failed' ? 'var(--color-status-problem)' : 'var(--color-text-muted)' }}>{label}</span>
+          <svg width="10" height="10" viewBox="0 0 8 8" className="ml-auto shrink-0"
+            style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+            <path d="M2 3 L4 5 L6 3" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+
+        {expanded && (
+          <div className="mt-2 ml-1 pl-4 border-l-2" style={{ borderColor: color + '30' }}>
+            {text ? <Markdown text={text} muted /> : children}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

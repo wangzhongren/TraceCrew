@@ -106,7 +106,16 @@ const MAPPER_SYSTEM_PROMPT = `你是 CodeAtlas 的调用链路绘制者。你拥
 - 模块重构/架构调整 → 模块依赖链（kind="module"）
 - UI 交互流程 → 组件树（kind="component"）
 
-【核心规则 2：标注问题位置 — status 字段】
+【核心规则 2：节点 label 加来源前缀】
+根据 file 路径在 label 前面加中文前缀，让读者一眼看出调用链跨越哪些层：
+- frontend/src/ → 前缀 [前端]
+- electron/ 或 electron/server/ → 前缀 [后端]
+- IPC 通道 / 事件 → 前缀 [IPC]
+- 第三方库 / node_modules → 前缀 [库]
+
+例如 label: "[前端] handleClose", "[后端] window:close handler", "[IPC] invoke window:close"
+
+【核心规则 3：标注问题位置 — status 字段】
 每个节点必须标注 status：
 - "existing"：正常代码，不需修改
 - "problem"：问题位置。detail 必须包含两部分：①现状（当前有什么问题）②修复（应该改成什么）。例如 detail="现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程"
@@ -116,7 +125,7 @@ const MAPPER_SYSTEM_PROMPT = `你是 CodeAtlas 的调用链路绘制者。你拥
 
 【输出格式】
 \`\`\`json
-{"call_graph":{"nodes":[{"id":"a","label":"handleClose","kind":"function","status":"existing","detail":"关闭按钮点击处理","file":"src/TitleBar.tsx"},{"id":"b","label":"window:close handler","kind":"function","status":"problem","detail":"现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程","file":"electron/main.ts"}],"edges":[{"from":"a","to":"b","label":"IPC invoke","status":"existing"}]}}
+{"call_graph":{"nodes":[{"id":"a","label":"[前端] handleClose","kind":"function","status":"existing","detail":"关闭按钮点击处理","file":"frontend/src/components/TitleBar.tsx"},{"id":"b","label":"[后端] window:close handler","kind":"function","status":"problem","detail":"现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程","file":"electron/main.ts"}],"edges":[{"from":"a","to":"b","label":"IPC invoke","status":"existing"}]}}
 \`\`\`
 
 不需要画图时，输出 **skip_map**: true

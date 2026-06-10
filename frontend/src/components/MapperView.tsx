@@ -109,7 +109,12 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
 
   const entryPoints = useMemo(() => {
     const hasIncoming = new Set(graph.edges.map(e => e.to));
-    return graph.nodes.filter(n => !hasIncoming.has(n.id));
+    const hasOutgoing = new Set(graph.edges.map(e => e.from));
+    const roots = graph.nodes.filter(n => !hasIncoming.has(n.id));
+    const connected = roots.filter(n => hasOutgoing.has(n.id));
+    if (connected.length > 0) return connected;
+    const withEdges = graph.nodes.filter(n => hasIncoming.has(n.id) || hasOutgoing.has(n.id));
+    return withEdges.length > 0 ? [withEdges[0]] : graph.nodes.slice(0, 1);
   }, [graph]);
 
   const trees = useMemo(() => buildTree(entryPoints, graph.nodes, graph.edges), [graph, entryPoints]);
@@ -339,7 +344,14 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode, p
   const entryPoints = useMemo(() => {
     if (!graph || graph.nodes.length === 0) return [] as any[];
     const hasIncoming = new Set(graph.edges.map((e: any) => e.to));
-    return graph.nodes.filter((n: any) => !hasIncoming.has(n.id));
+    const hasOutgoing = new Set(graph.edges.map((e: any) => e.from));
+    const roots = graph.nodes.filter((n: any) => !hasIncoming.has(n.id));
+    // Prefer connected roots (have outgoing edges); skip isolated nodes
+    const connected = roots.filter((n: any) => hasOutgoing.has(n.id));
+    if (connected.length > 0) return connected;
+    // All roots are isolated or no roots at all → pick first node with edges
+    const withEdges = graph.nodes.filter((n: any) => hasIncoming.has(n.id) || hasOutgoing.has(n.id));
+    return withEdges.length > 0 ? [withEdges[0]] : graph.nodes.slice(0, 1);
   }, [graph]);
 
   // Auto-select first entry
