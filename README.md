@@ -50,31 +50,35 @@ Each agent uses the backend tool loop — the LLM outputs file operations, the b
 The **Mapper agent** produces an annotated call graph displayed in the right panel:
 
 - ◈ **Blue** — existing code nodes (normal flow)
-- ✕ **Red** — problem locations (bugs, bad patterns)
-- ✎ **Yellow** — planned changes (what needs modification)
+- ✕ **Red** — problem + fix locations (detail shows current state → planned fix)
 - \+ **Green** — new additions (new files/functions)
 
-**Node cards** show: status icon, label, file path, detail description, and status badge (ISSUE/CHANGE/NEW).
+**Node cards** show: status icon, Chinese status label, label with source prefix ([前端]/[后端]/[IPC]/[库]), file path, line number, and detail description.
 
-**Edges** show: call relationships with labels (IPC invoke, calls, imports), colored by status — existing (blue-gray), new (green), error (red).
+**Edges** show: call relationships with labels, colored by status — existing (blue-gray), new (green), error (red). Back-edges rendered as curved arcs.
 
-**Two views**: Tree view for hierarchical call chain navigation, and detail panel on node click for full file path and description.
+**Code Viewer**: Click a node to open its source file in a right-hand panel, auto-scrolled to the function definition line. Panel width is draggable.
+
+**Two views**: Dagre-layered node-link diagram (longest-path ranking + crossing minimization), and collapsible tree view for call chain navigation.
 
 ## Features
 
-- **Multi-Agent Pipeline** — Planner → Mapper → Reviewer, with fail-retry loop
+- **Multi-Agent Pipeline** — Planner → Reviewer → Mapper, with `<final/>` explicit completion
+- **Action Toolbar** — 5 operations: Test, Fix, Refactor, Explain, Develop — each with streaming backend + Reviewer validation
 - **Server-Side Tool Execution** — LLM tools (read, write, search, shell) executed by backend, one request per agent
-- **Call Graph Visualization** — SVG node-link diagram with status annotations, tree view, node detail panel
-- **SSE Streaming** — All agent responses stream token-by-token with reasoning support
-- **10 File Operations** — list_dir, read_file, search, insert_lines, replace_lines, delete_lines, create_file, delete_file, run_shell
-- **Plan & Review Cards** — Structured display of Planner output and Reviewer pass/fail verdicts
-- **Settings Panel** — Configure LLM endpoint, API key, and model from the UI
-- **Dark Theme** — GitHub-inspired design system (IBM Carbon base)
+- **Call Graph Visualization** — Dagre-layered SVG node-link diagram with unified dimension (function/module/component)
+- **File Semantic Indexing** — Async summarization after each `read_file`, cached to SQLite, injected into future context
+- **SSE Streaming** — All agent responses stream token-by-token with reasoning support, collapsible AgentBlock UI
+- **11 File Operations** — list_dir, read_file, search (regex/whole-word/case-sensitive), insert_lines, replace_lines, delete_lines, create_file, delete_file, run_shell, restoreBackup
+- **Streaming File Edits** — Automatic line-by-line streaming for large files (>500KB), memory-safe
+- **Code Viewer Panel** — Right-side panel shows source code on node click, auto-scrolls to line, draggable width
+- **Resizable Panels** — ChatPanel, MapperView, and CodeViewer widths all adjustable via drag handles
+- **Dark Theme** — GitHub-inspired design system with 3-layer CSS tokens (variables → global classes → Tailwind)
 - **Custom Title Bar** — Frameless window with native controls
 
 ## Tech Stack
 
-- **Frontend**: Electron, React 19, TypeScript, Tailwind CSS, Vite 6
+- **Frontend**: Electron, React 19, TypeScript, Tailwind CSS, Vite 6, dagre
 - **Backend**: Express (embedded in Electron main process), better-sqlite3, OpenAI SDK
 - **Build**: vite-plugin-electron
 
@@ -123,6 +127,7 @@ On Windows, double-click `start.bat`.
 
 | Path | Purpose |
 |------|---------|
+| `.codeatlas/codeatlas.db` | SQLite database (features, file summaries, change queue) |
 | `.codeatlas/backups/` | File backups before edits (with meta.json) |
 | `.codeatlas-logs/` | Shell execution logs |
 
