@@ -1,5 +1,14 @@
+import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+function cleanTags(text: string): string {
+  return text
+    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
+    .replace(/<done>[^<]*<\/done>/gi, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
 
 interface Props {
   passed: boolean;
@@ -10,50 +19,50 @@ interface Props {
 
 export default function ReviewCard({ passed, feedback, issues, color }: Props) {
   const statusColor = passed ? '#22c55e' : '#ff4444';
+  const cleaned = useMemo(() => cleanTags(feedback || ''), [feedback]);
 
   return (
-    <div className="flex gap-3 pb-3">
-      <span className="w-[15px] shrink-0" />
-      <div className="flex-1 min-w-0 rounded-lg border-l-2 overflow-hidden" style={{ background: '#0d1117', borderColor: 'var(--color-border-subtle)', borderLeftColor: color }}>
-        <div className="px-3 py-1.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--color-border-subtle)' }}>
-          <span className="text-caption font-bold tracking-wider px-1.5 py-0.5 rounded" style={{ background: statusColor + '20', color: statusColor }}>{passed ? 'PASSED' : 'FAILED'}</span>
-          <span className="text-caption" style={{ color: '#8b949e' }}>审查结果</span>
-        </div>
-        <div className="px-3 py-2">
-          {feedback && (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}
-              components={{
-                h2: ({ children }: any) => <h2 className="text-sm font-semibold mt-3 mb-1" style={{ color: 'var(--color-text-primary)' }}>{children}</h2>,
-                h3: ({ children }: any) => <h3 className="text-xs font-semibold mt-2 mb-1" style={{ color: 'var(--color-text-primary)' }}>{children}</h3>,
-                p: ({ children }: any) => <p className="my-1 text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{children}</p>,
-                code: ({ className, children, ...props }: any) => {
-                  const inline = !className;
-                  return inline
-                    ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#1a1a2e', color: '#d2a8ff' }} {...props}>{children}</code>
-                    : <code className="block text-caption font-mono" style={{ color: 'var(--color-text-secondary)' }} {...props}>{children}</code>;
-                },
-                pre: ({ children }: any) => <pre className="code-block" style={{ color: 'var(--color-text-secondary)' }}>{children}</pre>,
-                li: ({ children }: any) => <li className="text-xs my-0.5" style={{ color: 'var(--color-text-secondary)' }}>{children}</li>,
-                strong: ({ children }: any) => <strong className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{children}</strong>,
-                a: ({ children, href }: any) => <a href={href} target="_blank" className="no-underline hover:underline" style={{ color: '#58a6ff' }}>{children}</a>,
-                hr: () => <hr className="my-3" style={{ borderColor: 'var(--color-border-subtle)' }} />,
-                blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-2 my-1 text-xs" style={{ borderColor: 'var(--color-border-default)', color: '#8b949e' }}>{children}</blockquote>,
-              }}>
-              {feedback}
-            </ReactMarkdown>
-          )}
-          {issues.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {issues.map((issue: any, j) => (
-                <li key={j} className="text-xs leading-snug" style={{ color: 'var(--color-text-secondary)' }}>
-                  — {typeof issue === 'string'
-                    ? issue
-                    : `${issue.severity || '?'} [${issue.file || '?'}${issue.line_range ? `:${issue.line_range}` : ''}] ${issue.claim || ''}${issue.reality ? ` → ${issue.reality}` : ''}`}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+    <div>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="w-1 h-3 rounded-full shrink-0" style={{ background: color }} />
+        <span className="text-caption text-muted font-medium tracking-wide">审核结果</span>
+        <span className="text-caption font-bold tracking-wider px-1.5 py-0.5 rounded" style={{ background: statusColor + '20', color: statusColor, fontSize: '9px' }}>{passed ? 'PASSED' : 'FAILED'}</span>
+      </div>
+      <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+        {cleaned && (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}
+            components={{
+              h2: ({ children }: any) => <h2 className="text-sm font-semibold mt-2 mb-1" style={{ color: 'var(--color-text-primary)' }}>{children}</h2>,
+              h3: ({ children }: any) => <h3 className="text-xs font-semibold mt-2 mb-1" style={{ color: 'var(--color-text-primary)' }}>{children}</h3>,
+              p: ({ children }: any) => <p className="my-1 last:mb-0">{children}</p>,
+              code: ({ className, children, ...props }: any) => {
+                const inline = !className;
+                return inline
+                  ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#1a1a2e', color: 'var(--color-text-link)' }} {...props}>{children}</code>
+                  : <code className={className} {...props}>{children}</code>;
+              },
+              pre: ({ children }: any) => <pre className="code-block">{children}</pre>,
+              ul: ({ children }: any) => <ul className="list-disc pl-5 mb-1 space-y-0.5">{children}</ul>,
+              li: ({ children }: any) => <li className="my-0.5">{children}</li>,
+              strong: ({ children }: any) => <strong className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{children}</strong>,
+              a: ({ children, href }: any) => <a href={href} target="_blank" className="no-underline hover:underline" style={{ color: 'var(--color-text-link)' }}>{children}</a>,
+              hr: () => <hr className="my-2" style={{ borderColor: 'var(--color-border-subtle)' }} />,
+              blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-2 my-1 opacity-70" style={{ borderColor: 'var(--color-border-default)' }}>{children}</blockquote>,
+            }}>
+            {cleaned}
+          </ReactMarkdown>
+        )}
+        {issues.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {issues.map((issue: any, j) => (
+              <li key={j} className="text-xs leading-snug">
+                — {typeof issue === 'string'
+                  ? issue
+                  : `${issue.severity || '?'} [${issue.file || '?'}${issue.line_range ? `:${issue.line_range}` : ''}] ${issue.claim || ''}${issue.reality ? ` → ${issue.reality}` : ''}`}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

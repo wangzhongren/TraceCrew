@@ -10,6 +10,7 @@ interface Props {
   graph: CallGraph | null;
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
   onSelectNode: (id: string | null) => void;
+  onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;
   projectPath: string | null;
 }
@@ -26,6 +27,7 @@ interface StreamState {
     review_passed?: boolean | null;
     review_feedback?: string;
     review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
+    call_graph?: CallGraph;
   } | null;
   error: string | null;
 }
@@ -112,9 +114,26 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
     const hasOutgoing = new Set(graph.edges.map(e => e.from));
     const roots = graph.nodes.filter(n => !hasIncoming.has(n.id));
     const connected = roots.filter(n => hasOutgoing.has(n.id));
-    if (connected.length > 0) return connected;
-    const withEdges = graph.nodes.filter(n => hasIncoming.has(n.id) || hasOutgoing.has(n.id));
-    return withEdges.length > 0 ? [withEdges[0]] : graph.nodes.slice(0, 1);
+    const isolated = roots.filter(n => !hasOutgoing.has(n.id));
+    const result = [...connected, ...isolated];
+    if (result.length > 0) return result;
+    const visited = new Set<string>();
+    const components: any[] = [];
+    for (const n of graph.nodes) {
+      if (visited.has(n.id)) continue;
+      components.push(n);
+      const q = [n.id];
+      while (q.length > 0) {
+        const id = q.shift()!;
+        if (visited.has(id)) continue;
+        visited.add(id);
+        for (const e of graph.edges) {
+          if (e.from === id && !visited.has(e.to)) q.push(e.to);
+          if (e.to === id && !visited.has(e.from)) q.push(e.from);
+        }
+      }
+    }
+    return components.length > 0 ? components : graph.nodes.slice(0, 1);
   }, [graph]);
 
   const trees = useMemo(() => buildTree(entryPoints, graph.nodes, graph.edges), [graph, entryPoints]);
@@ -149,14 +168,18 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
           )}
           {/* Card */}
           <button
-            onClick={() => hasKids ? toggleCollapse(node.id) : onSelect(node.id)}
+            onClick={() => onSelect(node.id)}
             onDoubleClick={() => onSelect(node.id)}
             className="flex-1 flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-colors hover:bg-white/5 mb-0.5"
             style={{ background: isSel ? c + '10' : 'var(--color-bg-primary)', border: `1px solid ${isSel ? c + '40' : 'transparent'}` }}>
             {/* Status icon + expand */}
             <div className="flex items-center gap-1 shrink-0 mt-0.5">
               {hasKids ? (
-                <span className="text-[8px] w-3" style={{ color: 'var(--color-text-muted)' }}>{isCollapsed ? '▸' : '▾'}</span>
+                <span className="text-[8px] w-3 cursor-pointer"
+                  style={{ color: 'var(--color-text-muted)' }}
+                  onClick={(e) => { e.stopPropagation(); toggleCollapse(node.id); }}>
+                  {isCollapsed ? '▸' : '▾'}
+                </span>
               ) : <span className="w-3" />}
               <span className="text-sm">{STATUS_ICONS[node.status]}</span>
             </div>
@@ -223,7 +246,7 @@ function getAllIds(node: TreeNode): string[] {
   return [node.id, ...node.children.flatMap(getAllIds)];
 }
 
-export default function MapperView({ graph, phase, onSelectNode, selectedNode, projectPath }: Props) {
+export default function MapperView({ graph, phase, onSelectNode, onGraphChange, selectedNode, projectPath }: Props) {
   const [showCards, setShowCards] = useState(false);
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
@@ -322,6 +345,10 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode, p
                 case 'tools':
                   return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
                 case 'done':
+                  // Update call graph if the action produced one
+                  if (payload.call_graph && onGraphChange) {
+                    onGraphChange(payload.call_graph);
+                  }
                   return { ...prev, running: false, result: payload };
                 default:
                   return prev;
@@ -346,12 +373,30 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode, p
     const hasIncoming = new Set(graph.edges.map((e: any) => e.to));
     const hasOutgoing = new Set(graph.edges.map((e: any) => e.from));
     const roots = graph.nodes.filter((n: any) => !hasIncoming.has(n.id));
-    // Prefer connected roots (have outgoing edges); skip isolated nodes
+    // Connected roots (have outgoing edges)
     const connected = roots.filter((n: any) => hasOutgoing.has(n.id));
-    if (connected.length > 0) return connected;
-    // All roots are isolated or no roots at all → pick first node with edges
-    const withEdges = graph.nodes.filter((n: any) => hasIncoming.has(n.id) || hasOutgoing.has(n.id));
-    return withEdges.length > 0 ? [withEdges[0]] : graph.nodes.slice(0, 1);
+    // Isolated nodes (no edges at all) — must not be discarded
+    const isolated = roots.filter((n: any) => !hasOutgoing.has(n.id));
+    const result = [...connected, ...isolated];
+    if (result.length > 0) return result;
+    // All nodes have incoming edges (cycles) → find one rep per component
+    const visited = new Set<string>();
+    const components: any[] = [];
+    for (const n of graph.nodes) {
+      if (visited.has(n.id)) continue;
+      components.push(n);
+      const q = [n.id];
+      while (q.length > 0) {
+        const id = q.shift()!;
+        if (visited.has(id)) continue;
+        visited.add(id);
+        for (const e of graph.edges) {
+          if (e.from === id && !visited.has(e.to)) q.push(e.to);
+          if (e.to === id && !visited.has(e.from)) q.push(e.from);
+        }
+      }
+    }
+    return components.length > 0 ? components : graph.nodes.slice(0, 1);
   }, [graph]);
 
   // Auto-select first entry
@@ -363,7 +408,10 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode, p
   }, [graph, entryPoints, activeRoot]);
 
   const activeGraph = useMemo(() => {
-    if (!graph || !activeRoot) return graph;
+    if (!graph) return null;
+    if (!activeRoot) return graph;
+    // No edges → skip subGraph filtering, show all nodes
+    if (graph.edges.length === 0) return graph;
     return subGraph(activeRoot, graph.nodes, graph.edges);
   }, [graph, activeRoot]);
 

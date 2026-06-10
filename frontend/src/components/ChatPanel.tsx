@@ -105,7 +105,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     agent: string, systemPrompt: string, initialCtx: string,
     _shouldStop: (text: string, ops: any[]) => boolean,
     _allowWrite: boolean, history?: Array<{ role: string; content: string }>,
-  ): Promise<{ fullText: string; textIdx: number }> => {
+  ): Promise<{ fullText: string; message: string; textIdx: number }> => {
     const chatHistory: Array<{ role: string; content: string }> = [...(history || [])];
     // Fetch file tree and put everything into history as the first user message
     let fileTree: any = null;
@@ -146,7 +146,9 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
 
     // message = done event's parsed message (XML tags stripped by backend)
     // fullText = raw token accumulation (with XML tags) — fallback only
-    return { fullText: message || fullText, textIdx };
+    // fullText = cumulative tokens from ALL turns (contains JSON even when done is from a later turn)
+    // message = done event's parsed message — fallback only
+    return { fullText: fullText || message, message: message || '', textIdx };
   };
 
   /* ── Helpers ── */
@@ -168,14 +170,15 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     pushTimeline({ kind: 'agent-start', agent: 'planner' });
     onPipelineChange({ phase: 'planning' });
 
-    const { fullText } = await agentLoop('planner', '', '',
+    const { fullText, message } = await agentLoop('planner', '', '',
       (text) => !!(parseJson(text)?.plan_summary), false, hist);
 
     const plan = parseJson(fullText);
     console.log(`[Planner] plan=${!!plan} needs_exec=${plan?.needs_execution} steps=${plan?.steps?.length || 0}`);
     hist.push({ role: 'assistant', content: `[Plan] ${plan?.plan_summary || fullText}` });
     historyRef.current = hist;
-    pushTimeline({ kind: 'plan', agent: 'planner', plan: plan || { plan_summary: fullText } });
+    // Planner outputs Markdown directly (not JSON), so fallback to raw fullText
+    pushTimeline({ kind: 'plan', agent: 'planner', plan: { plan_summary: (plan?.plan_summary || message || fullText), raw: fullText } });
 
     // Check if Planner actually used tools
     const didReadFiles = plannerUsedTools.current;
@@ -291,19 +294,15 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
                 </div>
               )}
 
-              {entry.kind === 'tool' && (
-                <div className="flex items-center gap-3 py-[2px]">
-                  <span className="w-[15px] flex items-center justify-center shrink-0">
-                    <span className="w-1 h-1 rounded-full" style={{ background: 'var(--ibm-border-strong)' }} />
-                  </span>
-                  <span className="text-xs font-mono" style={{ color: 'var(--ibm-text-placeholder)' }}>
-                    {TOOL_LABEL[entry.tool] || entry.tool}
-                  </span>
-                  <span className="text-xs truncate" style={{ color: 'var(--ibm-text-secondary)' }}>
-                    {entry.detail}
-                  </span>
-                </div>
-              )}
+              {entry.kind === 'tool' && (() => {
+                // Group consecutive tool entries — only render on first of the group
+                if (i > 0 && timeline[i - 1]?.kind === 'tool') return null;
+                const group: TimelineEntry[] = [];
+                for (let j = i; j < timeline.length && timeline[j].kind === 'tool'; j++) {
+                  group.push(timeline[j]);
+                }
+                return <CollapsedTools tools={group} color={AG[entry.agent]?.color || '#8b949e'} />;
+              })()}
 
               {/* Text: user messages */}
               {entry.kind === 'text' && entry.agent === 'user' && (
@@ -349,7 +348,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
 
               {/* Agent: review result */}
               {entry.kind === 'review' && (
-                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'}>
+                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'} doneLabel="审核结果">
                   <ReviewCard passed={entry.passed} feedback={entry.feedback} issues={entry.issues} color={AG.reviewer.color} />
                 </AgentBlock>
               )}
@@ -404,15 +403,57 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   );
 }
 
+/* ── Collapsible tool group ── */
+
+function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: string }) {
+  const [open, setOpen] = useState(false);
+  if (tools.length === 0) return null;
+  return (
+    <div className="pb-1">
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 w-full text-left py-0.5 transition-colors hover:bg-white/[0.02]">
+        <span className="w-[15px] flex items-center justify-center shrink-0">
+          <span className="w-1 h-1 rounded-full" style={{ background: color }} />
+        </span>
+        <span className="text-caption" style={{ color: 'var(--color-text-muted)' }}>
+          🔧 {tools.length} 个工具操作
+        </span>
+        <span className="text-caption" style={{ color: 'var(--color-text-disabled)' }}>
+          {tools.slice(0, 3).map((t: any) => TOOL_LABEL[t.tool] || t.tool).join(', ')}{tools.length > 3 ? '...' : ''}
+        </span>
+        <svg width="8" height="8" viewBox="0 0 8 8" className="ml-auto"
+          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+          <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="ml-5 mt-0.5 space-y-0">
+          {tools.map((t: any, j: number) => (
+            <div key={j} className="flex items-center gap-2 py-[1px]">
+              <span className="text-caption font-mono" style={{ color: 'var(--color-text-placeholder)' }}>
+                {TOOL_LABEL[t.tool] || t.tool}
+              </span>
+              <span className="text-caption truncate" style={{ color: 'var(--color-text-secondary)' }}>
+                {t.detail}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Agent collapsible block (streaming text or result card) ── */
 
-function AgentBlock({ text, color, name, status, children }: {
+function AgentBlock({ text, color, name, status, doneLabel, children }: {
   text?: string; color: string; name: string;
   status?: 'thinking' | 'done' | 'failed';
+  doneLabel?: string;
   children?: React.ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const label = status === 'failed' ? '未通过' : status === 'done' ? '完成' : text ? `${Math.round((text || '').length / 100)} 字` : '思考中...';
+  const [expanded, setExpanded] = useState(!!children);
+  const label = status === 'failed' ? '未通过' : status === 'done' ? (doneLabel || '完成') : text ? `${Math.round((text || '').length / 100)} 字` : '思考中...';
   const spinner = status === 'thinking' || (!status && (text || '').length < 10);
 
   return (
@@ -449,9 +490,13 @@ function AgentBlock({ text, color, name, status, children }: {
         </button>
 
         {expanded && (
-          <div className="mt-2 ml-1 pl-4 border-l-2" style={{ borderColor: color + '30' }}>
-            {text ? <Markdown text={text} muted /> : children}
-          </div>
+          text ? (
+            <div className="mt-2 ml-1 pl-4 border-l-2" style={{ borderColor: color + '30' }}>
+              <Markdown text={text} muted />
+            </div>
+          ) : (
+            <div className="mt-2">{children}</div>
+          )
         )}
       </div>
     </div>

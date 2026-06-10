@@ -1,9 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import ChatPanel from './components/ChatPanel';
 import MapperView from './components/MapperView';
 import type { CallGraph } from './components/MapCanvas';
 import TitleBar from './components/TitleBar';
 import SettingsPanel from './components/SettingsPanel';
+import CodeViewer from './components/CodeViewer';
+import ResizeHandle from './components/ResizeHandle';
 
 export interface PipelineState {
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
@@ -14,9 +16,16 @@ export default function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [chatWidth, setChatWidth] = useState(420);
+  const [codeWidth, setCodeWidth] = useState(480);
   const updatePipeline = useCallback((update: Partial<PipelineState>) => {
     setPipeline(prev => ({ ...prev, ...update }));
   }, []);
+
+  const selectedNodeData = useMemo(() => {
+    if (!selectedNode || !pipeline.graph) return null;
+    return pipeline.graph.nodes.find(n => n.id === selectedNode) || null;
+  }, [selectedNode, pipeline.graph]);
 
   const handleOpenProject = useCallback((p: string) => {
     setProjectPath(p);
@@ -75,21 +84,36 @@ export default function App() {
           <>
             {/* Left: Chat Panel */}
             <aside className="shrink-0 border-r overflow-hidden"
-              style={{ width: 420, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
+              style={{ width: chatWidth, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
               <ChatPanel key={projectPath} projectPath={projectPath} onPipelineChange={updatePipeline} />
             </aside>
-            {/* Right: Call Graph + Detail */}
+            <ResizeHandle direction="vertical" onResize={(d) => setChatWidth(w => Math.max(280, Math.min(600, w + d)))} />
+            {/* Right: Call Graph + Code Viewer */}
             <main className="flex-1 flex overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden" style={{ minWidth: 0 }}>
                 <MapperView
                   key={projectPath}
                   graph={pipeline.graph}
                   phase={pipeline.phase}
                   selectedNode={selectedNode}
                   onSelectNode={setSelectedNode}
+                  onGraphChange={(newGraph) => setPipeline(prev => ({ ...prev, graph: newGraph }))}
                   projectPath={projectPath}
                 />
               </div>
+              {selectedNodeData?.file && (
+                <>
+                  <ResizeHandle direction="vertical" onResize={(d) => setCodeWidth(w => Math.max(300, Math.min(900, w - d)))} />
+                  <div className="shrink-0 border-l overflow-hidden flex flex-col min-h-0"
+                    style={{ width: codeWidth, minWidth: 300, borderColor: 'var(--ibm-border-subtle)' }}>
+                    <CodeViewer
+                      filePath={selectedNodeData.file}
+                      projectPath={projectPath}
+                      scrollToLine={selectedNodeData.line ?? null}
+                    />
+                  </div>
+                </>
+              )}
             </main>
           </>
         ) : (

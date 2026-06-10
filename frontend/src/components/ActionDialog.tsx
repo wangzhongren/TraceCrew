@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GraphNode } from './MapCanvas';
@@ -431,7 +431,18 @@ export default function ActionDialog({
 /* ── Inline Markdown renderer (matches project dark theme) ── */
 
 function MarkdownContent({ text }: { text: string }) {
-  if (!text) return null;
+  const cleaned = useMemo(() => {
+    if (!text) return '';
+    return text
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
+      .replace(/<done>[^<]*<\/done>/gi, '')
+      .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
+      .replace(/<all-done>[^<]*<\/all-done>/gi, '')
+      .replace(/\n{3,}/g, '\n\n').trim();
+  }, [text]);
+
+  if (!cleaned) return null;
   return (
     <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
       <ReactMarkdown remarkPlugins={[remarkGfm]}
@@ -444,10 +455,8 @@ function MarkdownContent({ text }: { text: string }) {
           code: ({ className, children, ...props }: any) => {
             const inline = !className;
             return inline
-              ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#1a1a2e', color: '#d2a8ff' }} {...props}>{children}</code>
-              : <pre className="code-block" style={{ color: 'var(--color-text-secondary)' }}>
-                  <code className={className} {...props}>{children}</code>
-                </pre>;
+              ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#1a1a2e', color: 'var(--color-text-link)' }} {...props}>{children}</code>
+              : <code className={className} {...props}>{children}</code>;
           },
           pre: ({ children }: any) => <pre className="code-block" style={{ color: 'var(--color-text-secondary)' }}>{children}</pre>,
           ul: ({ children }: any) => <ul className="list-disc pl-5 mb-1 space-y-0.5" style={{ color: 'var(--color-text-secondary)' }}>{children}</ul>,
@@ -461,7 +470,7 @@ function MarkdownContent({ text }: { text: string }) {
           th: ({ children }: any) => <th className="border border-subtle bg-layer px-2 py-1 text-caption font-medium" style={{ color: 'var(--color-text-primary)' }}>{children}</th>,
           td: ({ children }: any) => <td className="border border-subtle px-2 py-1 text-caption" style={{ color: 'var(--color-text-secondary)' }}>{children}</td>,
         }}>
-        {text}
+        {cleaned}
       </ReactMarkdown>
     </div>
   );

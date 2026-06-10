@@ -6,6 +6,21 @@ import {
   searchInFiles, runShell, killShell,
 } from '../../fileManager';
 import { existsSync } from 'fs';
+import { SummarizerService } from './summarizer';
+import { getFileSummariesForContext } from './db';
+
+const STOP_WORDS = new Set(['the','a','an','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','i','you','he','she','it','we','they','me','him','her','us','them','my','your','his','its','our','their','this','that','these','those','in','on','at','to','for','of','with','by','from','up','about','into','through','during','before','after','above','below','between','and','but','or','nor','not','so','yet','both','either','neither','each','every','all','any','few','more','most','other','some','such','no','only','own','same','than','too','very','just','because','as','until','while','if','when','where','how','what','which','who','whom','请','的','了','吗','呢','吧','啊','在','是','不','要','有','我','你','他','她','它','们','这','那','和','与','或','也','都','就','还','但','把','被','让','从','对','以','到','所','能','会','可以','需要','没有','已经','因为','所以','如果','虽然','但是','然而','因此','然后','接着','之后','之前','之后','里面','外面','旁边','现在','将来','过去','一个','一些','每个','所有','这个','那个','这些','那些','什么','怎么','为什么','哪里','什么时候','谁','多少','怎么']);
+
+function extractKeywords(text: string): string[] {
+  const words = text.replace(/[^\w一-鿿]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+  const freq = new Map<string, number>();
+  for (const w of words) {
+    const lower = w.toLowerCase();
+    if (STOP_WORDS.has(lower)) continue;
+    freq.set(lower, (freq.get(lower) || 0) + 1);
+  }
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(e => e[0]);
+}
 
 const MAX_CONTEXT_CHARS = 24000;
 
@@ -25,18 +40,22 @@ const PROTOCOL_BASE = `【核心规则】
   - 文件内容 > 用户口述 > 你的推测
   - 不要说"我只读"、"我不能写"之类的话，直接干活
   - 禁止反问用户，你是执行单元不是客服。信息不够就去读文件，读不到就说不知道，永远不要问用户"你想怎么做""请提供更多信息"
-  - **每条回复只能有 1 个操作标签**，做完这个操作后下一轮再做下一个`;
+  - **每条回复只能有 1 个操作标签**，做完这个操作后下一轮再做下一个
+  - 当所有任务完成、不需要再使用任何工具时，在回答末尾加上 <final/> 标记
+  - <final/> 表示你主动声明完成——没有这个标记，系统会认为你还没做完，会继续追问`;
 
 const PROTOCOL_READONLY = `${PROTOCOL_BASE}
 
 【可用操作 — 只读】
 - list-dir: 列出目录内容。path 填相对路径，空或 "." 表示根目录
-- search: 搜索代码。标签体内写关键词，path 指定搜索目录（可选）
+- search: 搜索代码。标签体内写关键词，path 指定搜索目录（可选）。属性: case-sensitive="true" 区分大小写, whole-word="true" 全词匹配, regex="true" 正则模式
 - read-file: 读取文件内容。file 填相对路径，可选 start-line/end-line
 
 <list-dir path="."></list-dir>
 <list-dir path="src/"></list-dir>
 <search path="src/">关键词</search>
+<search path="src/" regex="true">useState\(</search>
+<search path="src/" case-sensitive="true" whole-word="true">handleClick</search>
 <read-file path="src/main.ts"></read-file>
 <read-file path="src/main.ts" start-line="10" end-line="80"></read-file>`;
 
@@ -53,6 +72,8 @@ const PROTOCOL_EXECUTE = `${PROTOCOL_BASE}
 
 <list-dir path="."></list-dir>
 <search path="src/">关键词</search>
+<search path="src/" regex="true">useState\(</search>
+<search path="src/" case-sensitive="true" whole-word="true">handleClick</search>
 <read-file path="src/main.ts"></read-file>
 <read-file path="src/main.ts" start-line="10" end-line="80"></read-file>
 <update status="insert" path="src/app.ts" after-line="42">要插入的内容</update>
@@ -199,7 +220,15 @@ const ACTION_FIX_PROMPT = `你是 CodeAtlas 的 Bug 修复专家。精确修复�
 - 只改与目标节点直接相关的代码，不波及其他模块
 - 修改前必须先 read_file 确认当前代码
 - 保持与周围代码风格一致
-- 一次改完相关文件后输出 <done>修复完成</done>
+
+【完成后输出 call_graph】
+修改完成后，输出一个 call_graph JSON 描述你的修改：
+\`\`\`json
+{"call_graph":{"nodes":[...],"edges":[...]}}
+\`\`\`
+- 被修改的节点 status 设为 "problem"（detail 描述现状→修复）
+- 新增的节点 status 设为 "planned_new"
+- 最后输出 <done>修复完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -213,6 +242,15 @@ const ACTION_REFACTOR_PROMPT = `你是 CodeAtlas 的重构专家。以指定节�
 
 【范围】重构从目标节点开始，沿调用链向下覆盖所有下游节点。用户会提供下游节点列表。
 
+【完成后输出 call_graph】
+重构完成后，输出一个 call_graph JSON 描述重构的节点：
+\`\`\`json
+{"call_graph":{"nodes":[...],"edges":[...]}}
+\`\`\`
+- 重构过的节点 status 设为 "problem"（detail 描述重构内容）
+- 新增的节点 status 设为 "planned_new"
+- 最后输出 <done>重构完成</done>
+
 ${PROTOCOL_EXECUTE}`;
 
 const ACTION_TEST_PROMPT = `你是 CodeAtlas 的测试专家。为指定节点及其调用链编写测试。
@@ -223,7 +261,15 @@ const ACTION_TEST_PROMPT = `你是 CodeAtlas 的测试专家。为指定节点�
 3. 编写单元测试覆盖核心逻辑、边界情况、异常路径
 4. 如有必要，编写集成测试覆盖调用链
 5. 运行测试确认通过
-6. 输出 <done>测试完成</done>
+
+【完成后输出 call_graph】
+输出一个 call_graph JSON 描述新增的测试节点和与被测代码的关系：
+\`\`\`json
+{"call_graph":{"nodes":[...],"edges":[...]}}
+\`\`\`
+- 新增的测试函数 status 设为 "planned_new"
+- 被测函数 status 设为 "existing"
+- 最后输出 <done>测试完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -234,7 +280,15 @@ const ACTION_DEVELOP_PROMPT = `你是 CodeAtlas 的功能开发专家。完成�
 2. 创建新文件或在新文件中实现功能
 3. 建立与上下游的调用关系
 4. 确保代码风格和模式与项目一致
-5. 完成后输出 <done>开发完成</done>
+
+【完成后输出 call_graph】
+输出一个 call_graph JSON 描述新功能及其调用关系：
+\`\`\`json
+{"call_graph":{"nodes":[...],"edges":[...]}}
+\`\`\`
+- 新增节点 status 设为 "planned_new"
+- 上游调用节点 status 设为 "existing"
+- 最后输出 <done>开发完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -268,6 +322,22 @@ const OPERATION_TAGS = Object.keys(TAG_TO_OPERATION).join('|');
 export class AgentService {
   private _client: OpenAI | null = null;
   private _model: string | null = null;
+  private _summarizer: SummarizerService | null = null;
+
+  private get summarizer(): SummarizerService {
+    if (!this._summarizer) {
+      this._summarizer = new SummarizerService(async (msgs) => {
+        const resp = await this.client.chat.completions.create({
+          model: this.model,
+          messages: msgs as any,
+          temperature: 0.0,
+          max_tokens: 1024,
+        });
+        return resp.choices[0].message.content || '';
+      });
+    }
+    return this._summarizer;
+  }
 
   /** Reset cached client so next request picks up new env vars */
   reload(): void {
@@ -354,6 +424,12 @@ export class AgentService {
     const body = this.tagText(content);
     if (body && ['insert_lines', 'replace_lines', 'create_file', 'run_shell', 'search'].includes(opType)) {
       op.content = body;
+    }
+    // Copy search-specific attributes (case-sensitive, whole-word, regex)
+    if (opType === 'search') {
+      for (const k of ['case-sensitive', 'whole-word', 'regex']) {
+        if (attrs[k] !== undefined) op[k] = attrs[k];
+      }
     }
     return op;
   }
@@ -523,7 +599,32 @@ export class AgentService {
     if (systemPrompt && messages[0]?.role !== 'system') {
       messages.unshift({ role: 'system', content: systemPrompt});
     }
-   
+
+    // Inject file summaries into the first user message (if available)
+    if (projectPath) {
+      try {
+        const userMsg = messages.find(m => m.role === 'user');
+        if (userMsg) {
+          const keywords = extractKeywords(userMsg.content);
+          if (keywords.length > 0) {
+            const summaries = getFileSummariesForContext(projectPath, keywords);
+            if (summaries.length > 0) {
+              const lines = ['\n【已知文件摘要 — 可直接使用，无需重复读取】'];
+              for (const s of summaries.slice(0, 10)) {
+                const exports = s.key_exports?.length
+                  ? s.key_exports.map((e: any) => `${e.kind} ${e.name}(${e.signature || ''})`).join(', ')
+                  : '';
+                lines.push(`- ${s.file_path}: ${s.summary}${exports ? ` | ${exports}` : ''}`);
+              }
+              userMsg.content += '\n' + lines.join('\n');
+            }
+          }
+        }
+      } catch (e: any) {
+        console.log(`[processStream] Summary injection skipped: ${e.message?.slice(0, 80)}`);
+      }
+    }
+
     console.log("2222222222"+ systemPrompt)
     console.log(messages[0])
     console.log(`[processStream] mode=${mode} msgs=${messages.length}`);
@@ -590,6 +691,12 @@ export class AgentService {
       messages.push({ role: 'assistant', content: fullText });
 
       if (operations.length === 0) {
+        // Explicit done marker
+        if (/<final\/>/i.test(fullText)) {
+          const clean = fullText.replace(/<final\/>/gi, '').trim();
+          yield { event: 'done', data: JSON.stringify({ message: clean || agentMessage, operations: [] }) };
+          return;
+        }
         if (fullText.trim().length < 5) {
           emptyCount++;
           if (emptyCount >= 3) {
@@ -600,8 +707,9 @@ export class AgentService {
           continue;
         }
         emptyCount = 0;
-        yield { event: 'done', data: JSON.stringify({ message: agentMessage, operations: [] }) };
-        return;
+        // No tools + no <final/> → might be incomplete, prompt continuation
+        messages.push({ role: 'user', content: '请继续（若已完成请追加 <final/>）。' });
+        continue;
       }
       emptyCount = 0;
 
@@ -646,6 +754,10 @@ export class AgentService {
           const startLine = (op.start_line as number) || 1;
           const endLine = op.end_line as number | undefined;
           const result = readFile(fullPath, startLine, endLine);
+          // Async summarizer: only when reading the full file (no line range)
+          if (!op.start_line && !op.end_line && projectPath) {
+            this.summarizer.enqueue(projectPath, filePath, result.content);
+          }
           // Add line numbers so the LLM can reference specific lines
           const numbered = result.lines
             .map((l: string, i: number) => `${String(startLine + i).padStart(4, ' ')}| ${l}`)
@@ -656,9 +768,18 @@ export class AgentService {
         case 'search': {
           const query = (op.content as string) || '';
           const searchPath = filePath ? fullPath : projectPath;
-          const results = searchInFiles(query, searchPath);
+          const results = await searchInFiles(query, searchPath, {
+            caseSensitive: op['case-sensitive'] === 'true' || op.case_sensitive === true,
+            wholeWord: op['whole-word'] === 'true' || op.whole_word === true,
+            useRegex: op['regex'] === 'true' || op.regex === true,
+          });
+          const flags = [];
+          if (op['case-sensitive'] === 'true') flags.push('case-sensitive');
+          if (op['whole-word'] === 'true') flags.push('whole-word');
+          if (op['regex'] === 'true') flags.push('regex');
+          const flagStr = flags.length > 0 ? ` (${flags.join(', ')})` : '';
           const summary = results.map((r) => `${r.file}:${r.line}  ${r.text}`).join('\n');
-          return `[search "${query}" in ${filePath || '.'}]\n${summary.slice(0, 12000) || '(无匹配结果)'}`;
+          return `[search "${query}" in ${filePath || '.'}${flagStr}]\n${summary.slice(0, 12000) || '(无匹配结果)'}`;
         }
         case 'insert_lines': {
           const afterLine = (op.after_line as number) || 0;
@@ -905,9 +1026,9 @@ export class AgentService {
       messages.push({ role: 'assistant', content: fullText });
 
       if (operations.length === 0) {
-        // Check for done tag
-        if (/<done>/i.test(fullText) || /文档生成完成/.test(fullText)) {
-          finalMessage = agentMessage;
+        // Check for done / final tags
+        if (/<done>/i.test(fullText) || /<final\/>/i.test(fullText) || /文档生成完成/.test(fullText)) {
+          finalMessage = fullText.replace(/<final\/>/gi, '').replace(/<done>[^<]*<\/done>/gi, '').trim();
           actionSuccess = true;
           break;
         }
@@ -1025,6 +1146,16 @@ export class AgentService {
         reviewFeedback = reviewText;
       }
 
+      // Try to extract call_graph from action agent output
+      let callGraph: unknown = null;
+      try {
+        const jsonMatch = finalMessage.match(/\{[\s\S]*"call_graph"[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          callGraph = parsed.call_graph || null;
+        }
+      } catch { /* ignore parse errors */ }
+
       yield {
         event: 'done',
         data: JSON.stringify({
@@ -1033,10 +1164,21 @@ export class AgentService {
           review_passed: reviewPassed,
           review_feedback: reviewFeedback,
           review_issues: reviewIssues,
+          call_graph: callGraph,
         }),
       };
       return;
     }
+
+    // Try to extract call_graph from action agent output (no reviewer path)
+    let callGraph2: unknown = null;
+    try {
+      const jsonMatch = finalMessage.match(/\{[\s\S]*"call_graph"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        callGraph2 = parsed.call_graph || null;
+      }
+    } catch { /* ignore */ }
 
     // No reviewer needed (read-only or no changes)
     yield {
@@ -1045,6 +1187,7 @@ export class AgentService {
         success: true,
         message: finalMessage || '完成',
         review_passed: null,
+        call_graph: callGraph2,
       }),
     };
   }

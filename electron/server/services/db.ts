@@ -73,10 +73,23 @@ function initTables(db: Database.Database): void {
       key TEXT PRIMARY KEY,
       value TEXT DEFAULT ''
     );
+
+    CREATE TABLE IF NOT EXISTS file_summaries (
+      project_path TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      key_exports TEXT DEFAULT '[]',
+      dependencies TEXT DEFAULT '[]',
+      file_hash TEXT DEFAULT '',
+      tokens INTEGER DEFAULT 0,
+      summary_tokens INTEGER DEFAULT 0,
+      generated_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (project_path, file_path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fs_project ON file_summaries(project_path);
   `);
 }
-
-/* ── JSON helpers ── */
 
 function toJson(val: unknown): string {
   if (typeof val === 'string') return val;
@@ -265,4 +278,71 @@ export function setMeta(projectPath: string, key: string, value: string): void {
   const db = connect(projectPath);
   const scoped = `${projectPath}_${key}`;
   db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(scoped, value);
+}
+
+/* ── File summaries (semantic cache) ── */
+
+export interface FileSummary {
+  project_path: string;
+  file_path: string;
+  summary: string;
+  key_exports: { name: string; kind: string; signature: string; line: number }[];
+  dependencies: { file: string; reason: string }[];
+  file_hash: string;
+  tokens: number;
+  summary_tokens: number;
+}
+
+export function upsertFileSummary(s: FileSummary): void {
+  const db = connect(s.project_path);
+  db.prepare(`
+    INSERT OR REPLACE INTO file_summaries
+      (project_path, file_path, summary, key_exports, dependencies, file_hash, tokens, summary_tokens, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    s.project_path, s.file_path, s.summary,
+    JSON.stringify(s.key_exports), JSON.stringify(s.dependencies),
+    s.file_hash, s.tokens, s.summary_tokens,
+  );
+}
+
+export function getFileSummary(projectPath: string, filePath: string): FileSummary | null {
+  const db = connect(projectPath);
+  const row = db.prepare(
+    'SELECT * FROM file_summaries WHERE project_path = ? AND file_path = ?',
+  ).get(projectPath, filePath) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    project_path: row.project_path as string,
+    file_path: row.file_path as string,
+    summary: row.summary as string,
+    key_exports: typeof row.key_exports === 'string' ? JSON.parse(row.key_exports as string) : (row.key_exports || []),
+    dependencies: typeof row.dependencies === 'string' ? JSON.parse(row.dependencies as string) : (row.dependencies || []),
+    file_hash: row.file_hash as string,
+    tokens: row.tokens as number,
+    summary_tokens: row.summary_tokens as number,
+  };
+}
+
+export function getFileSummariesForContext(projectPath: string, keywords: string[]): FileSummary[] {
+  const db = connect(projectPath);
+  if (keywords.length === 0) return [];
+  const likeClauses = keywords.map(() => '(summary LIKE ? OR key_exports LIKE ?)');
+  const params: string[] = [];
+  for (const kw of keywords) {
+    params.push(`%${kw}%`, `%${kw}%`);
+  }
+  const rows = db.prepare(
+    `SELECT * FROM file_summaries WHERE project_path = ? AND (${likeClauses.join(' OR ')}) LIMIT 20`,
+  ).all(projectPath, ...params) as Record<string, unknown>[];
+  return rows.map(row => ({
+    project_path: row.project_path as string,
+    file_path: row.file_path as string,
+    summary: row.summary as string,
+    key_exports: typeof row.key_exports === 'string' ? JSON.parse(row.key_exports as string) : (row.key_exports || []),
+    dependencies: typeof row.dependencies === 'string' ? JSON.parse(row.dependencies as string) : (row.dependencies || []),
+    file_hash: row.file_hash as string,
+    tokens: row.tokens as number,
+    summary_tokens: row.summary_tokens as number,
+  }));
 }

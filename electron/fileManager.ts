@@ -2,6 +2,7 @@ import {
   readdirSync, readFileSync, writeFileSync, existsSync,
   mkdirSync, statSync, copyFileSync, renameSync, createWriteStream,
 } from 'fs';
+import { readdir, readFile, stat } from 'fs/promises';
 import { join, dirname, relative, basename } from 'path';
 
 export interface FileEntry {
@@ -209,43 +210,113 @@ export interface SearchResult {
   text: string;
 }
 
-export function searchInFiles(query: string, dirPath: string, maxResults = 30): SearchResult[] {
-  const results: SearchResult[] = [];
-  const sourceExts = ['.py', '.ts', '.tsx', '.js', '.jsx', '.go', '.rs', '.java',
-    '.json', '.toml', '.yaml', '.yml', '.md', '.css', '.html', '.vue', '.svelte'];
+export interface SearchOptions {
+  /** Max total results (default 30) */
+  maxResults?: number;
+  /** Max results per file (default unlimited) */
+  maxResultsPerFile?: number;
+  /** Pagination: skip first N results */
+  offset?: number;
+  /** Case-sensitive match (default false) */
+  caseSensitive?: boolean;
+  /** Whole-word match only (default false) */
+  wholeWord?: boolean;
+  /** Treat query as regex (default false) */
+  useRegex?: boolean;
+  /** Max directory traversal depth (default 4) */
+  maxDepth?: number;
+  /** Max file size in bytes to read (default 200KB) */
+  maxFileSize?: number;
+  /** File extensions to search (default: common source types) */
+  sourceExts?: string[];
+}
 
-  function walk(dir: string, depth: number) {
-    if (depth > 4 || results.length >= maxResults) return;
-    try {
-      for (const name of readdirSync(dir)) {
-        if (name.startsWith('.') || IGNORE_PATTERNS.some(p => p === name)) continue;
-        const full = join(dir, name);
-        try {
-          const st = statSync(full);
-          if (st.isDirectory()) {
-            walk(full, depth + 1);
-          } else if (st.isFile() && st.size < 200_000) {
-            const ext = name.includes('.') ? '.' + name.split('.').pop()?.toLowerCase() : '';
-            if (!sourceExts.includes(ext)) continue;
-            const content = readFileSync(full, 'utf-8');
-            const lines = content.split('\n');
-            for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-              if (lines[i].toLowerCase().includes(query.toLowerCase())) {
-                results.push({
-                  file: relative(dirPath, full).replace(/\\/g, '/'),
-                  line: i + 1,
-                  text: lines[i].trim().slice(0, 200),
-                });
-              }
-            }
-          }
-        } catch { /* skip unreadable */ }
-      }
-    } catch { /* skip */ }
+const DEFAULT_SOURCE_EXTS = [
+  '.py', '.ts', '.tsx', '.js', '.jsx', '.go', '.rs', '.java',
+  '.json', '.toml', '.yaml', '.yml', '.md', '.css', '.html', '.vue', '.svelte',
+  '.sh', '.sql', '.xml', '.prisma', '.graphql', '.proto',
+];
+
+export async function searchInFiles(
+  query: string,
+  dirPath: string,
+  options: SearchOptions = {},
+): Promise<SearchResult[]> {
+  const {
+    maxResults = 30,
+    maxResultsPerFile = 0,
+    offset = 0,
+    caseSensitive = false,
+    wholeWord = false,
+    useRegex = false,
+    maxDepth = 4,
+    maxFileSize = 200_000,
+    sourceExts = DEFAULT_SOURCE_EXTS,
+  } = options;
+
+  const results: SearchResult[] = [];
+  let skipped = 0;
+
+  // Build matcher
+  let matcher: (line: string) => boolean;
+  if (useRegex) {
+    const flags = caseSensitive ? 'g' : 'gi';
+    const re = new RegExp(query, flags);
+    matcher = (line) => re.test(line);
+  } else if (wholeWord) {
+    const flags = caseSensitive ? 'g' : 'gi';
+    const re = new RegExp(`\\b${escapeRegex(query)}\\b`, flags);
+    matcher = (line) => re.test(line);
+  } else if (caseSensitive) {
+    matcher = (line) => line.includes(query);
+  } else {
+    const lower = query.toLowerCase();
+    matcher = (line) => line.toLowerCase().includes(lower);
   }
 
-  walk(dirPath, 1);
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > maxDepth || results.length >= maxResults) return;
+    let entries;
+    try { entries = await readdir(dir); }
+    catch { return; }
+
+    for (const name of entries) {
+      if (results.length >= maxResults) return;
+      if (name.startsWith('.') || IGNORE_PATTERNS.some(p => p === name)) continue;
+      const full = join(dir, name);
+      try {
+        const st = await stat(full);
+        if (st.isDirectory()) {
+          await walk(full, depth + 1);
+        } else if (st.isFile() && st.size < maxFileSize) {
+          const ext = name.includes('.') ? '.' + name.split('.').pop()?.toLowerCase() : '';
+          if (!sourceExts.includes(ext)) continue;
+          const content = await readFile(full, 'utf-8');
+          const lines = content.split('\n');
+          let fileHits = 0;
+          for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+            if (matcher(lines[i])) {
+              if (skipped < offset) { skipped++; continue; }
+              results.push({
+                file: relative(dirPath, full).replace(/\\/g, '/'),
+                line: i + 1,
+                text: lines[i].trim().slice(0, 200),
+              });
+              fileHits++;
+              if (maxResultsPerFile > 0 && fileHits >= maxResultsPerFile) break;
+            }
+          }
+        }
+      } catch { /* skip unreadable */ }
+    }
+  }
+
+  await walk(dirPath, 1);
   return results;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function getProjectName(dirPath: string): string {
