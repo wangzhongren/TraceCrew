@@ -190,7 +190,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
 
       {/* Code area */}
       <div ref={containerRef} className="flex-1 overflow-auto" onMouseUp={handleSelection}>
-        <table ref={tableRef} className="w-full border-collapse font-mono text-sm leading-6" style={{ fontFamily: 'var(--font-family-mono)' }}>
+        <table ref={tableRef} className="w-full border-collapse font-mono text-xs leading-5" style={{ fontFamily: 'var(--font-family-mono)' }}>
           <tbody>
             {content.lines.map((line, i) => (
               <tr
@@ -199,7 +199,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
               >
                 <td
                   className="text-right pr-3 pl-4 select-none border-r w-[1%] align-top whitespace-nowrap"
-                  style={{ color: '#5c6166', borderColor: '#303234', fontSize: '11px', paddingTop: 1, paddingBottom: 1 }}
+                  style={{ color: '#5c6166', borderColor: '#303234', paddingTop: 1, paddingBottom: 1 }}
                 >
                   {i + 1}
                 </td>
