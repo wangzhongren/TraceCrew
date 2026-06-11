@@ -285,7 +285,6 @@ function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-white/5"
             style={{ color: 'var(--color-text-primary)' }}
           >
-            <span style={{ color: cfg.color }}>{cfg.icon}</span>
             <span>{cfg.label}</span>
             <span className="ml-auto text-caption text-disabled">{cfg.description.slice(0, 8)}</span>
           </button>
