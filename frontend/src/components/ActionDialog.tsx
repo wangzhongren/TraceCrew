@@ -163,12 +163,22 @@ export default function ActionDialog({
                     </span>
                   </h3>
                   <div className="flex flex-wrap gap-1">
-                    {streamTools.map((t, i) => (
+                    {streamTools.map((t, i) => {
+                      const toolColor = (() => {
+                        switch (t.type) {
+                          case 'read_file': case 'list_dir': case 'search': return { bg: '#58a6ff18', text: '#58a6ff' };
+                          case 'insert_lines': case 'replace_lines': case 'create_file': return { bg: '#22c55e18', text: '#22c55e' };
+                          case 'delete_lines': return { bg: '#f8514918', text: '#f85149' };
+                          case 'run_shell': return { bg: '#d2992218', text: '#d29922' };
+                          default: return { bg: '#21262d', text: 'var(--color-text-secondary)' };
+                        }
+                      })();
+                      return (
                       <span key={i} className="text-[9px] px-2 py-0.5 rounded font-mono"
-                        style={{ background: '#21262d', color: 'var(--color-text-secondary)' }}>
+                        style={{ background: toolColor.bg, color: toolColor.text }}>
                         {t.type}{t.file ? `: ${t.file.split('/').pop()}` : ''}
                       </span>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )}
@@ -253,7 +263,7 @@ export default function ActionDialog({
           ) : (
             <>
               {/* Node info card — only shown before streaming */}
-              <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+              <div className="rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--color-border-subtle)' }}>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="px-2 py-0.5 rounded text-caption font-bold tracking-wider"
                     style={{ background: config.color + '20', color: config.color }}>
@@ -387,9 +397,13 @@ export default function ActionDialog({
         <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--color-border-subtle)' }}>
           {isStreaming ? (
             <>
-              <span className="text-caption" style={{ color: '#484f58' }}>
-                {streamRunning ? '⏳ Agent 正在处理，请等待...' : streamResult ? '✅ 处理完成，可关闭窗口' : ''}
-              </span>
+              {streamRunning ? (
+                <span className="text-caption" style={{ color: '#484f58' }}>⏳ Agent 正在处理，请等待...</span>
+              ) : streamResult?.review_passed === false ? (
+                <span className="text-caption" style={{ color: '#ff4444' }}>❌ Reviewer 未通过，请检查反馈</span>
+              ) : (
+                <span className="text-caption" style={{ color: '#22c55e' }}>✅ 处理完成，可关闭窗口</span>
+              )}
               <button
                 onClick={onClose}
                 disabled={streamRunning}
@@ -407,14 +421,14 @@ export default function ActionDialog({
               <div className="flex items-center gap-2">
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/5"
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-white/5 active:scale-[0.98]"
                   style={{ color: '#8b949e' }}
                 >
                   取消
                 </button>
                 <button
                   onClick={handleConfirm}
-                  className="px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+                  className="px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
                   style={{ background: config.color, color: '#fff' }}
                 >
                   开始{config.label}

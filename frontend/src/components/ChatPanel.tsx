@@ -29,6 +29,17 @@ const TOOL_LABEL: Record<string, string> = {
   create_file: 'Create', run_shell: 'Run',
 };
 
+const TOOL_COLOR: Record<string, { bg: string; text: string }> = {
+  read_file:    { bg: '#58a6ff18', text: '#58a6ff' },
+  list_dir:     { bg: '#58a6ff18', text: '#58a6ff' },
+  search:       { bg: '#58a6ff18', text: '#58a6ff' },
+  insert_lines: { bg: '#22c55e18', text: '#22c55e' },
+  replace_lines:{ bg: '#22c55e18', text: '#22c55e' },
+  create_file:  { bg: '#22c55e18', text: '#22c55e' },
+  delete_lines: { bg: '#f8514918', text: '#f85149' },
+  run_shell:    { bg: '#d2992218', text: '#d29922' },
+};
+
 export default function ChatPanel({ projectPath, onPipelineChange }: {
   projectPath: string | null;
   onPipelineChange: (s: Partial<PipelineState>) => void;
@@ -428,16 +439,19 @@ function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: strin
       </button>
       {open && (
         <div className="ml-5 mt-0.5 space-y-0">
-          {tools.map((t: any, j: number) => (
+          {tools.map((t: any, j: number) => {
+            const tc = TOOL_COLOR[t.tool] || { bg: '#8b949e18', text: '#8b949e' };
+            return (
             <div key={j} className="flex items-center gap-2 py-[1px]">
-              <span className="text-caption font-mono" style={{ color: 'var(--color-text-placeholder)' }}>
+              <span className="text-caption font-mono rounded px-1.5 py-0.5"
+                style={{ background: tc.bg, color: tc.text }}>
                 {TOOL_LABEL[t.tool] || t.tool}
               </span>
               <span className="text-caption truncate" style={{ color: 'var(--color-text-secondary)' }}>
                 {t.detail}
               </span>
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>

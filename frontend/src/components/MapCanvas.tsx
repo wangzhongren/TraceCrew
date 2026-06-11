@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import dagre from 'dagre';
 import { STATUS_COLORS, EDGE_COLORS, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
@@ -139,7 +139,7 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge
 
 /* ══════════════════════════════════════════════════ */
 
-export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: Props) {
+function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ x: 60, y: 40, scale: 1 });
@@ -159,11 +159,19 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, on
     onSelectNode(null);
   }, [graph]);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.12 : 0.12;
-    setTransform((t) => ({ ...t, scale: Math.max(0.2, Math.min(2.5, t.scale + delta)) }));
+// Wheel zoom — native listener to bypass passive event restriction
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.12 : 0.12;
+      setTransform((t) => ({ ...t, scale: Math.max(0.2, Math.min(2.5, t.scale + delta)) }));
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
   }, []);
+
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if ((e.target as SVGElement)?.tagName === 'svg' || (e.target as SVGElement)?.classList?.contains?.('bg-layer')) {
@@ -218,7 +226,6 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, on
 
       {/* SVG canvas */}
       <svg ref={svgRef} className="absolute inset-0 w-full h-full bg-layer"
-        onWheel={handleWheel}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -314,7 +321,12 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, on
             const lineY = node.y + 22;
 
             return (
-              <g key={node.id} style={{ cursor: 'pointer', transition: 'opacity 0.2s', opacity: dimmed ? 0.25 : 1 }}
+              <g key={node.id}
+                style={{
+                  cursor: 'pointer', transition: 'opacity 0.2s, filter 0.2s',
+                  opacity: dimmed ? 0.25 : 1,
+                  filter: isHovered ? 'drop-shadow(0 0 8px rgba(255,255,255,0.10))' : 'none',
+                }}
                 onClick={() => onSelectNode(isSelected ? null : node.id)}
                 onContextMenu={(e) => { e.preventDefault(); onContextMenu?.({ node, x: e.clientX, y: e.clientY }); }}
                 onMouseEnter={() => setHoveredNode(node.id)}
@@ -483,3 +495,4 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, on
     </div>
   );
 }
+export default memo(MapCanvas);

@@ -19,6 +19,33 @@ export interface EditResult {
   backupId?: string;
 }
 
+export interface SearchResult {
+  file: string;
+  line: number;
+  text: string;
+}
+
+export interface SearchOptions {
+  /** Max total results (default 30) */
+  maxResults?: number;
+  /** Max results per file (default unlimited) */
+  maxResultsPerFile?: number;
+  /** Pagination: skip first N results */
+  offset?: number;
+  /** Case-sensitive match (default false) */
+  caseSensitive?: boolean;
+  /** Whole-word match only (default false) */
+  wholeWord?: boolean;
+  /** Treat query as regex (default false) */
+  useRegex?: boolean;
+  /** Max directory traversal depth (default 4) */
+  maxDepth?: number;
+  /** Max file size in bytes to read (default 200KB) */
+  maxFileSize?: number;
+  /** File extensions to search (default: common source types) */
+  sourceExts?: string[];
+}
+
 export interface CodeAtlasAPI {
   file: {
     openProject: () => Promise<string | null>;
@@ -29,7 +56,7 @@ export interface CodeAtlasAPI {
     replaceLines: (filePath: string, startLine: number, endLine: number, content: string) => Promise<EditResult>;
     deleteLines: (filePath: string, startLine: number, endLine: number) => Promise<EditResult>;
     deleteFile: (filePath: string) => Promise<EditResult>;
-    search: (query: string, dirPath: string) => Promise<Array<{ file: string; line: number; text: string }>>;
+    search: (query: string, dirPath: string, options?: SearchOptions) => Promise<SearchResult[]>;
     restoreBackup: (backupId: string) => Promise<EditResult>;
     getProjectPath: () => Promise<string>;
     onProjectOpened: (cb: (path: string) => void) => void;

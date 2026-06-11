@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import MapCanvas from './MapCanvas';
-import type { CallGraph, GraphNode, ContextMenuAction } from './MapCanvas';
+import type { CallGraph, GraphNode, GraphEdge, ContextMenuAction } from './MapCanvas';
 import ActionDialog, { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
@@ -29,6 +29,7 @@ interface StreamState {
     review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
     call_graph?: CallGraph;
   } | null;
+  reviewRequired: boolean;
   error: string | null;
 }
 
@@ -254,6 +255,7 @@ function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
+      if (e.button === 2) return; // 忽略右键 mousedown，避免在 contextmenu 之前误关菜单
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose();
     };
     // Delay to avoid the right-click mousedown immediately closing the menu
@@ -264,12 +266,16 @@ function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
   return (
     <div
       ref={popupRef}
-      className="fixed z-50 rounded-xl border shadow-2xl py-1.5 min-w-[180px] animate-fade-in"
+      className="fixed z-50 rounded-xl shadow-2xl py-1.5 min-w-[180px] animate-fade-in-scale overflow-hidden"
       style={{
         left: Math.min(x, window.innerWidth - 200),
         top: Math.min(y, window.innerHeight - 40 * (actions.length + 2)),
-        background: '#161b22',
-        borderColor: 'var(--color-border-default)',
+        background: '#161b22dd',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        border: '1px solid var(--color-border-default)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 1px 3px rgba(255,255,255,0.04)',
+        willChange: 'filter, transform',
       }}
       onClick={(e) => e.stopPropagation()}
     >
@@ -299,13 +305,30 @@ function getAllIds(node: TreeNode): string[] {
 }
 
 export default function MapperView({ graph, phase, onSelectNode, onGraphChange, selectedNode, projectPath }: Props) {
-  const [showCards, setShowCards] = useState(false);
-  const [activeRoot, setActiveRoot] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<ActionType | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
-  const [stream, setStream] = useState<StreamState>({
-    running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, error: null,
+   const [showCards, setShowCards] = useState(false);
+   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
+   const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+
+   const contextMenuRef = useRef(contextMenu);
+   contextMenuRef.current = contextMenu;
+   const handleContextMenu = useCallback(({ node, x, y }: ContextMenuAction) => {
+     setContextMenu({ node, x, y });
+   }, []);
+   const handleContextMenuSelect = useCallback((action: ActionType) => {
+     setContextMenu(null);
+     const cm = contextMenuRef.current;
+     if (cm) onSelectNode(cm.node.id);
+     setActiveAction(action);
+   }, [onSelectNode]);
+   const handleContextMenuClose = useCallback(() => setContextMenu(null), []);
+   const [stream, setStream] = useState<StreamState>({
+    running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null,
   });
+
+  // Keep a ref to the latest graph so SSE handler can access it without stale closure
+  const graphRef = useRef(graph);
+  graphRef.current = graph;
 
   /** Compute downstream nodes for the selected node (used by refactor action) */
   const downstreamNodes = useMemo((): GraphNode[] => {
@@ -343,7 +366,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
     if (!projectPath || !selectedNodeData) return;
 
     // Start streaming
-    setStream({ running: true, phase: 'action', actionOutput: '', reviewOutput: '', tools: [], result: null, error: null });
+    setStream({ running: true, phase: 'action', actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null });
 
     try {
       const res = await fetch('/api/v1/agent/action/stream', {
@@ -360,7 +383,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
 
       const reader = res.body?.getReader();
       if (!reader) {
-        setStream(prev => ({ ...prev, running: false, error: '无法读取响应流' }));
+        setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: '无法读取响应流' }));
         return;
       }
 
@@ -398,14 +421,33 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
                 case 'tools':
                   return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
                 case 'done':
-                  // Update call graph only if structurally valid
-                  if (payload.call_graph && onGraphChange) {
+                  // Merge call_graph into existing graph — update matching nodes, add new ones
+                  if (payload.call_graph && onGraphChange && graphRef.current) {
                     const cg = payload.call_graph;
-                    if (cg.nodes && Array.isArray(cg.nodes) && cg.edges && Array.isArray(cg.edges) && cg.nodes.length > 0) {
-                      onGraphChange(cg);
+                    if (cg.nodes && Array.isArray(cg.nodes) && cg.nodes.length > 0) {
+                      const updatedNodes = cg.nodes as GraphNode[];
+                      const updatedEdges = (cg.edges || []) as GraphEdge[];
+
+                      // Build updated node map
+                      const nodeMap = new Map(graphRef.current.nodes.map(n => [n.id, n]));
+                      for (const un of updatedNodes) {
+                        nodeMap.set(un.id, un);  // overwrite existing, add new
+                      }
+
+                      // Build updated edge map (dedup by from-to)
+                      const edgeKey = (e: GraphEdge) => `${e.from}->${e.to}`;
+                      const edgeMap = new Map(graphRef.current.edges.map(e => [edgeKey(e), e]));
+                      for (const ue of updatedEdges) {
+                        edgeMap.set(edgeKey(ue), ue);
+                      }
+
+                      onGraphChange({
+                        nodes: Array.from(nodeMap.values()),
+                        edges: Array.from(edgeMap.values()),
+                      });
                     }
                   }
-                  return { ...prev, running: false, result: payload };
+                  return { ...prev, running: false, result: payload, reviewRequired: payload.review_passed === false };
                 default:
                   return prev;
               }
@@ -420,7 +462,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         }
       }
     } catch (e: any) {
-      setStream(prev => ({ ...prev, running: false, error: e.message || '网络错误' }));
+      setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: e.message || '网络错误' }));
     }
   }, [activeAction, selectedNodeData, projectPath, downstreamNodes]);
 
@@ -482,7 +524,12 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
   return (
     <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
       {/* ════ Top nav ════ */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
+      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b"
+        style={{
+          borderColor: 'var(--color-border-subtle)',
+          background: 'var(--color-bg-layer)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        }}>
         {/* Cards dropdown */}
         <div className="relative">
           <button
@@ -539,19 +586,19 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
           </div>
         )}
 
-        <div className="ml-auto text-caption shrink-0" style={{ color: '#484f58' }}>
+        <div className="ml-auto text-caption shrink-0 text-muted">
           {graph.nodes.length} 节点 · {graph.edges.length} 边
         </div>
       </div>
 
-      {/* ════ Bottom: MapCanvas — one sub-graph per entry ════ */}
+{/* ════ Bottom: MapCanvas — one sub-graph per entry ════ */}
       <div className="flex-1 overflow-hidden">
         <MapCanvas
           graph={activeGraph}
           phase={phase}
           selectedNode={selectedNode}
           onSelectNode={onSelectNode}
-          onContextMenu={({ node, x, y }: ContextMenuAction) => setContextMenu({ node, x, y })}
+          onContextMenu={handleContextMenu}
         />
       </div>
 
@@ -561,8 +608,8 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
           node={contextMenu.node}
           x={contextMenu.x}
           y={contextMenu.y}
-          onSelect={(action) => { setContextMenu(null); onSelectNode(contextMenu.node.id); setActiveAction(action); }}
-          onClose={() => setContextMenu(null)}
+          onSelect={handleContextMenuSelect}
+          onClose={handleContextMenuClose}
         />
       )}
 
@@ -572,7 +619,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
           action={activeAction}
           node={selectedNodeData}
           downstreamNodes={activeAction === 'refactor' ? downstreamNodes : undefined}
-          onClose={() => { setActiveAction(null); setStream({ running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, error: null }); }}
+          onClose={() => { setActiveAction(null); setStream({ running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null }); }}
           onConfirm={handleActionConfirm}
           streamRunning={stream.running}
           streamPhase={stream.phase}

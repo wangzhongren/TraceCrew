@@ -195,15 +195,15 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
             {content.lines.map((line, i) => (
               <tr
                 key={i}
-                className="hover:bg-white/[0.03] transition-colors"
+                className="hover:bg-white/[0.03] transition-colors duration-100"
               >
                 <td
                   className="text-right pr-3 pl-4 select-none border-r w-[1%] align-top whitespace-nowrap"
-                  style={{ color: '#5c6166', borderColor: '#303234', paddingTop: 1, paddingBottom: 1 }}
+                  style={{ color: '#6e7681', borderColor: '#21262d', paddingTop: 1, paddingBottom: 1 }}
                 >
                   {i + 1}
                 </td>
-                <td className="pl-4 pr-4 align-top whitespace-pre-wrap break-all" style={{ paddingTop: 1, paddingBottom: 1 }}>
+                <td className="pl-4 pr-4 align-top whitespace-pre-wrap break-words" style={{ paddingTop: 1, paddingBottom: 1 }}>
                   <span dangerouslySetInnerHTML={{ __html: highlightLine(line, ext) || ' ' }} />
                 </td>
               </tr>

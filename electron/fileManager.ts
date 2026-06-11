@@ -221,7 +221,7 @@ export async function insertLines(filePath: string, afterLine: number, content: 
     // Use streaming for large files, in-memory for small ones
     const st = statSync(filePath);
     if (st.size > 500_000) {
-      const r = await streamEdit(filePath, 'insert', afterLine + 1, afterLine + 1, content);
+const r = await streamEdit(filePath, 'insert', afterLine, afterLine, content);
       return { ...r, backupId };
     }
     const fc = readFile(filePath);
