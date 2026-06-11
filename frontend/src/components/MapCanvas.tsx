@@ -29,11 +29,18 @@ export interface CallGraph {
   edges: GraphEdge[];
 }
 
+export interface ContextMenuAction {
+  node: GraphNode;
+  x: number;
+  y: number;
+}
+
 interface Props {
   graph: CallGraph | null;
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
   selectedNode: string | null;
   onSelectNode: (id: string | null) => void;
+  onContextMenu?: (action: ContextMenuAction) => void;
 }
 
 /* ── Dagre layered layout ── */
@@ -132,7 +139,7 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge
 
 /* ══════════════════════════════════════════════════ */
 
-export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: Props) {
+export default function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ x: 60, y: 40, scale: 1 });
@@ -309,6 +316,7 @@ export default function MapCanvas({ graph, phase, selectedNode, onSelectNode }: 
             return (
               <g key={node.id} style={{ cursor: 'pointer', transition: 'opacity 0.2s', opacity: dimmed ? 0.25 : 1 }}
                 onClick={() => onSelectNode(isSelected ? null : node.id)}
+                onContextMenu={(e) => { e.preventDefault(); onContextMenu?.({ node, x: e.clientX, y: e.clientY }); }}
                 onMouseEnter={() => setHoveredNode(node.id)}
                 onMouseLeave={() => setHoveredNode(null)}>
 

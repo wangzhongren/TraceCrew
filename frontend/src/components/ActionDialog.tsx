@@ -62,7 +62,7 @@ export function getActionsForNode(status: string): ActionType[] {
       return ['develop', 'test', 'explain'];
     case 'existing':
     default:
-      return ['refactor'];
+      return ['refactor', 'explain'];
   }
 }
 

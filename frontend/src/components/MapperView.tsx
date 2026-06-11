@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import MapCanvas from './MapCanvas';
-import type { CallGraph, GraphNode } from './MapCanvas';
+import type { CallGraph, GraphNode, ContextMenuAction } from './MapCanvas';
 import ActionDialog, { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
@@ -242,6 +242,59 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
   );
 }
 
+/* ── Right-click context menu popup ── */
+
+function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
+  node: GraphNode; x: number; y: number;
+  onSelect: (action: ActionType) => void;
+  onClose: () => void;
+}) {
+  const popupRef = useRef<HTMLDivElement>(null);
+  const actions = getActionsForNode(node.status);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose();
+    };
+    // Delay to avoid the right-click mousedown immediately closing the menu
+    const id = setTimeout(() => document.addEventListener('mousedown', h), 100);
+    return () => { clearTimeout(id); document.removeEventListener('mousedown', h); };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={popupRef}
+      className="fixed z-50 rounded-xl border shadow-2xl py-1.5 min-w-[180px] animate-fade-in"
+      style={{
+        left: Math.min(x, window.innerWidth - 200),
+        top: Math.min(y, window.innerHeight - 40 * (actions.length + 2)),
+        background: '#161b22',
+        borderColor: 'var(--color-border-default)',
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="px-3 py-1.5 border-b border-subtle">
+        <span className="text-caption font-medium text-muted">{node.label}</span>
+      </div>
+      {actions.map((a) => {
+        const cfg = ACTION_CONFIGS[a];
+        return (
+          <button
+            key={a}
+            onClick={() => onSelect(a)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-white/5"
+            style={{ color: 'var(--color-text-primary)' }}
+          >
+            <span style={{ color: cfg.color }}>{cfg.icon}</span>
+            <span>{cfg.label}</span>
+            <span className="ml-auto text-caption text-disabled">{cfg.description.slice(0, 8)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function getAllIds(node: TreeNode): string[] {
   return [node.id, ...node.children.flatMap(getAllIds)];
 }
@@ -250,6 +303,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
   const [showCards, setShowCards] = useState(false);
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
   const [stream, setStream] = useState<StreamState>({
     running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, error: null,
   });
@@ -345,9 +399,12 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
                 case 'tools':
                   return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
                 case 'done':
-                  // Update call graph if the action produced one
+                  // Update call graph only if structurally valid
                   if (payload.call_graph && onGraphChange) {
-                    onGraphChange(payload.call_graph);
+                    const cg = payload.call_graph;
+                    if (cg.nodes && Array.isArray(cg.nodes) && cg.edges && Array.isArray(cg.edges) && cg.nodes.length > 0) {
+                      onGraphChange(cg);
+                    }
                   }
                   return { ...prev, running: false, result: payload };
                 default:
@@ -418,7 +475,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
   if (!graph || graph.nodes.length === 0) {
     return (
       <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
-        <MapCanvas graph={null} phase={phase} selectedNode={null} onSelectNode={() => {}} />
+        <MapCanvas graph={null} phase={phase} selectedNode={null} onSelectNode={() => {}} onContextMenu={() => {}} />
       </div>
     );
   }
@@ -488,40 +545,6 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         </div>
       </div>
 
-      {/* ════ Action toolbar ════ */}
-      {selectedNode && selectedNodeData && (() => {
-        const actions = getActionsForNode(selectedNodeData.status);
-        if (actions.length === 0) return null;
-        return (
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-primary)' }}>
-            <span className="text-caption mr-1" style={{ color: '#484f58' }}>操作:</span>
-            {actions.map((a) => {
-              const cfg = ACTION_CONFIGS[a];
-              const isRefactorWithDownstream = a === 'refactor';
-              return (
-                <button
-                  key={a}
-                  onClick={() => setActiveAction(a)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:brightness-125 active:scale-[0.97]"
-                  style={{
-                    background: cfg.color + '15',
-                    color: cfg.color,
-                    border: `1px solid ${cfg.color}25`,
-                  }}
-                  title={cfg.description + (isRefactorWithDownstream && downstreamNodes.length > 0 ? `（含${downstreamNodes.length}个下游节点）` : '')}
-                >
-                  <span className="text-xs">{cfg.icon}</span>
-                  <span>{cfg.label}</span>
-                  {isRefactorWithDownstream && downstreamNodes.length > 0 && (
-                    <span className="text-[9px] opacity-60 ml-0.5">+{downstreamNodes.length}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        );
-      })()}
-
       {/* ════ Bottom: MapCanvas — one sub-graph per entry ════ */}
       <div className="flex-1 overflow-hidden">
         <MapCanvas
@@ -529,8 +552,20 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
           phase={phase}
           selectedNode={selectedNode}
           onSelectNode={onSelectNode}
+          onContextMenu={({ node, x, y }: ContextMenuAction) => setContextMenu({ node, x, y })}
         />
       </div>
+
+      {/* ════ Right-Click Context Menu ════ */}
+      {contextMenu && (
+        <ContextMenuPopup
+          node={contextMenu.node}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onSelect={(action) => { setContextMenu(null); onSelectNode(contextMenu.node.id); setActiveAction(action); }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {/* ════ Action Dialog ════ */}
       {activeAction && selectedNodeData && (
