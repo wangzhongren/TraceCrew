@@ -295,8 +295,13 @@ export interface SearchResult {
   text: string;
 }
 
+export interface SearchResponse {
+  results: SearchResult[];
+  total: number;
+}
+
 export interface SearchOptions {
-  /** Max total results (default 30) */
+  /** Results per page (default 10, max 50) */
   maxResults?: number;
   /** Max results per file (default unlimited) */
   maxResultsPerFile?: number;
@@ -308,8 +313,6 @@ export interface SearchOptions {
   wholeWord?: boolean;
   /** Treat query as regex (default false) */
   useRegex?: boolean;
-  /** Max directory traversal depth (default 4) */
-  maxDepth?: number;
   /** Max file size in bytes to read (default 200KB) */
   maxFileSize?: number;
   /** File extensions to search (default: common source types) */
@@ -326,21 +329,20 @@ export async function searchInFiles(
   query: string,
   dirPath: string,
   options: SearchOptions = {},
-): Promise<SearchResult[]> {
+): Promise<SearchResponse> {
   const {
-    maxResults = 30,
+    maxResults = 10,
     maxResultsPerFile = 0,
     offset = 0,
     caseSensitive = false,
     wholeWord = false,
     useRegex = false,
-    maxDepth = 4,
     maxFileSize = 200_000,
     sourceExts = DEFAULT_SOURCE_EXTS,
   } = options;
 
-  const results: SearchResult[] = [];
-  let skipped = 0;
+  const MAX_SCAN = 500; // upper bound to prevent runaway scans
+  const allResults: SearchResult[] = [];
 
   // Build matcher
   let matcher: (line: string) => boolean;
@@ -359,30 +361,30 @@ export async function searchInFiles(
     matcher = (line) => line.toLowerCase().includes(lower);
   }
 
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > maxDepth || results.length >= maxResults) return;
+  async function walk(dir: string): Promise<void> {
+    if (allResults.length >= MAX_SCAN) return;
     let entries;
     try { entries = await readdir(dir); }
     catch { return; }
 
     for (const name of entries) {
-      if (results.length >= maxResults) return;
-      if (name.startsWith('.') || IGNORE_PATTERNS.some(p => p === name)) continue;
+      if (allResults.length >= MAX_SCAN) return;
+      if (shouldIgnore(name)) continue;
       const full = join(dir, name);
       try {
         const st = await stat(full);
         if (st.isDirectory()) {
-          await walk(full, depth + 1);
+          await walk(full);
         } else if (st.isFile() && st.size < maxFileSize) {
+          const isDotfile = name.startsWith('.');
           const ext = name.includes('.') ? '.' + name.split('.').pop()?.toLowerCase() : '';
-          if (!sourceExts.includes(ext)) continue;
+          if (!isDotfile && ext !== '' && !sourceExts.includes(ext)) continue;
           const content = await readFile(full, 'utf-8');
           const lines = content.split('\n');
           let fileHits = 0;
-          for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+          for (let i = 0; i < lines.length && allResults.length < MAX_SCAN; i++) {
             if (matcher(lines[i])) {
-              if (skipped < offset) { skipped++; continue; }
-              results.push({
+              allResults.push({
                 file: relative(dirPath, full).replace(/\\/g, '/'),
                 line: i + 1,
                 text: lines[i].trim().slice(0, 200),
@@ -396,8 +398,10 @@ export async function searchInFiles(
     }
   }
 
-  await walk(dirPath, 1);
-  return results;
+  await walk(dirPath);
+  const total = allResults.length;
+  const results = allResults.slice(offset, offset + maxResults);
+  return { results, total };
 }
 
 function escapeRegex(s: string): string {
