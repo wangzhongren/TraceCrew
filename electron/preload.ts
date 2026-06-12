@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-console.log('[preload] codeatlas API registered');
+console.log('[preload] tracecrew API registered');
 
 const api = {
   file: {
@@ -49,6 +49,6 @@ search: (query: string, dirPath: string, options?: import('./fileManager').Searc
   },
 };
 
-contextBridge.exposeInMainWorld('codeatlas', api);
+contextBridge.exposeInMainWorld('tracecrew', api);
 
-export type CodeAtlasAPI = typeof api;
+export type TraceCrewAPI = typeof api;

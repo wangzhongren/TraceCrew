@@ -49,7 +49,7 @@ export interface SearchOptions {
   sourceExts?: string[];
 }
 
-export interface CodeAtlasAPI {
+export interface TraceCrewAPI {
   file: {
     openProject: () => Promise<string | null>;
     listDirectory: (dirPath: string) => Promise<FileEntry[]>;
@@ -87,6 +87,6 @@ export interface CodeAtlasAPI {
 
 declare global {
   interface Window {
-    codeatlas: CodeAtlasAPI;
+    tracecrew: TraceCrewAPI;
   }
 }

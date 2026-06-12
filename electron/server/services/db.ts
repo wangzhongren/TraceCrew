@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const DB_FILENAME = 'codeatlas.db';
+const DB_FILENAME = 'tracecrew.db';
 
 // Cache open databases by project path
 const dbCache = new Map<string, Database.Database>();
@@ -11,7 +11,7 @@ function connect(projectPath: string): Database.Database {
   let db = dbCache.get(projectPath);
   if (db) return db;
 
-  const storeDir = path.join(projectPath, '.codeatlas');
+  const storeDir = path.join(projectPath, '.tracecrew');
   fs.mkdirSync(storeDir, { recursive: true });
   const dbPath = path.join(storeDir, DB_FILENAME);
 

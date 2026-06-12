@@ -6,7 +6,7 @@ interface LLMSettings {
   model: string;
 }
 
-const STORAGE_KEY = 'codeatlas-llm-settings';
+const STORAGE_KEY = 'tracecrew-llm-settings';
 
 function loadLocal(): LLMSettings | null {
   try {

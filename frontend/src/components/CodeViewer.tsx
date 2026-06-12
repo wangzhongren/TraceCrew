@@ -89,7 +89,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
     setLoading(true);
     setError(null);
     try {
-      const fc = await window.codeatlas.file.readFile(filePath);
+      const fc = await window.tracecrew.file.readFile(filePath);
       if (fc && fc.content !== undefined) {
         setContent(fc);
       } else {

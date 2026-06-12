@@ -120,7 +120,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     const chatHistory: Array<{ role: string; content: string }> = [...(history || [])];
     // Fetch file tree and put everything into history as the first user message
     let fileTree: any = null;
-    try { fileTree = await window.codeatlas.file.listDirectory(projectPath!); } catch {}
+    try { fileTree = await window.tracecrew.file.listDirectory(projectPath!); } catch {}
     const firstMsg = fileTree
       ? `${initialCtx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}`
       : `${initialCtx}\n\n${systemPrompt}`;

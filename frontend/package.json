@@ -1,5 +1,5 @@
 {
-  "name": "code-atlas",
+  "name": "tracecrew",
   "private": true,
   "version": "2.0.0",
   "type": "module",
@@ -48,8 +48,8 @@
     "vitest": "^4.1.8"
   },
   "build": {
-    "appId": "com.codeatlas.coder",
-    "productName": "CodeAtlas CodeAtlas",
+    "appId": "com.tracecrew.app",
+    "productName": "TraceCrew",
     "directories": {
       "output": "release"
     },

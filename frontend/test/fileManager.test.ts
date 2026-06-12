@@ -26,7 +26,7 @@ import {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeatlas-test-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracecrew-test-'));
 });
 
 afterEach(() => {
@@ -280,7 +280,7 @@ describe('deleteLines', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('deleteFile', () => {
-  it('moves file to .codeatlas/deleted trash directory', () => {
+  it('moves file to .tracecrew/deleted trash directory', () => {
     const p = mkfile('to-delete.ts', 'content');
     const result = deleteFile(p, tmpDir);
 
@@ -288,7 +288,7 @@ describe('deleteFile', () => {
     expect(fs.existsSync(p)).toBe(false);
 
     // Should exist in trash
-    const trashDir = path.join(tmpDir, '.codeatlas', 'deleted');
+    const trashDir = path.join(tmpDir, '.tracecrew', 'deleted');
     const trashFiles = fs.readdirSync(trashDir);
     expect(trashFiles).toHaveLength(1);
     expect(trashFiles[0]).toContain('to-delete.ts');

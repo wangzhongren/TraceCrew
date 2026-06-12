@@ -76,7 +76,7 @@ const PROTOCOL_EXECUTE = `${PROTOCOL_BASE}
    ═══════════════════════════════════════════════════════════ */
 
 
-const PLANNER_SYSTEM_PROMPT = `你是 CodeAtlas 的首席架构师。你有极强的代码理解能力和系统设计能力。
+const PLANNER_SYSTEM_PROMPT = `你是 TraceCrew 的首席架构师。你有极强的代码理解能力和系统设计能力。
 
 【你的能力】
 - 深入分析项目架构，理解模块划分、调用关系、数据流向
@@ -107,7 +107,7 @@ const PLANNER_SYSTEM_PROMPT = `你是 CodeAtlas 的首席架构师。你有极�
 
 ${PROTOCOL_READONLY}`;
 
-const MAPPER_SYSTEM_PROMPT = `你是 CodeAtlas 的调用链路绘制者。你拥有读取项目文件的能力，通过操作标签探索代码。只能读代码，不能修改。
+const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥有读取项目文件的能力，通过操作标签探索代码。只能读代码，不能修改。
 
 【职责】
 1. 先判断是否需要画图：除了问候/闲聊之外都要画图（bug修复/新功能/模块设计/架构改动/代码解释都需要画）
@@ -194,7 +194,7 @@ const WORKER_SYSTEM_PROMPT = `你是代码执行者。收到任务后直接输�
    Action system prompts — for the action toolbar
    ═══════════════════════════════════════════════════════════ */
 
-const ACTION_EXPLAIN_PROMPT = `你是 CodeAtlas 的代码文档专家。你的任务是为指定节点生成详细的 Markdown 文档。
+const ACTION_EXPLAIN_PROMPT = `你是 TraceCrew 的代码文档专家。你的任务是为指定节点生成详细的 Markdown 文档。
 
 【工作流程】
 1. 读取节点关联的源代码文件
@@ -213,7 +213,7 @@ const ACTION_EXPLAIN_PROMPT = `你是 CodeAtlas 的代码文档专家。你的�
 
 ${PROTOCOL_READONLY}`;
 
-const ACTION_FIX_PROMPT = `你是 CodeAtlas 的 Bug 修复专家。精确修复指定节点的问题，最小化改动范围。
+const ACTION_FIX_PROMPT = `你是 TraceCrew 的 Bug 修复专家。精确修复指定节点的问题，最小化改动范围。
 
 【铁律】
 - 只改与目标节点直接相关的代码，不波及其他模块
@@ -232,7 +232,7 @@ const ACTION_FIX_PROMPT = `你是 CodeAtlas 的 Bug 修复专家。精确修复�
 
 ${PROTOCOL_EXECUTE}`;
 
-const ACTION_REFACTOR_PROMPT = `你是 CodeAtlas 的重构专家。以指定节点为起点，重构该节点及其所有下游节点。
+const ACTION_REFACTOR_PROMPT = `你是 TraceCrew 的重构专家。以指定节点为起点，重构该节点及其所有下游节点。
 
 【重构原则】
 - 改善代码结构而不改变外部行为
@@ -254,7 +254,7 @@ const ACTION_REFACTOR_PROMPT = `你是 CodeAtlas 的重构专家。以指定节�
 
 ${PROTOCOL_EXECUTE}`;
 
-const ACTION_TEST_PROMPT = `你是 CodeAtlas 的测试专家。为指定节点及其调用链编写测试。
+const ACTION_TEST_PROMPT = `你是 TraceCrew 的测试专家。为指定节点及其调用链编写测试。
 
 【流程】
 1. 先读取目标节点的源代码，理解功能和边界情况
@@ -274,7 +274,7 @@ const ACTION_TEST_PROMPT = `你是 CodeAtlas 的测试专家。为指定节点�
 
 ${PROTOCOL_EXECUTE}`;
 
-const ACTION_DEVELOP_PROMPT = `你是 CodeAtlas 的功能开发专家。完成指定新功能节点的开发。
+const ACTION_DEVELOP_PROMPT = `你是 TraceCrew 的功能开发专家。完成指定新功能节点的开发。
 
 【流程】
 1. 读取调用链上游代码，理解现有接口和约定
@@ -353,8 +353,8 @@ export class AgentService {
   private get client(): OpenAI {
     if (!this._client) {
       this._client = new OpenAI({
-        apiKey: process.env.CODEATLAS_LLM_API_KEY,
-        baseURL: process.env.CODEATLAS_LLM_BASE_URL,
+        apiKey: process.env.TRACECREW_LLM_API_KEY,
+        baseURL: process.env.TRACECREW_LLM_BASE_URL,
       });
     }
     return this._client;
@@ -362,7 +362,7 @@ export class AgentService {
 
   private get model(): string {
     if (!this._model) {
-      this._model = process.env.CODEATLAS_LLM_MODEL || '';
+      this._model = process.env.TRACECREW_LLM_MODEL || '';
     }
     return this._model;
   }

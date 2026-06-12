@@ -26,7 +26,7 @@ import {
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codeatlas-db-test-'));
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracecrew-db-test-'));
 });
 
 afterEach(() => {
@@ -362,7 +362,7 @@ describe('meta store', () => {
   });
 
   it('scopes keys per project path', () => {
-    const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'codeatlas-db-test-2-'));
+    const tmpDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tracecrew-db-test-2-'));
 
     setMeta(tmpDir, 'key', 'project1-value');
     setMeta(tmpDir2, 'key', 'project2-value');

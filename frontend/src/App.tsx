@@ -34,19 +34,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try { window.codeatlas?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {}
+    try { window.tracecrew?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {}
   }, [handleOpenProject]);
 
   useEffect(() => {
     try {
-      window.codeatlas?.file.getProjectPath().then((p: string) => { if (p) setProjectPath(p); });
+      window.tracecrew?.file.getProjectPath().then((p: string) => { if (p) setProjectPath(p); });
     } catch {}
   }, []);
 
   const openFolder = async () => {
-    if (typeof window.codeatlas !== 'undefined') {
+    if (typeof window.tracecrew !== 'undefined') {
       try {
-        const p = await window.codeatlas.file.openProject();
+        const p = await window.tracecrew.file.openProject();
         if (p) handleOpenProject(p);
       } catch (e) { console.error('openProject failed:', e); }
     } else {

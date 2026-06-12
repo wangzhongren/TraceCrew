@@ -51,7 +51,7 @@ ipcMain.handle('window:close', () => mainWindow?.close());
     const terminalWin = new BrowserWindow({
       width: 1200, height: 800,
       minWidth: 800, minHeight: 500,
-      title: 'AI Terminal — CodeAtlas',
+      title: 'AI Terminal — TraceCrew',
       backgroundColor: '#0d1117',
       parent: mainWindow,
       webPreferences: {

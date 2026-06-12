@@ -31,7 +31,7 @@ export interface EditResult {
 const IGNORE_PATTERNS = [
   'node_modules', '.git', '__pycache__', '.venv', 'venv',
   'dist', '.next', '.nuxt', 'coverage', '.cache',
-  '.codeatlas',
+  '.tracecrew',
   '*.pyc', '*.pyo', '*.exe', '*.dll', '*.so', '*.dylib',
   '.DS_Store', 'Thumbs.db',
 ];
@@ -90,7 +90,7 @@ function findProjectRoot(filePath: string): string {
     ? filePath
     : dirname(filePath);
   while (current !== dirname(current)) {
-    if (existsSync(join(current, '.git')) || existsSync(join(current, '.codeatlas'))) {
+    if (existsSync(join(current, '.git')) || existsSync(join(current, '.tracecrew'))) {
       return current;
     }
     current = dirname(current);
@@ -104,7 +104,7 @@ function createBackup(filePath: string, operation: string): string | undefined {
     const root = findProjectRoot(filePath);
     const rel = relative(root, filePath);
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const backupDir = join(root, '.codeatlas', 'backups', id);
+    const backupDir = join(root, '.tracecrew', 'backups', id);
     mkdirSync(backupDir, { recursive: true });
     const backupFile = join(backupDir, 'before');
     copyFileSync(filePath, backupFile);
@@ -122,7 +122,7 @@ function createBackup(filePath: string, operation: string): string | undefined {
 
 export function restoreBackup(projectPath: string, backupId: string): EditResult {
   try {
-    const backupDir = join(projectPath, '.codeatlas', 'backups', backupId);
+    const backupDir = join(projectPath, '.tracecrew', 'backups', backupId);
     const metaPath = join(backupDir, 'meta.json');
     const backupFile = join(backupDir, 'before');
     const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
@@ -276,7 +276,7 @@ export function deleteFile(filePath: string, projectPath: string): EditResult {
   try {
     const backupId = createBackup(filePath, 'delete_file');
     if (existsSync(filePath)) {
-      const trashDir = join(projectPath, '.codeatlas', 'deleted');
+      const trashDir = join(projectPath, '.tracecrew', 'deleted');
       mkdirSync(trashDir, { recursive: true });
       const name = basename(filePath);
       const ts = Date.now();
@@ -432,7 +432,7 @@ export function runShell(
   const id = `shell_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
   // Write output to a log file as well
-  const logDir = join(cwd, '.codeatlas-logs');
+  const logDir = join(cwd, '.tracecrew-logs');
   if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
   const logFile = join(logDir, `${id}.log`);
   const logStream = createWriteStream(logFile, { flags: 'a' });
