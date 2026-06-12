@@ -10,7 +10,7 @@ export default defineConfig({
     electron([
       {
         entry: path.resolve(__dirname, '..', 'electron', 'main.ts'),
-        onstart(args) { args.startup(); },
+        // onstart disabled — no auto restart on file change
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -23,7 +23,7 @@ export default defineConfig({
       },
       {
         entry: path.resolve(__dirname, '..', 'electron', 'preload.ts'),
-        onstart(args) { args.reload(); },
+        // onstart disabled — no auto reload on file change
         vite: {
           build: {
             outDir: 'dist-electron',
@@ -39,6 +39,7 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
+    hmr: false,
     proxy: {
       '/api': {
         target: 'http://localhost:19850',
