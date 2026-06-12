@@ -160,7 +160,7 @@ function createWindow(): void {
   console.log('[main] preload path:', preloadPath);
   console.log('[main] __dirname:', __dirname);
 
-  const iconPath = join(__dirname, '..', 'icon.png');
+  const iconPath = join(__dirname, '..', '..', 'icon.png');
   const icon = nativeImage.createFromPath(iconPath);
 
   mainWindow = new BrowserWindow({
@@ -196,7 +196,7 @@ app.whenReady().then(async () => {
 
   // Set dock icon on macOS
   if (process.platform === 'darwin') {
-    const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'icon.png'));
+    const dockIcon = nativeImage.createFromPath(join(__dirname, '..', '..', 'icon.png'));
     app.dock?.setIcon(dockIcon);
   }
 
