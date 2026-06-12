@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { existsSync } from 'fs';
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
 import { dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -160,12 +160,16 @@ function createWindow(): void {
   console.log('[main] preload path:', preloadPath);
   console.log('[main] __dirname:', __dirname);
 
+  const iconPath = join(__dirname, '..', 'icon.png');
+  const icon = nativeImage.createFromPath(iconPath);
+
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
     minWidth: 1200,
     minHeight: 700,
-    title: 'CodeAtlas CodeAtlas',
+    title: 'TraceCrew',
+    icon,
     backgroundColor: '#1a1c1e',
     frame: false,
     webPreferences: {
@@ -189,6 +193,12 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   registerIpcHandlers();
+
+  // Set dock icon on macOS
+  if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'icon.png'));
+    app.dock?.setIcon(dockIcon);
+  }
 
   // Start embedded Express backend
   const frontendDist = join(__dirname, '..', 'dist');
