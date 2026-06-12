@@ -147,16 +147,40 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+  // Content fingerprint — only properties that affect Dagre layout (node labels/detail
+  // lengths determine node height; edge from/to/status affect edge rendering paths).
+  // Using a fingerprint key instead of [graph] reference avoids re-layout when a new
+  // graph object has identical content (e.g. after a no-op merge in MapperView).
+  const layoutFingerprint = useMemo(() => {
+    if (!graph) return '';
+    const nodeKeys = graph.nodes.map(n =>
+      `${n.id}|${n.status}|${n.label.length}|${(n.detail || '').length}|${n.kind || ''}|${n.file || ''}`
+    ).sort().join(',');
+    const edgeKeys = graph.edges.map(e =>
+      `${e.from}->${e.to}|${e.status}`
+    ).sort().join(',');
+    return `${nodeKeys}::${edgeKeys}`;
+  }, [graph]);
+
   const layouted = useMemo(
     () => graph ? layoutGraph(graph) : { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] },
-    [graph]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutFingerprint]
   );
 
-  // Auto-fit on new graph
+  // Auto-fit on new graph — only reset view when the graph is genuinely different
+  // (no node ID overlap with previous graph), not on incremental updates like fix/refactor.
+  const prevNodeIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!graph || graph.nodes.length === 0) return;
-    setTransform({ x: 60, y: 40, scale: 0.85 });
-    onSelectNode(null);
+    const currentIds = new Set(graph.nodes.map(n => n.id));
+    const hasOverlap = prevNodeIds.current.size > 0 &&
+      [...currentIds].some(id => prevNodeIds.current.has(id));
+    if (!hasOverlap) {
+      setTransform({ x: 60, y: 40, scale: 0.85 });
+      onSelectNode(null);
+    }
+    prevNodeIds.current = currentIds;
   }, [graph]);
 
 // Wheel zoom — native listener to bypass passive event restriction

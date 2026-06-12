@@ -427,24 +427,58 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
                     if (cg.nodes && Array.isArray(cg.nodes) && cg.nodes.length > 0) {
                       const updatedNodes = cg.nodes as GraphNode[];
                       const updatedEdges = (cg.edges || []) as GraphEdge[];
+                      const currentGraph = graphRef.current;
 
                       // Build updated node map
-                      const nodeMap = new Map(graphRef.current.nodes.map(n => [n.id, n]));
+                      const nodeMap = new Map(currentGraph.nodes.map(n => [n.id, n]));
                       for (const un of updatedNodes) {
                         nodeMap.set(un.id, un);  // overwrite existing, add new
                       }
 
                       // Build updated edge map (dedup by from-to)
                       const edgeKey = (e: GraphEdge) => `${e.from}->${e.to}`;
-                      const edgeMap = new Map(graphRef.current.edges.map(e => [edgeKey(e), e]));
+                      const edgeMap = new Map(currentGraph.edges.map(e => [edgeKey(e), e]));
                       for (const ue of updatedEdges) {
                         edgeMap.set(edgeKey(ue), ue);
                       }
 
-                      onGraphChange({
-                        nodes: Array.from(nodeMap.values()),
-                        edges: Array.from(edgeMap.values()),
-                      });
+                      const newNodes = Array.from(nodeMap.values());
+                      const newEdges = Array.from(edgeMap.values());
+
+                      // ── Shallow compare: skip onGraphChange if nothing changed ──
+                      // This avoids unnecessary Dagre re-layout and full SVG rebuild
+                      const oldNodes = currentGraph.nodes;
+                      const oldEdges = currentGraph.edges;
+                      let changed = newNodes.length !== oldNodes.length
+                                || newEdges.length !== oldEdges.length;
+                      if (!changed) {
+                        const oldNodeMap = new Map(oldNodes.map(n => [n.id, n]));
+                        for (const nn of newNodes) {
+                          const on = oldNodeMap.get(nn.id);
+                          if (!on || on.status !== nn.status
+                              || on.label !== nn.label
+                              || on.detail !== nn.detail
+                              || on.kind !== nn.kind
+                              || on.file !== nn.file
+                              || on.line !== nn.line) {
+                            changed = true;
+                            break;
+                          }
+                        }
+                      }
+                      if (!changed) {
+                        const oldEdgeSet = new Set(oldEdges.map(e => edgeKey(e)));
+                        for (const ne of newEdges) {
+                          if (!oldEdgeSet.has(edgeKey(ne))) {
+                            changed = true;
+                            break;
+                          }
+                        }
+                      }
+
+                      if (changed) {
+                        onGraphChange({ nodes: newNodes, edges: newEdges });
+                      }
                     }
                   }
                   return { ...prev, running: false, result: payload, reviewRequired: payload.review_passed === false };
