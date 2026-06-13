@@ -1,4 +1,4 @@
-# TraceCrew
+# <img src="icon.png" alt="TraceCrew" width="32" height="32" style="vertical-align: middle;" /> TraceCrew
 
 A multi-agent collaborative IDE for code intelligence. A structured agent crew (Planner → Reviewer → Mapper) replaces the single-agent paradigm — achieving large-model quality code understanding and modification with a team of smaller, specialized models. An interactive call graph serves as the operating map: right-click any node to fix, refactor, test, or explain.
 

@@ -1,4 +1,5 @@
 export default function TitleBar({ projectName }: { projectName: string }) {
+  const iconSrc = window.tracecrew?.getAppIcon?.() ?? '';
 
   const action = (name: 'minimize' | 'maximize' | 'close') => {
     const api = window.tracecrew?.window;
@@ -10,13 +11,7 @@ export default function TitleBar({ projectName }: { projectName: string }) {
       style={{ background: 'var(--ibm-layer-01)', WebkitAppRegion: 'drag' } as React.CSSProperties}>
       {/* Left: brand */}
       <div className="flex items-center gap-2.5 pl-4">
-        <svg width="16" height="16" viewBox="0 0 32 32" fill="none" stroke="var(--ibm-primary)" strokeWidth="2">
-          <circle cx="7" cy="8" r="2"/><circle cx="16" cy="5" r="2"/><circle cx="25" cy="8" r="2"/>
-          <circle cx="10" cy="24" r="2"/><circle cx="22" cy="24" r="2"/>
-          <line x1="9" y1="9" x2="15" y2="6"/><line x1="23" y1="9" x2="17" y2="6"/>
-          <line x1="8.5" y1="11" x2="8.5" y2="22"/><line x1="23.5" y1="11" x2="23.5" y2="22"/>
-          <line x1="16" y1="7" x2="16" y2="22"/>
-        </svg>
+        {iconSrc && <img src={iconSrc} alt="TraceCrew" className="w-4 h-4 object-contain" />}
         <span className="text-body font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>TraceCrew</span>
         {projectName && (
           <>

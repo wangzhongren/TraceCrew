@@ -1,4 +1,15 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, nativeImage } from 'electron';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// In dev: __dirname = electron/, icon at ../
+// In production: __dirname = frontend/dist-electron/, icon at ../../
+const iconPath = existsSync(join(__dirname, '..', 'icon.png'))
+  ? join(__dirname, '..', 'icon.png')
+  : join(__dirname, '..', '..', 'icon.png');
+const appIconDataUrl = nativeImage.createFromPath(iconPath).toDataURL();
 
 console.log('[preload] tracecrew API registered');
 
@@ -47,6 +58,7 @@ search: (query: string, dirPath: string, options?: import('./fileManager').Searc
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     openTerminal: (projectPath?: string | null) => ipcRenderer.invoke('window:openTerminal', projectPath),
   },
+  getAppIcon: () => appIconDataUrl,
 };
 
 contextBridge.exposeInMainWorld('tracecrew', api);

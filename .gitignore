@@ -19,3 +19,5 @@ Thumbs.db
 .codeatlas.lock
 .codeatlas-logs/
 .codeatlas/
+.tracecrew/
+.tracecrew-logs/

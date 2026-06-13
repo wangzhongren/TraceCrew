@@ -83,6 +83,7 @@ export interface TraceCrewAPI {
   backend: {
     getUrl: () => string;
   };
+  getAppIcon: () => string;
 }
 
 declare global {

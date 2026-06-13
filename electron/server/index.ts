@@ -3,6 +3,7 @@ import cors from 'cors';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { Server } from 'http';
+import { fileURLToPath } from 'url';
 import agentRoutes from './routes/agent';
 import featuresRoutes from './routes/features';
 import changesRoutes from './routes/changes';

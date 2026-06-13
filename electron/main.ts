@@ -17,6 +17,7 @@ import {
   runShell, killShell, killAllShells, getShellLogFile, readLogFile,
   restoreBackup,
 } from './fileManager';
+import { closeDatabase } from './server/services/db';
 
 let mainWindow: BrowserWindow | null = null;
 let httpServer: Server | null = null;
@@ -160,7 +161,9 @@ function createWindow(): void {
   console.log('[main] preload path:', preloadPath);
   console.log('[main] __dirname:', __dirname);
 
-  const iconPath = join(__dirname, '..', '..', 'icon.png');
+  const iconPath = existsSync(join(__dirname, '..', 'icon.png'))
+    ? join(__dirname, '..', 'icon.png')
+    : join(__dirname, '..', '..', 'icon.png');
   const icon = nativeImage.createFromPath(iconPath);
 
   mainWindow = new BrowserWindow({
@@ -196,7 +199,10 @@ app.whenReady().then(async () => {
 
   // Set dock icon on macOS
   if (process.platform === 'darwin') {
-    const dockIcon = nativeImage.createFromPath(join(__dirname, '..', '..', 'icon.png'));
+    const dockIconPath = existsSync(join(__dirname, '..', 'icon.png'))
+      ? join(__dirname, '..', 'icon.png')
+      : join(__dirname, '..', '..', 'icon.png');
+    const dockIcon = nativeImage.createFromPath(dockIconPath);
     app.dock?.setIcon(dockIcon);
   }
 
