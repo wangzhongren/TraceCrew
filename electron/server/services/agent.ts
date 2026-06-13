@@ -238,16 +238,7 @@ const ACTION_FIX_PROMPT = `你是 TraceCrew 的 Bug 修复专家。精确修复�
 - 禁止"顺便优化"或"顺手重构"无关代码
 - 修改前必须先 read_file 确认当前代码
 - 保持与周围代码风格一致
-- 改完代码后必须用 <run-shell> 执行项目的编译/类型检查命令（如 npx tsc --noEmit、cargo check 等），确认无语法和类型错误后再输出 <done>
-
-【完成后输出 call_graph】
-修改完成后，输出一个 call_graph JSON 描述你的修改：
-\`\`\`json
-{"call_graph":{"nodes":[...],"edges":[...]}}
-\`\`\`
-- 被修改的节点 status 设为 "problem"（detail 描述现状→修复）
-- 新增的节点 status 设为 "planned_new"
-- 最后输出 <done>修复完成</done>
+- 改完代码后必须用 <run-shell> 执行项目的编译/类型检查命令（如 npx tsc --noEmit、cargo check 等），确认无语法和类型错误后再输出 <done>修复完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -258,18 +249,9 @@ const ACTION_REFACTOR_PROMPT = `你是 TraceCrew 的重构专家。以指定节�
 - 提取重复逻辑、简化复杂条件、优化命名
 - 保持向后兼容，不破坏现有接口
 - 先读取所有相关文件再动手
-- 重构完成后必须用 <run-shell> 执行项目的编译/类型检查命令，确认重构没有破坏编译/类型系统后再输出 <done>
+- 重构完成后必须用 <run-shell> 执行项目的编译/类型检查命令，确认重构没有破坏编译/类型系统后再输出 <done>重构完成</done>
 
 【范围】重构从目标节点开始，沿调用链向下覆盖所有下游节点。用户会提供下游节点列表。
-
-【完成后输出 call_graph】
-重构完成后，输出一个 call_graph JSON 描述重构的节点：
-\`\`\`json
-{"call_graph":{"nodes":[...],"edges":[...]}}
-\`\`\`
-- 重构过的节点 status 设为 "problem"（detail 描述重构内容）
-- 新增的节点 status 设为 "planned_new"
-- 最后输出 <done>重构完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -286,15 +268,7 @@ const ACTION_TEST_PROMPT = `你是 TraceCrew 的测试专家。只为指定节�
 3. 编写单元测试覆盖核心逻辑、边界情况、异常路径
 4. 如有必要，编写集成测试覆盖调用链
 5. 用 <run-shell> 运行测试确认通过，如有失败则修复后重新运行
-
-【完成后输出 call_graph】
-输出一个 call_graph JSON 描述新增的测试节点和与被测代码的关系：
-\`\`\`json
-{"call_graph":{"nodes":[...],"edges":[...]}}
-\`\`\`
-- 新增的测试函数 status 设为 "planned_new"
-- 被测函数 status 设为 "existing"
-- 最后输出 <done>测试完成</done>
+6. 测试全部通过后输出 <done>测试完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -312,16 +286,7 @@ const ACTION_DEVELOP_PROMPT = `你是 TraceCrew 的功能开发专家。只完�
 2. 在目标文件中实现功能
 3. 如需连接上下游，只添加调用代码（import + 函数调用），不修改被调用方
 4. 确保代码风格和模式与项目一致
-5. 开发完成后必须用 <run-shell> 执行项目的编译/类型检查命令，确认新代码通过编译后再输出 <done>
-
-【完成后输出 call_graph】
-输出一个 call_graph JSON 描述新功能及其调用关系：
-\`\`\`json
-{"call_graph":{"nodes":[...],"edges":[...]}}
-\`\`\`
-- 新增节点 status 设为 "planned_new"
-- 上游调用节点 status 设为 "existing"
-- 最后输出 <done>开发完成</done>
+5. 开发完成后必须用 <run-shell> 执行项目的编译/类型检查命令，确认新代码通过编译后再输出 <done>开发完成</done>
 
 ${PROTOCOL_EXECUTE}`;
 
@@ -1130,9 +1095,6 @@ export class AgentService {
       yield { event: 'done', data: JSON.stringify({ success: false, message: finalMessage || '处理未完成', review_passed: null }) };
       return;
     }
-
-    // Preserve the original action agent output for call_graph extraction later
-    const originalActionMessage = finalMessage;
 
     // Phase 2: Review loop — Reviewer validates, if failed → action agent fixes → re-review (max 10 retries)
     if (madeChanges && !isReadOnly) {
