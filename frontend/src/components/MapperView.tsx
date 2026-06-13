@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import MapCanvas from './MapCanvas';
 import type { CallGraph, GraphNode, GraphEdge, ContextMenuAction } from './MapCanvas';
-import ActionDialog, { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
+import { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
@@ -13,24 +13,10 @@ interface Props {
   onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;
   projectPath: string | null;
-}
-
-interface StreamState {
-  running: boolean;
-  phase: 'action' | 'review' | null;
-  actionOutput: string;
-  reviewOutput: string;
-  tools: Array<{ type: string; file: string }>;
-  result: {
-    success?: boolean;
-    message?: string;
-    review_passed?: boolean | null;
-    review_feedback?: string;
-    review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
-    call_graph?: CallGraph;
-  } | null;
-  reviewRequired: boolean;
-  error: string | null;
+  // Action props (lifted to App)
+  activeAction: ActionType | null;
+  onRequestAction: (action: ActionType) => void;
+  streamRunning: boolean;
 }
 
 /** Get sub-graph reachable from given root */
@@ -171,7 +157,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
           <button
             onClick={() => onSelect(node.id)}
             onDoubleClick={() => onSelect(node.id)}
-            className="flex-1 flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-colors hover:bg-white/5 mb-0.5"
+            className="flex-1 flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-colors hover:bg-black/[0.03] mb-0.5"
             style={{ background: isSel ? c + '10' : 'var(--color-bg-primary)', border: `1px solid ${isSel ? c + '40' : 'transparent'}` }}>
             {/* Status icon + expand */}
             <div className="flex items-center gap-1 shrink-0 mt-0.5">
@@ -188,13 +174,13 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium leading-tight mb-0.5" style={{ color: 'var(--color-text-secondary)' }}>{node.label}</div>
               {node.detail && (
-                <div className="text-[9px] leading-snug mb-1" style={{ color: '#6e7681' }}>
+                <div className="text-[9px] leading-snug mb-1" style={{ color: '#6b7280' }}>
                   {node.detail.length > 60 ? node.detail.slice(0, 59) + '…' : node.detail}
                 </div>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                {node.file && <span className="text-[8px] font-mono truncate max-w-[140px]" style={{ color: '#58a6ff' }}>{node.file.split('/').pop()}</span>}
-                {node.kind && <span className="text-[8px] font-mono" style={{ color: '#484f58' }}>{node.kind}</span>}
+                {node.file && <span className="text-[8px] font-mono truncate max-w-[140px]" style={{ color: '#3b82f6' }}>{node.file.split('/').pop()}</span>}
+                {node.kind && <span className="text-[8px] font-mono" style={{ color: '#9ca3af' }}>{node.kind}</span>}
                 {node.status !== 'existing' && (
                   <span className="text-[8px] px-1 py-0.5 rounded" style={{ background: c + '15', color: c }}>
                     {STATUS_LABELS[node.status]}
@@ -226,7 +212,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
           ].map(({ key, label }) => (
             <button key={key} onClick={() => setFilter(key)}
               className="text-[9px] px-2 py-0.5 rounded transition-colors"
-              style={{ color: filter === key ? '#e6e6e6' : '#8b949e', background: filter === key ? '#21262d' : 'transparent' }}>
+              style={{ color: filter === key ? '#1a1a2e' : '#6b7280', background: filter === key ? '#e5e7eb' : 'transparent' }}>
               {label}
             </button>
           ))}
@@ -270,11 +256,11 @@ function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
       style={{
         left: Math.min(x, window.innerWidth - 200),
         top: Math.min(y, window.innerHeight - 40 * (actions.length + 2)),
-        background: '#161b22dd',
+        background: '#ffffffee',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
         border: '1px solid var(--color-border-default)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 1px 3px rgba(255,255,255,0.04)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06)',
         willChange: 'filter, transform',
       }}
       onClick={(e) => e.stopPropagation()}
@@ -288,7 +274,7 @@ function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
           <button
             key={a}
             onClick={() => onSelect(a)}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-white/5"
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-black/[0.03]"
             style={{ color: 'var(--color-text-primary)' }}
           >
             <span>{cfg.label}</span>
@@ -304,10 +290,9 @@ function getAllIds(node: TreeNode): string[] {
   return [node.id, ...node.children.flatMap(getAllIds)];
 }
 
-export default function MapperView({ graph, phase, onSelectNode, onGraphChange, selectedNode, projectPath }: Props) {
+export default function MapperView({ graph, phase, onSelectNode, onGraphChange, selectedNode, projectPath, activeAction, onRequestAction, streamRunning }: Props) {
    const [showCards, setShowCards] = useState(false);
    const [activeRoot, setActiveRoot] = useState<string | null>(null);
-   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
    const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
 
    const contextMenuRef = useRef(contextMenu);
@@ -319,186 +304,14 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
      setContextMenu(null);
      const cm = contextMenuRef.current;
      if (cm) onSelectNode(cm.node.id);
-     setActiveAction(action);
-   }, [onSelectNode]);
+     onRequestAction(action);
+   }, [onSelectNode, onRequestAction]);
    const handleContextMenuClose = useCallback(() => setContextMenu(null), []);
-   const [stream, setStream] = useState<StreamState>({
-    running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null,
-  });
-
-  // Keep a ref to the latest graph so SSE handler can access it without stale closure
-  const graphRef = useRef(graph);
-  graphRef.current = graph;
-
-  /** Compute downstream nodes for the selected node (used by refactor action) */
-  const downstreamNodes = useMemo((): GraphNode[] => {
-    if (!graph || !selectedNode) return [];
-    const visited = new Set<string>();
-    const result: GraphNode[] = [];
-    const queue = [selectedNode];
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      if (visited.has(id)) continue;
-      visited.add(id);
-      // Collect children via edges (from this node)
-      for (const e of graph.edges) {
-        if (e.from === id && !visited.has(e.to)) {
-          queue.push(e.to);
-        }
-      }
-    }
-    // Return all downstream nodes except the selected one
-    for (const id of visited) {
-      if (id !== selectedNode) {
-        const n = graph.nodes.find((x) => x.id === id);
-        if (n) result.push(n);
-      }
-    }
-    return result;
-  }, [graph, selectedNode]);
 
   const selectedNodeData = useMemo(() => {
     if (!selectedNode || !graph) return null;
     return graph.nodes.find(n => n.id === selectedNode) || null;
   }, [graph, selectedNode]);
-
-  const handleActionConfirm = useCallback(async (instruction: string) => {
-    if (!projectPath || !selectedNodeData) return;
-
-    // Start streaming
-    setStream({ running: true, phase: 'action', actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null });
-
-    try {
-      const res = await fetch('/api/v1/agent/action/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: activeAction,
-          node: selectedNodeData,
-          instruction,
-          project_path: projectPath,
-          downstream_nodes: activeAction === 'refactor' ? downstreamNodes : [],
-        }),
-      });
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: '无法读取响应流' }));
-        return;
-      }
-
-      const dec = new TextDecoder();
-      let buf = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
-        buf = parts.pop() || '';
-
-        for (const part of parts) {
-          const lines = part.split('\n');
-          let event = '', data = '';
-          for (const l of lines) {
-            if (l.startsWith('event: ')) event = l.slice(7).trim();
-            else if (l.startsWith('data: ')) data = l.slice(6);
-          }
-          if (!event) continue;
-
-          try {
-            const payload = JSON.parse(data);
-            setStream(prev => {
-              switch (event) {
-                case 'phase':
-                  return { ...prev, phase: payload.phase || 'action' };
-                case 'token':
-                  return { ...prev, actionOutput: prev.actionOutput + data };
-                case 'reasoning':
-                  return prev; // reasoning is shown inline with tokens
-                case 'review_token':
-                  return { ...prev, reviewOutput: prev.reviewOutput + data };
-                case 'tools':
-                  return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
-                case 'done':
-                  // Merge call_graph into existing graph — update matching nodes, add new ones
-                  if (payload.call_graph && onGraphChange && graphRef.current) {
-                    const cg = payload.call_graph;
-                    if (cg.nodes && Array.isArray(cg.nodes) && cg.nodes.length > 0) {
-                      const updatedNodes = cg.nodes as GraphNode[];
-                      const updatedEdges = (cg.edges || []) as GraphEdge[];
-                      const currentGraph = graphRef.current;
-
-                      // Build updated node map
-                      const nodeMap = new Map(currentGraph.nodes.map(n => [n.id, n]));
-                      for (const un of updatedNodes) {
-                        nodeMap.set(un.id, un);  // overwrite existing, add new
-                      }
-
-                      // Build updated edge map (dedup by from-to)
-                      const edgeKey = (e: GraphEdge) => `${e.from}->${e.to}`;
-                      const edgeMap = new Map(currentGraph.edges.map(e => [edgeKey(e), e]));
-                      for (const ue of updatedEdges) {
-                        edgeMap.set(edgeKey(ue), ue);
-                      }
-
-                      const newNodes = Array.from(nodeMap.values());
-                      const newEdges = Array.from(edgeMap.values());
-
-                      // ── Shallow compare: skip onGraphChange if nothing changed ──
-                      // This avoids unnecessary Dagre re-layout and full SVG rebuild
-                      const oldNodes = currentGraph.nodes;
-                      const oldEdges = currentGraph.edges;
-                      let changed = newNodes.length !== oldNodes.length
-                                || newEdges.length !== oldEdges.length;
-                      if (!changed) {
-                        const oldNodeMap = new Map(oldNodes.map(n => [n.id, n]));
-                        for (const nn of newNodes) {
-                          const on = oldNodeMap.get(nn.id);
-                          if (!on || on.status !== nn.status
-                              || on.label !== nn.label
-                              || on.detail !== nn.detail
-                              || on.kind !== nn.kind
-                              || on.file !== nn.file
-                              || on.line !== nn.line) {
-                            changed = true;
-                            break;
-                          }
-                        }
-                      }
-                      if (!changed) {
-                        const oldEdgeSet = new Set(oldEdges.map(e => edgeKey(e)));
-                        for (const ne of newEdges) {
-                          if (!oldEdgeSet.has(edgeKey(ne))) {
-                            changed = true;
-                            break;
-                          }
-                        }
-                      }
-
-                      if (changed) {
-                        onGraphChange({ nodes: newNodes, edges: newEdges });
-                      }
-                    }
-                  }
-                  return { ...prev, running: false, result: payload, reviewRequired: payload.review_passed === false };
-                default:
-                  return prev;
-              }
-            });
-          } catch {
-            if (event === 'token') {
-              setStream(prev => ({ ...prev, actionOutput: prev.actionOutput + data }));
-            } else if (event === 'review_token') {
-              setStream(prev => ({ ...prev, reviewOutput: prev.reviewOutput + data }));
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: e.message || '网络错误' }));
-    }
-  }, [activeAction, selectedNodeData, projectPath, downstreamNodes]);
 
   const entryPoints = useMemo(() => {
     if (!graph || graph.nodes.length === 0) return [] as any[];
@@ -562,14 +375,14 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         style={{
           borderColor: 'var(--color-border-subtle)',
           background: 'var(--color-bg-layer)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
         }}>
         {/* Cards dropdown */}
         <div className="relative">
           <button
             onClick={() => setShowCards(!showCards)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors hover:bg-white/5 text-xs"
-            style={{ border: `1px solid ${showCards ? '#30363d' : 'transparent'}`, color: 'var(--color-text-secondary)' }}>
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors hover:bg-black/[0.03] text-xs"
+            style={{ border: `1px solid ${showCards ? '#d0d5dd' : 'transparent'}`, color: 'var(--color-text-secondary)' }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
               <rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/>
               <rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/>
@@ -596,8 +409,8 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
               return (
                 <button key={ep.id}
                   onClick={() => setActiveRoot(ep.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-caption transition-colors hover:bg-white/5"
-                  style={{ color: isActive ? '#e6e6e6' : '#8b949e', background: isActive ? c + '10' : undefined }}>
+                  className="flex items-center gap-1 px-2 py-1 rounded text-caption transition-colors hover:bg-black/[0.03]"
+                  style={{ color: isActive ? '#1a1a2e' : '#6b7280', background: isActive ? c + '10' : undefined }}>
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: c }}/>
                   <span className="max-w-[100px] truncate">{ep.label}</span>
                 </button>
@@ -609,14 +422,14 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         {/* Selected node breadcrumb */}
         {selectedNodeData && (
           <div className="flex items-center gap-1 ml-2 text-caption overflow-hidden">
-            <span style={{ color: '#484f58' }}>选中:</span>
+            <span style={{ color: '#9ca3af' }}>选中:</span>
             <span style={{ color: STATUS_COLORS_SIMPLE[selectedNodeData.status as NodeStatus] || '#888' }}>
               {STATUS_ICONS[selectedNodeData.status]}
             </span>
             <span style={{ color: 'var(--color-text-secondary)' }} className="truncate max-w-[200px]">
               {selectedNodeData.label}
             </span>
-            <button onClick={() => onSelectNode(null)} className="text-caption hover:opacity-80 shrink-0" style={{ color: '#484f58' }}>✕</button>
+            <button onClick={() => onSelectNode(null)} className="text-caption hover:opacity-80 shrink-0" style={{ color: '#9ca3af' }}>✕</button>
           </div>
         )}
 
@@ -644,24 +457,6 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
           y={contextMenu.y}
           onSelect={handleContextMenuSelect}
           onClose={handleContextMenuClose}
-        />
-      )}
-
-      {/* ════ Action Dialog ════ */}
-      {activeAction && selectedNodeData && (
-        <ActionDialog
-          action={activeAction}
-          node={selectedNodeData}
-          downstreamNodes={activeAction === 'refactor' ? downstreamNodes : undefined}
-          onClose={() => { setActiveAction(null); setStream({ running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null }); }}
-          onConfirm={handleActionConfirm}
-          streamRunning={stream.running}
-          streamPhase={stream.phase}
-          streamActionOutput={stream.actionOutput}
-          streamReviewOutput={stream.reviewOutput}
-          streamTools={stream.tools}
-          streamResult={stream.result}
-          streamError={stream.error}
         />
       )}
     </div>

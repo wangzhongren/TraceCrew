@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════
    Shared design constants — single source of truth
    for colors, icons, and labels across all components.
+   Light minimal industrial theme.
    ═══════════════════════════════════════════════════════════ */
 
 export type NodeStatus = 'existing' | 'problem' | 'planned_change' | 'planned_new' | 'done'; // planned_change kept for backward compat, prefer problem
@@ -16,15 +17,15 @@ export interface StatusColor {
 }
 
 export const STATUS_COLORS: Record<NodeStatus, StatusColor> = {
-  existing:       { fill: '#0f1923', stroke: 'var(--color-status-existing)', badge: 'var(--color-status-existing)', text: '#b8d4f8', icon: '◈' },
-  problem:        { fill: '#2a1015', stroke: 'var(--color-status-problem)', badge: 'var(--color-status-problem)', text: '#fcc5c5', icon: '✕' },
-  planned_change: { fill: '#1f1a08', stroke: 'var(--color-status-change)', badge: 'var(--color-status-change)', text: '#fae8a0', icon: '✎' },
-  planned_new:    { fill: '#0a1f12', stroke: 'var(--color-status-new)', badge: 'var(--color-status-new)', text: '#a0f0c0', icon: '+' },
-  done:           { fill: '#0a1f12', stroke: 'var(--color-status-done)', badge: 'var(--color-status-done)', text: '#a0f0c0', icon: '✓' },
+  existing:       { fill: '#ffffff', stroke: 'var(--color-status-existing)', badge: '#6b7280', text: '#374151', icon: '◈' },
+  problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#dc2626', text: '#991b1b', icon: '✕' },
+  planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#d97706', text: '#92400e', icon: '✎' },
+  planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#16a34a', text: '#166534', icon: '+' },
+  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#16a34a', text: '#166534', icon: '✓' },
 };
 
 export const STATUS_COLOR_DIM: StatusColor = {
-  fill: '#0a0d10', stroke: '#1a2a3a', badge: '#1a2a3a', text: '#3a4a5a', icon: '⬡',
+  fill: '#f9fafb', stroke: '#d0d5dd', badge: '#d0d5dd', text: '#9ca3af', icon: '⬡',
 };
 
 /* ── Single-color status (for simple badges, MapperView, etc.) ── */
@@ -50,7 +51,7 @@ export const STATUS_LABELS: Record<string, string> = {
 /* ── Edge colors ── */
 
 export const EDGE_COLORS: Record<string, string> = {
-  existing: '#3a5a8c',
+  existing: '#9ca3af',
   new: 'var(--color-status-new)',
   removed: 'var(--color-status-problem)',
   error: 'var(--color-status-problem)',
@@ -66,35 +67,35 @@ export interface NodeTypeColor {
 }
 
 export const NODE_TYPE_COLORS: Record<string, NodeTypeColor> = {
-  module:   { fill: '#1e2535', stroke: '#8ab4f8', text: '#d6e3ff', dot: '#8ab4f8' },
-  class:    { fill: '#1b2a1e', stroke: '#b4d7a8', text: '#cce8c7', dot: '#b4d7a8' },
-  function: { fill: '#262016', stroke: '#fdd663', text: '#fce8b2', dot: '#fdd663' },
+  module:   { fill: '#eff6ff', stroke: '#3b82f6', text: '#1e40af', dot: '#3b82f6' },
+  class:    { fill: '#f0fdf4', stroke: '#16a34a', text: '#166534', dot: '#16a34a' },
+  function: { fill: '#fffbeb', stroke: '#d97706', text: '#92400e', dot: '#d97706' },
 };
 
 /* ── Topology edge type colors ── */
 
 export const TOPOLOGY_EDGE_COLORS: Record<string, string> = {
-  call: '#fdd663',
-  inherit: '#b4d7a8',
-  depend: '#8ab4f8',
+  call: '#d97706',
+  inherit: '#16a34a',
+  depend: '#3b82f6',
 };
 
 /* ── Feature panel colors ── */
 
 export const FEATURE_PANEL_COLORS = {
-  surface: '#1a1c1e',
-  surfaceVariant: '#282a2d',
-  onSurface: '#e3e2e6',
-  onSurfaceVariant: '#c4c7c5',
-  outline: '#444746',
-  outlineSoft: '#303234',
-  primary: '#8ab4f8',
-  green: '#3fb950',
-  yellow: '#d29922',
+  surface: '#ffffff',
+  surfaceVariant: '#f7f8fa',
+  onSurface: '#1a1a2e',
+  onSurfaceVariant: '#4a5568',
+  outline: '#d0d5dd',
+  outlineSoft: '#e5e7eb',
+  primary: '#3b82f6',
+  green: '#16a34a',
+  yellow: '#ca8a04',
 } as const;
 
 export const FEATURE_LEVEL_COLORS: Record<number, string> = {
-  1: '#8ab4f8',
-  2: '#3fb950',
-  3: '#d29922',
+  1: '#3b82f6',
+  2: '#16a34a',
+  3: '#ca8a04',
 };

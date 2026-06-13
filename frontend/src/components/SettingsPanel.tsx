@@ -71,12 +71,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="absolute right-0 top-8 w-80 rounded-lg border z-50 animate-fade-in-scale"
-      style={{ background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border)', boxShadow: 'var(--md-elevation-3, 0 4px 16px rgba(0,0,0,0.5))' }}>
+      style={{ background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
         <span className="text-sm font-medium" style={{ color: 'var(--ibm-text)' }}>LLM Settings</span>
         <button onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-white/5"
+          className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
           style={{ color: 'var(--ibm-text-placeholder)' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12"/>

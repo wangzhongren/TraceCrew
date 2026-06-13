@@ -224,12 +224,12 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
   }, [graph]);
 
   return (
-    <div ref={containerRef} className="relative h-full overflow-hidden" style={{ background: '#0d1117' }}>
+    <div ref={containerRef} className="relative h-full overflow-hidden" style={{ background: '#f7f8fa' }}>
       {/* Background dot grid */}
       <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%">
         <defs>
           <pattern id="dotGrid" width="32" height="32" patternUnits="userSpaceOnUse">
-            <circle cx="16" cy="16" r="0.8" fill="#ffffff" opacity="0.04"/>
+            <circle cx="16" cy="16" r="0.8" fill="#000000" opacity="0.04"/>
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill="url(#dotGrid)"/>
@@ -240,7 +240,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'transparent' }}>
           <div className="text-center space-y-3">
             <div className="text-4xl opacity-20">◈</div>
-            <p className="text-sm font-light" style={{ color: '#8b949e' }}>
+            <p className="text-sm font-light" style={{ color: '#6b7280' }}>
               {phase === 'idle' ? 'Call graph will appear when Mapper analyzes the code' :
                phase === 'planning' ? 'Mapper is analyzing call chains...' : 'No graph yet'}
             </p>
@@ -283,12 +283,12 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.15 : 1, transition: 'opacity 0.3s' }}>
                   <path
                     d={`M${sx},${sy} C${midX},${sy} ${midX},${ty} ${tx},${ty}`}
-                    fill="none" stroke="#e0556a" strokeWidth={1.5}
+                    fill="none" stroke="#e11d48" strokeWidth={1.5}
                     strokeDasharray="6,3" opacity={0.6} />
                   <polygon points={`${tx-6},${ty-4} ${tx-2},${ty} ${tx-6},${ty+4}`}
-                    fill="#e0556a" opacity={0.7} />
+                    fill="#e11d48" opacity={0.7} />
                   <text x={midX - 4} y={(sy + ty) / 2 - 6} textAnchor="end"
-                    fill="#e0556a" fontSize="9" fontFamily="var(--font-family-ui)" opacity={0.6}>
+                    fill="#e11d48" fontSize="9" fontFamily="var(--font-family-ui)" opacity={0.6}>
                     ↩ {edge.label || 'feedback'}
                   </text>
                 </g>
@@ -316,7 +316,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                   fill={ec} opacity={0.85} />
                 {edge.label && (
                   <text x={(x1+x2)/2} y={(y1+y2)/2 - 6} textAnchor="middle"
-                    fill="#8b949e" fontSize="9" fontFamily="var(--font-family-ui)">
+                    fill="#6b7280" fontSize="9" fontFamily="var(--font-family-ui)">
                     {edge.label}
                   </text>
                 )}
@@ -349,7 +349,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 style={{
                   cursor: 'pointer', transition: 'opacity 0.2s, filter 0.2s',
                   opacity: dimmed ? 0.25 : 1,
-                  filter: isHovered ? 'drop-shadow(0 0 8px rgba(255,255,255,0.10))' : 'none',
+                  filter: isHovered ? 'drop-shadow(0 0 8px rgba(0,0,0,0.08))' : 'none',
                 }}
                 onClick={() => onSelectNode(isSelected ? null : node.id)}
                 onContextMenu={(e) => { e.preventDefault(); onContextMenu?.({ node, x: e.clientX, y: e.clientY }); }}
@@ -373,13 +373,13 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 {isStart && (
                   <>
                     <polygon points={`${node.x+NODE_W},${node.y} ${node.x+NODE_W-26},${node.y} ${node.x+NODE_W},${node.y+26}`}
-                      fill="#4a9eff" opacity={0.95} />
+                      fill="#3b82f6" opacity={0.95} />
                     <text x={node.x + NODE_W - 22} y={node.y + 17} fill="#fff" fontSize="11" fontWeight="bold"
                       fontFamily="sans-serif">▶</text>
                     <rect x={node.x + NODE_W - 74} y={node.y + 4} width={42} height={18} rx={4}
-                      fill="#4a9eff" opacity={0.15} />
+                      fill="#3b82f6" opacity={0.15} />
                     <text x={node.x + NODE_W - 53} y={node.y + 16} textAnchor="middle"
-                      fill="#4a9eff" fontSize="10" fontWeight={700}
+                      fill="#3b82f6" fontSize="10" fontWeight={700}
                       fontFamily="var(--font-family-ui)">起点</text>
                   </>
                 )}
@@ -388,11 +388,11 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 {isEnd && (
                   <>
                     <rect x={node.x + 4} y={node.y + node.h - 6} width={NODE_W - 8} height={6} rx={3}
-                      fill="#8b949e" opacity={0.5} />
+                      fill="#9ca3af" opacity={0.5} />
                     <rect x={node.x + NODE_W / 2 - 20} y={node.y + node.h - 24} width={40} height={18} rx={4}
-                      fill="#8b949e" opacity={0.15} />
+                      fill="#9ca3af" opacity={0.15} />
                     <text x={node.x + NODE_W / 2} y={node.y + node.h - 11} textAnchor="middle"
-                      fill="#8b949e" fontSize="11" fontWeight={700}
+                      fill="#9ca3af" fontSize="11" fontWeight={700}
                       fontFamily="var(--font-family-ui)">终点</text>
                   </>
                 )}
@@ -439,7 +439,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 {/* File */}
                 {node.file && (
                   <text x={node.x + 14} y={lineY + labelLen * 16 + 14 + (node.kind ? 14 : 0)}
-                    fill="#8b949e" fontSize="10" fontFamily="var(--font-family-mono)" opacity={0.7}>
+                    fill="#9ca3af" fontSize="10" fontFamily="var(--font-family-mono)" opacity={0.7}>
                     {node.file.length > 36 ? '…' + node.file.slice(-35) : node.file}{node.line ? `:${node.line}` : ''}
                   </text>
                 )}
@@ -456,7 +456,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                     return (
                       <foreignObject x={node.x + 14} y={detailY} width={detailW} height={detailH}>
                         <div style={{
-                          color: '#6e7681', fontSize: 11,
+                          color: '#6b7280', fontSize: 11,
                           fontFamily: 'var(--font-family-ui)',
                           lineHeight: '15px', wordBreak: 'break-word', overflowWrap: 'break-word',
                         }}>
@@ -476,7 +476,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
       {/* Legend — bottom left */}
       {graph && graph.nodes.length > 0 && (
         <div className="absolute bottom-4 left-4 rounded-xl px-4 py-2.5 flex gap-4 flex-wrap"
-          style={{ background: '#161b22dd', backdropFilter: 'blur(8px)', border: '1px solid var(--color-border-default)' }}>
+          style={{ background: '#ffffffdd', backdropFilter: 'blur(8px)', border: '1px solid var(--color-border-default)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
           {[
             { key: 'existing', label: '现有代码', count: statusCounts.existing || 0 },
             { key: 'problem', label: '问题/待修复', count: (statusCounts.problem || 0) + (statusCounts.planned_change || 0) },
@@ -490,20 +490,20 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
               <div key={key} className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.badge }}/>
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
-                {count > 0 && <span className="text-caption" style={{ color: '#6e7681' }}>({count})</span>}
+                {count > 0 && <span className="text-caption" style={{ color: '#9ca3af' }}>({count})</span>}
               </div>
             );
           })}
           {/* Start/End markers */}
-          <div className="w-px h-4 self-center" style={{ background: '#30363d' }}/>
+          <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#4a9eff' }}>▶ 起点</span>
+            <span className="text-caption" style={{ color: '#3b82f6' }}>▶ 起点</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#8b949e' }}>━ 终点</span>
+            <span className="text-caption" style={{ color: '#9ca3af' }}>━ 终点</span>
           </div>
           {/* Edge legend */}
-          <div className="w-px h-4 self-center" style={{ background: '#30363d' }}/>
+          <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
           {[
             { key: 'existing', label: '调用', color: EDGE_COLORS.existing },
             { key: 'error', label: '异常', color: EDGE_COLORS.error },

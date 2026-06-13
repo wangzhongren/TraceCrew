@@ -116,12 +116,12 @@ export default function ActionDialog({
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(2px)' }}
+      style={{ background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(2px)' }}
       onClick={(e) => { if (e.target === overlayRef.current && !streamRunning) onClose(); }}
     >
       <div
         className="rounded-2xl shadow-2xl overflow-hidden"
-        style={{ width: isStreaming ? 720 : 560, maxHeight: '85vh', background: '#161b22', border: '1px solid var(--color-border-default)' }}
+        style={{ width: isStreaming ? 720 : 560, maxHeight: '85vh', background: '#ffffff', border: '1px solid var(--color-border-default)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header ── */}
@@ -131,7 +131,7 @@ export default function ActionDialog({
             <h2 className="text-sm font-semibold tracking-wide" style={{ color: 'var(--color-text-primary)' }}>
               {config.label} · <span style={{ color: config.color }}>{node.label}</span>
             </h2>
-            <p className="text-xs mt-0.5" style={{ color: '#8b949e' }}>
+            <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
               {isStreaming ? (
                 <span>
                   {streamPhase === 'review' ? '🔍 Reviewer 验收中...' : streamRunning ? '⏳ Agent 正在执行...' : '✅ 执行完成'}
@@ -140,8 +140,8 @@ export default function ActionDialog({
             </p>
           </div>
           <button onClick={onClose} disabled={streamRunning}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/5 transition-colors disabled:opacity-30"
-            style={{ color: '#8b949e' }}>
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/[0.03] transition-colors disabled:opacity-30"
+            style={{ color: '#6b7280' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
@@ -155,10 +155,10 @@ export default function ActionDialog({
             <>
               {/* Tools executed */}
               {streamTools && streamTools.length > 0 && (
-                <div className="rounded-xl p-3" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-caption font-medium mb-2 flex items-center gap-2" style={{ color: '#484f58' }}>
+                <div className="rounded-xl p-3" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
+                  <h3 className="text-caption font-medium mb-2 flex items-center gap-2" style={{ color: '#9ca3af' }}>
                     <span>🔧 工具执行</span>
-                    <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: '#21262d', color: '#8b949e' }}>
+                    <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: '#e5e7eb', color: '#6b7280' }}>
                       {streamTools.length} 个操作
                     </span>
                   </h3>
@@ -166,11 +166,11 @@ export default function ActionDialog({
                     {streamTools.map((t, i) => {
                       const toolColor = (() => {
                         switch (t.type) {
-                          case 'read_file': case 'list_dir': case 'search': return { bg: '#58a6ff18', text: '#58a6ff' };
-                          case 'insert_lines': case 'replace_lines': case 'create_file': return { bg: '#22c55e18', text: '#22c55e' };
-                          case 'delete_lines': return { bg: '#f8514918', text: '#f85149' };
-                          case 'run_shell': return { bg: '#d2992218', text: '#d29922' };
-                          default: return { bg: '#21262d', text: 'var(--color-text-secondary)' };
+                          case 'read_file': case 'list_dir': case 'search': return { bg: '#dbeafe', text: '#2563eb' };
+                          case 'insert_lines': case 'replace_lines': case 'create_file': return { bg: '#dcfce7', text: '#16a34a' };
+                          case 'delete_lines': return { bg: '#fee2e2', text: '#dc2626' };
+                          case 'run_shell': return { bg: '#fef3c7', text: '#b45309' };
+                          default: return { bg: '#f0f1f3', text: 'var(--color-text-secondary)' };
                         }
                       })();
                       return (
@@ -185,12 +185,12 @@ export default function ActionDialog({
 
               {/* Action output */}
               {streamActionOutput && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: config.color }} />
-                    <span className="text-caption font-medium" style={{ color: '#8b949e' }}>Agent 输出</span>
+                    <span className="text-caption font-medium" style={{ color: '#6b7280' }}>Agent 输出</span>
                     {streamRunning && !streamPhase && (
-                      <span className="flex items-center gap-1 text-[9px]" style={{ color: '#484f58' }}>
+                      <span className="flex items-center gap-1 text-[9px]" style={{ color: '#9ca3af' }}>
                         <span className="inline-block w-1 h-1 rounded-full animate-pulse" style={{ background: '#22c55e' }}/>
                         运行中...
                       </span>
@@ -202,10 +202,10 @@ export default function ActionDialog({
 
               {/* Review output */}
               {streamReviewOutput && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid #ff444430' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid #fecaca' }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs">🔍</span>
-                    <span className="text-caption font-medium" style={{ color: '#e0888d' }}>Reviewer 验收</span>
+                    <span className="text-caption font-medium" style={{ color: '#dc2626' }}>Reviewer 验收</span>
                   </div>
                   <MarkdownContent text={streamReviewOutput} />
                 </div>
@@ -214,8 +214,8 @@ export default function ActionDialog({
               {/* Result summary */}
               {streamResult && (
                 <div className="rounded-xl p-4" style={{
-                  background: streamResult.success ? '#0a1f1210' : '#2a101510',
-                  border: `1px solid ${streamResult.review_passed === false ? '#ff444440' : streamResult.success ? '#22c55e30' : '#ff444440'}`,
+                  background: streamResult.success ? '#f0fdf4' : '#fef2f2',
+                  border: `1px solid ${streamResult.review_passed === false ? '#fecaca' : streamResult.success ? '#bbf7d0' : '#fecaca'}`,
                 }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm">{streamResult.success ? '✅' : '❌'}</span>
@@ -230,13 +230,13 @@ export default function ActionDialog({
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-caption font-bold px-2 py-0.5 rounded"
                         style={{
-                          background: streamResult.review_passed ? '#22c55e20' : '#ff444420',
-                          color: streamResult.review_passed ? '#22c55e' : '#ff4444',
+                          background: streamResult.review_passed ? '#dcfce7' : '#fee2e2',
+                          color: streamResult.review_passed ? '#16a34a' : '#dc2626',
                         }}>
                         {streamResult.review_passed ? 'REVIEW PASSED' : 'REVIEW FAILED'}
                       </span>
                       {streamResult.review_feedback && (
-                        <span className="text-caption" style={{ color: '#8b949e' }}>{streamResult.review_feedback}</span>
+                        <span className="text-caption" style={{ color: '#6b7280' }}>{streamResult.review_feedback}</span>
                       )}
                     </div>
                   )}
@@ -255,7 +255,7 @@ export default function ActionDialog({
 
               {/* Error */}
               {streamError && (
-                <div className="rounded-xl p-3" style={{ background: '#2a1015', border: '1px solid #ff444430' }}>
+                <div className="rounded-xl p-3" style={{ background: '#fef2f2', border: '1px solid #fecaca' }}>
                   <span className="text-xs" style={{ color: '#ff4444' }}>❌ {streamError}</span>
                 </div>
               )}
@@ -271,48 +271,48 @@ export default function ActionDialog({
                      node.status === 'planned_change' ? 'CHANGE' :
                      node.status === 'planned_new' ? 'NEW' : 'EXISTING'}
                   </span>
-                  <span className="text-caption font-mono" style={{ color: '#484f58' }}>{node.kind}</span>
+                  <span className="text-caption font-mono" style={{ color: '#9ca3af' }}>{node.kind}</span>
                 </div>
                 <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{node.detail || '无详细描述'}</p>
                 {node.file && (
                   <div className="mt-2 flex items-center gap-1.5">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" strokeWidth="1.5">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                     </svg>
-                    <span className="text-xs font-mono" style={{ color: '#58a6ff' }}>{node.file}{node.line ? `:${node.line}` : ''}</span>
+                    <span className="text-xs font-mono" style={{ color: '#3b82f6' }}>{node.file}{node.line ? `:${node.line}` : ''}</span>
                   </div>
                 )}
               </div>
 
               {/* Context info — varies by action */}
               {action === 'test' && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🧪 测试范围</h3>
-                  <p className="text-xs leading-relaxed" style={{ color: '#8b949e' }}>
+                  <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
                     将对 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 及其关联链路执行完整测试。
                   </p>
                   <div className="mt-3 flex items-center gap-2">
-                    <span className="text-caption" style={{ color: '#484f58' }}>测试类型:</span>
+                    <span className="text-caption" style={{ color: '#9ca3af' }}>测试类型:</span>
                     {['单元测试', '集成测试', '端到端'].map(t => (
-                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#21262d', color: 'var(--color-text-secondary)' }}>{t}</span>
+                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{t}</span>
                     ))}
                   </div>
                 </div>
               )}
 
               {action === 'fix' && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🔧 修复范围</h3>
-                  <p className="text-xs leading-relaxed" style={{ color: '#8b949e' }}>
+                  <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
                     仅修复 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 节点的问题。
                   </p>
                 </div>
               )}
 
               {action === 'refactor' && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>♻️ 重构范围</h3>
-                  <p className="text-xs leading-relaxed" style={{ color: '#8b949e' }}>
+                  <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
                     以 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 为起点，
                     重构该节点及其所有下游节点
                     {downstreamCount > 0 && (
@@ -321,16 +321,16 @@ export default function ActionDialog({
                   </p>
                   {downstreamNodes && downstreamNodes.length > 0 && (
                     <div className="mt-3 space-y-1">
-                      <span className="text-caption" style={{ color: '#484f58' }}>影响节点:</span>
+                      <span className="text-caption" style={{ color: '#9ca3af' }}>影响节点:</span>
                       {downstreamNodes.slice(0, 10).map((n) => (
                         <div key={n.id} className="flex items-center gap-2 text-caption pl-2 py-0.5">
                           <span className="w-1 h-1 rounded-full" style={{ background: config.color }} />
                           <span style={{ color: 'var(--color-text-secondary)' }}>{n.label}</span>
-                          {n.file && <span className="font-mono" style={{ color: '#484f58' }}>{n.file.split('/').pop()}</span>}
+                          {n.file && <span className="font-mono" style={{ color: '#9ca3af' }}>{n.file.split('/').pop()}</span>}
                         </div>
                       ))}
                       {downstreamNodes.length > 10 && (
-                        <span className="text-caption" style={{ color: '#484f58' }}>...还有 {downstreamNodes.length - 10} 个节点</span>
+                        <span className="text-caption" style={{ color: '#9ca3af' }}>...还有 {downstreamNodes.length - 10} 个节点</span>
                       )}
                     </div>
                   )}
@@ -338,9 +338,9 @@ export default function ActionDialog({
               )}
 
               {action === 'explain' && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>📝 文档生成</h3>
-                  <ul className="space-y-1 text-xs" style={{ color: '#8b949e' }}>
+                  <ul className="space-y-1 text-xs" style={{ color: '#6b7280' }}>
                     {['功能概述与业务逻辑', '调用链路与数据流图', '关键函数签名与参数说明', '上下游依赖关系', '边界情况与注意事项'].map(item => (
                       <li key={item}>· {item}</li>
                     ))}
@@ -349,14 +349,14 @@ export default function ActionDialog({
               )}
 
               {action === 'develop' && (
-                <div className="rounded-xl p-4" style={{ background: '#0d1117', border: '1px solid var(--color-border-subtle)' }}>
+                <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🚀 开发任务</h3>
-                  <p className="text-xs leading-relaxed" style={{ color: '#8b949e' }}>
+                  <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
                     完成 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 新功能的开发。
                   </p>
                   <div className="mt-3 flex items-center gap-2">
                     {['新建文件', '实现函数', '建立调用链'].map(t => (
-                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#21262d', color: 'var(--color-text-secondary)' }}>{t}</span>
+                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{t}</span>
                     ))}
                   </div>
                 </div>
@@ -364,8 +364,8 @@ export default function ActionDialog({
 
               {/* Instruction input */}
               <div>
-                <label className="text-xs font-medium mb-1.5 block" style={{ color: '#8b949e' }}>
-                  补充说明 <span className="font-light" style={{ color: '#484f58' }}>（可选）</span>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: '#6b7280' }}>
+                  补充说明 <span className="font-light" style={{ color: '#9ca3af' }}>（可选）</span>
                 </label>
                 <textarea
                   value={instruction}
@@ -380,13 +380,13 @@ export default function ActionDialog({
                   rows={3}
                   className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none outline-none transition-colors focus:ring-1"
                   style={{
-                    background: '#0d1117',
+                    background: '#f8f9fa',
                     border: '1px solid var(--color-border-subtle)',
                     color: 'var(--color-text-secondary)',
                     fontFamily: 'var(--ibm-font)',
                   }}
                   onFocus={(e) => { e.currentTarget.style.borderColor = config.color; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = '#21262d'; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = '#e5e7eb'; }}
                 />
               </div>
             </>
@@ -398,7 +398,7 @@ export default function ActionDialog({
           {isStreaming ? (
             <>
               {streamRunning ? (
-                <span className="text-caption" style={{ color: '#484f58' }}>⏳ Agent 正在处理，请等待...</span>
+                <span className="text-caption" style={{ color: '#9ca3af' }}>⏳ Agent 正在处理，请等待...</span>
               ) : streamResult?.review_passed === false ? (
                 <span className="text-caption" style={{ color: '#ff4444' }}>❌ Reviewer 未通过，请检查反馈</span>
               ) : (
@@ -407,22 +407,22 @@ export default function ActionDialog({
               <button
                 onClick={onClose}
                 disabled={streamRunning}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-white/5 disabled:opacity-30"
-                style={{ color: '#8b949e' }}
+                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-black/[0.03] disabled:opacity-30"
+                style={{ color: '#6b7280' }}
               >
                 {streamRunning ? '处理中...' : '关闭'}
               </button>
             </>
           ) : (
             <>
-              <span className="text-caption" style={{ color: '#484f58' }}>
+              <span className="text-caption" style={{ color: '#9ca3af' }}>
                 AI Agent 将读取文件并执行操作，修改前自动备份
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-white/5 active:scale-[0.98]"
-                  style={{ color: '#8b949e' }}
+                  className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-black/[0.03] active:scale-[0.98]"
+                  style={{ color: '#6b7280' }}
                 >
                   取消
                 </button>
@@ -470,7 +470,7 @@ function MarkdownContent({ text }: { text: string }) {
           code: ({ className, children, ...props }: any) => {
             const inline = !className;
             return inline
-              ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#1a1a2e', color: 'var(--color-text-link)' }} {...props}>{children}</code>
+              ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#f0f1f3', color: 'var(--color-text-link)' }} {...props}>{children}</code>
               : <code className={className} {...props}>{children}</code>;
           },
           pre: ({ children }: any) => <pre className="code-block" style={{ color: 'var(--color-text-secondary)' }}>{children}</pre>,
@@ -478,9 +478,9 @@ function MarkdownContent({ text }: { text: string }) {
           ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-1 space-y-0.5" style={{ color: 'var(--color-text-secondary)' }}>{children}</ol>,
           li: ({ children }: any) => <li className="my-0.5" style={{ color: 'var(--color-text-secondary)' }}>{children}</li>,
           strong: ({ children }: any) => <strong className="font-semibold" style={{ color: 'var(--color-text-primary)' }}>{children}</strong>,
-          a: ({ href, children }: any) => <a href={href} target="_blank" className="no-underline hover:underline" style={{ color: '#58a6ff' }}>{children}</a>,
+          a: ({ href, children }: any) => <a href={href} target="_blank" className="no-underline hover:underline" style={{ color: '#3b82f6' }}>{children}</a>,
           hr: () => <hr className="my-2" style={{ borderColor: 'var(--color-border-subtle)' }} />,
-          blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-2 my-1 italic opacity-70" style={{ borderColor: 'var(--color-border-default)', color: '#8b949e' }}>{children}</blockquote>,
+          blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-2 my-1 italic opacity-70" style={{ borderColor: 'var(--color-border-default)', color: '#6b7280' }}>{children}</blockquote>,
           table: ({ children }: any) => <div className="overflow-x-auto my-2"><table className="w-full text-caption border-separate border-spacing-0">{children}</table></div>,
           th: ({ children }: any) => <th className="border border-subtle bg-layer px-2 py-1 text-caption font-medium" style={{ color: 'var(--color-text-primary)' }}>{children}</th>,
           td: ({ children }: any) => <td className="border border-subtle px-2 py-1 text-caption" style={{ color: 'var(--color-text-secondary)' }}>{children}</td>,

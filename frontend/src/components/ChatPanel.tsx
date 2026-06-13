@@ -18,9 +18,9 @@ type TimelineEntry =
   | { kind: 'system'; text: string };
 
 const AG: Record<string, { name: string; color: string; bg: string }> = {
-  planner:  { name: 'Planner',  color: '#6ea8e0', bg: 'rgba(120,169,255,0.04)' },
-  mapper:   { name: 'Mapper',   color: '#9685d4', bg: 'rgba(167,139,250,0.04)' },
-  reviewer: { name: 'Reviewer', color: '#e0888d', bg: 'rgba(255,179,184,0.04)' },
+  planner:  { name: 'Planner',  color: '#2563eb', bg: 'rgba(37,99,235,0.06)' },
+  mapper:   { name: 'Mapper',   color: '#7c3aed', bg: 'rgba(124,58,237,0.06)' },
+  reviewer: { name: 'Reviewer', color: '#dc2626', bg: 'rgba(220,38,38,0.06)' },
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -30,14 +30,14 @@ const TOOL_LABEL: Record<string, string> = {
 };
 
 const TOOL_COLOR: Record<string, { bg: string; text: string }> = {
-  read_file:    { bg: '#58a6ff18', text: '#58a6ff' },
-  list_dir:     { bg: '#58a6ff18', text: '#58a6ff' },
-  search:       { bg: '#58a6ff18', text: '#58a6ff' },
-  insert_lines: { bg: '#22c55e18', text: '#22c55e' },
-  replace_lines:{ bg: '#22c55e18', text: '#22c55e' },
-  create_file:  { bg: '#22c55e18', text: '#22c55e' },
-  delete_lines: { bg: '#f8514918', text: '#f85149' },
-  run_shell:    { bg: '#d2992218', text: '#d29922' },
+  read_file:    { bg: '#dbeafe', text: '#2563eb' },
+  list_dir:     { bg: '#dbeafe', text: '#2563eb' },
+  search:       { bg: '#dbeafe', text: '#2563eb' },
+  insert_lines: { bg: '#dcfce7', text: '#16a34a' },
+  replace_lines:{ bg: '#dcfce7', text: '#16a34a' },
+  create_file:  { bg: '#dcfce7', text: '#16a34a' },
+  delete_lines: { bg: '#fee2e2', text: '#dc2626' },
+  run_shell:    { bg: '#fef3c7', text: '#b45309' },
 };
 
 export default function ChatPanel({ projectPath, onPipelineChange }: {
@@ -422,7 +422,7 @@ function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: strin
   return (
     <div className="pb-1">
       <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full text-left py-0.5 transition-colors hover:bg-white/[0.02]">
+        className="flex items-center gap-2 w-full text-left py-0.5 transition-colors hover:bg-black/[0.02]">
         <span className="w-[15px] flex items-center justify-center shrink-0">
           <span className="w-1 h-1 rounded-full" style={{ background: color }} />
         </span>
@@ -440,7 +440,7 @@ function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: strin
       {open && (
         <div className="ml-5 mt-0.5 space-y-0">
           {tools.map((t: any, j: number) => {
-            const tc = TOOL_COLOR[t.tool] || { bg: '#8b949e18', text: '#8b949e' };
+            const tc = TOOL_COLOR[t.tool] || { bg: '#f0f1f3', text: '#6b7280' };
             return (
             <div key={j} className="flex items-center gap-2 py-[1px]">
               <span className="text-caption font-mono rounded px-1.5 py-0.5"
@@ -482,7 +482,7 @@ function AgentBlock({ text, color, name, status, doneLabel, children }: {
       <div className="flex-1 min-w-0">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-white/[0.03]"
+          className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-black/[0.03]"
           style={{ background: color + '08', border: `1px solid ${color}15` }}>
           {spinner ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"
