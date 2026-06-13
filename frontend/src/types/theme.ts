@@ -48,6 +48,16 @@ export const STATUS_LABELS: Record<string, string> = {
   existing: '现有', problem: '问题', planned_change: '待改', planned_new: '新增', done: '完成',
 };
 
+export function getStatusLabels(t: (key: string) => string): Record<string, string> {
+  return {
+    existing: t('status.existing'),
+    problem: t('status.problem'),
+    planned_change: t('status.toChange'),
+    planned_new: t('status.new'),
+    done: t('status.done'),
+  };
+}
+
 /* ── Edge colors ── */
 
 export const EDGE_COLORS: Record<string, string> = {

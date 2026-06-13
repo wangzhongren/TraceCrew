@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useT, useLocale, LOCALE_LABELS, type Locale } from './i18n';
 import ChatPanel from './components/ChatPanel';
 import MapperView from './components/MapperView';
 import type { CallGraph, GraphNode, GraphEdge } from './components/MapCanvas';
@@ -15,6 +16,8 @@ export interface PipelineState {
 }
 
 export default function App() {
+  const t = useT();
+  const { locale } = useLocale();
   const [projectPath, setProjectPath] = useState<string | null>(null);
   const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -88,7 +91,7 @@ export default function App() {
         if (p) handleOpenProject(p);
       } catch (e) { console.error('openProject failed:', e); }
     } else {
-      const demo = prompt('Enter project path:');
+      const demo = prompt(t('app.enterProjectPath'));
       if (demo) handleOpenProject(demo);
     }
   };
@@ -122,12 +125,13 @@ export default function App() {
           instruction,
           project_path: projectPath,
           downstream_nodes: activeAction === 'refactor' ? downstreamNodes : [],
+          locale,
         }),
       });
 
       const reader = res.body?.getReader();
       if (!reader) {
-        setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: '无法读取响应流' }));
+        setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: t('app.cannotReadStream') }));
         return;
       }
 
@@ -235,9 +239,9 @@ export default function App() {
         }
       }
     } catch (e: any) {
-      setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: e.message || '网络错误' }));
+      setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: e.message || t('app.networkError') }));
     }
-  }, [activeAction, selectedNodeData, projectPath, downstreamNodes, handleGraphChange]);
+  }, [activeAction, selectedNodeData, projectPath, downstreamNodes, handleGraphChange, t]);
 
   // Show right panel if there's a file OR an active action with a node
   const showRightPanel = !!(selectedNodeData?.file || (activeAction && selectedNodeData));
@@ -253,15 +257,16 @@ export default function App() {
           {projectPath ? (
             <span className="text-[11px]" style={{ color: 'var(--ibm-text-placeholder)' }}>{projectPath}</span>
           ) : (
-            <span className="text-[11px]" style={{ color: 'var(--ibm-text-disabled)' }}>No project selected</span>
+            <span className="text-[11px]" style={{ color: 'var(--ibm-text-disabled)' }}>{t('app.noProject')}</span>
           )}
         </div>
         <div className="flex items-center gap-1">
           <button onClick={openFolder}
             className="text-[11px] px-2 py-0.5 rounded transition-colors hover:bg-black/[0.03]"
             style={{ color: 'var(--ibm-primary)' }}>
-            {projectPath ? 'Switch Project' : 'Open Folder'}
+            {projectPath ? t('app.switchProject') : t('app.openFolder')}
           </button>
+          <LocaleSwitcher />
           <SettingsBtn />
         </div>
       </div>
@@ -319,11 +324,11 @@ export default function App() {
               <svg width="48" height="48" viewBox="0 0 32 32" fill="none" stroke="var(--ibm-text-disabled)" strokeWidth="1" style={{ margin: '0 auto' }}>
                 <path d="M4 6h10l4 4h10v16H4z"/>
               </svg>
-              <p className="text-sm" style={{ color: 'var(--ibm-text-placeholder)' }}>Open a project folder to get started</p>
+              <p className="text-sm" style={{ color: 'var(--ibm-text-placeholder)' }}>{t('app.getStarted')}</p>
               <button onClick={openFolder}
                 className="px-5 py-2 text-xs font-medium rounded transition-colors"
                 style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
-                Open Folder
+                {t('app.openFolder')}
               </button>
             </div>
           </main>
@@ -334,10 +339,11 @@ export default function App() {
 }
 
 function SettingsBtn() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button onClick={() => setOpen(!open)} title="Settings"
+      <button onClick={() => setOpen(!open)} title={t('app.settings')}
         className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
         style={{ color: 'var(--ibm-text-placeholder)' }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -346,5 +352,18 @@ function SettingsBtn() {
       </button>
       {open && <SettingsPanel onClose={() => setOpen(false)} />}
     </div>
+  );
+}
+
+function LocaleSwitcher() {
+  const { locale, setLocale } = useLocale();
+  return (
+    <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)}
+      className="text-[11px] px-1.5 py-0.5 rounded border bg-transparent outline-none cursor-pointer"
+      style={{ borderColor: 'var(--ibm-border-subtle)', color: 'var(--ibm-text-secondary)' }}>
+      {(Object.keys(LOCALE_LABELS) as Locale[]).map(l => (
+        <option key={l} value={l}>{LOCALE_LABELS[l]}</option>
+      ))}
+    </select>
   );
 }

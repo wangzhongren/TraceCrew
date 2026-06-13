@@ -5,6 +5,7 @@ import { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
+import { useT } from '../i18n';
 
 interface Props {
   graph: CallGraph | null;
@@ -75,6 +76,7 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
   const popupRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<string>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const t = useT();
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose(); };
@@ -202,13 +204,13 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
     <div ref={popupRef} className="absolute top-full left-0 mt-2 z-30 rounded-xl border shadow-2xl"
       style={{ width: 460, maxHeight: 520, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', overflow: 'hidden' }}>
       <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--color-border-subtle)' }}>
-        <span className="text-xs font-medium tracking-wide" style={{ color: 'var(--color-text-muted)' }}>调用链</span>
+        <span className="text-xs font-medium tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{t('graph.callChain')}</span>
         <div className="flex items-center gap-1">
           {[
-            { key: 'all', label: '全部' },
-            { key: 'problem', label: '问题' },
-            { key: 'planned_change', label: '待改' },
-            { key: 'planned_new', label: '新增' },
+            { key: 'all', label: t('graph.all') },
+            { key: 'problem', label: t('graph.problem') },
+            { key: 'planned_change', label: t('graph.toChange') },
+            { key: 'planned_new', label: t('graph.new') },
           ].map(({ key, label }) => (
             <button key={key} onClick={() => setFilter(key)}
               className="text-[9px] px-2 py-0.5 rounded transition-colors"
@@ -216,9 +218,9 @@ function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
               {label}
             </button>
           ))}
-          <button onClick={() => setCollapsed(prev => prev.size === 0 ? new Set(trees.flatMap(t => getAllIds(t))) : new Set())}
+          <button onClick={() => setCollapsed(prev => prev.size === 0 ? new Set(trees.flatMap(tree => getAllIds(tree))) : new Set())}
             className="text-[9px] px-2 py-0.5 rounded" style={{ color: 'var(--color-text-muted)' }}>
-            {collapsed.size > 0 ? '展开' : '折叠'}
+            {collapsed.size > 0 ? t('graph.expand') : t('graph.collapse')}
           </button>
         </div>
       </div>
@@ -294,6 +296,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
    const [showCards, setShowCards] = useState(false);
    const [activeRoot, setActiveRoot] = useState<string | null>(null);
    const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
+   const t = useT();
 
    const contextMenuRef = useRef(contextMenu);
    contextMenuRef.current = contextMenu;
@@ -387,7 +390,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
               <rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/>
               <rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/>
             </svg>
-            <span>节点</span>
+            <span>{t('graph.nodes')}</span>
             <svg width="7" height="7" viewBox="0 0 8 8"><path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
           {showCards && (
@@ -422,7 +425,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         {/* Selected node breadcrumb */}
         {selectedNodeData && (
           <div className="flex items-center gap-1 ml-2 text-caption overflow-hidden">
-            <span style={{ color: '#9ca3af' }}>选中:</span>
+            <span style={{ color: '#9ca3af' }}>{t('graph.selected')}</span>
             <span style={{ color: STATUS_COLORS_SIMPLE[selectedNodeData.status as NodeStatus] || '#888' }}>
               {STATUS_ICONS[selectedNodeData.status]}
             </span>
@@ -434,7 +437,7 @@ export default function MapperView({ graph, phase, onSelectNode, onGraphChange, 
         )}
 
         <div className="ml-auto text-caption shrink-0 text-muted">
-          {graph.nodes.length} 节点 · {graph.edges.length} 边
+          {graph.nodes.length} {t('graph.nodes')} · {graph.edges.length} {t('graph.edges')}
         </div>
       </div>
 

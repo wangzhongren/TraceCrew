@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useT } from '../i18n';
 
 function cleanTags(text: string): string {
   return text
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function PlanCard({ planSummary, color: _color }: Props) {
+  const t = useT();
   const cleaned = useMemo(() => cleanTags(planSummary || ''), [planSummary]);
   if (!cleaned) return null;
 
@@ -26,7 +28,7 @@ export default function PlanCard({ planSummary, color: _color }: Props) {
     <div>
       <div className="flex items-center gap-1.5 mb-1">
         <span className="w-1 h-3 rounded-full shrink-0" style={{ background: _color }} />
-        <span className="text-caption text-muted font-medium tracking-wide">分析报告</span>
+        <span className="text-caption text-muted font-medium tracking-wide">{t('card.analysisReport')}</span>
       </div>
       <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}

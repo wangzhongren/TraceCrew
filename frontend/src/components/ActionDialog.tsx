@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GraphNode } from './MapCanvas';
+import { useT } from '../i18n';
 
 export type ActionType = 'test' | 'fix' | 'refactor' | 'explain' | 'develop';
 
@@ -51,6 +52,19 @@ export const ACTION_CONFIGS: Record<ActionType, ActionConfig> = {
   },
 };
 
+export function getActionConfig(action: ActionType, t: (key: string) => string) {
+  const base = ACTION_CONFIGS[action];
+  const labels: Record<ActionType, string> = {
+    test: t('action.test'), fix: t('action.fix'), refactor: t('action.refactor'),
+    explain: t('action.explain'), develop: t('action.develop'),
+  };
+  const descs: Record<ActionType, string> = {
+    test: t('action.testDesc'), fix: t('action.fixDesc'), refactor: t('action.refactorDesc'),
+    explain: t('action.explainDesc'), develop: t('action.developDesc'),
+  };
+  return { ...base, label: labels[action], description: descs[action] };
+}
+
 /** Return available actions for a given node status */
 export function getActionsForNode(status: string): ActionType[] {
   switch (status) {
@@ -87,10 +101,11 @@ export default function ActionDialog({
   streamRunning, streamPhase, streamActionOutput, streamReviewOutput,
   streamTools, streamResult, streamError,
 }: Props) {
+  const t = useT();
   const [instruction, setInstruction] = useState('');
   const overlayRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
-  const config = ACTION_CONFIGS[action];
+  const config = getActionConfig(action, t);
   const isStreaming = streamRunning || streamResult || streamError;
 
   useEffect(() => {
@@ -134,7 +149,7 @@ export default function ActionDialog({
             <p className="text-xs mt-0.5" style={{ color: '#6b7280' }}>
               {isStreaming ? (
                 <span>
-                  {streamPhase === 'review' ? '🔍 Reviewer 验收中...' : streamRunning ? '⏳ Agent 正在执行...' : '✅ 执行完成'}
+                  {streamPhase === 'review' ? t('action.reviewerVerifying') : streamRunning ? t('action.agentExecuting') : t('action.execComplete')}
                 </span>
               ) : config.description}
             </p>
@@ -157,15 +172,15 @@ export default function ActionDialog({
               {streamTools && streamTools.length > 0 && (
                 <div className="rounded-xl p-3" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <h3 className="text-caption font-medium mb-2 flex items-center gap-2" style={{ color: '#9ca3af' }}>
-                    <span>🔧 工具执行</span>
+                    <span>{t('action.toolExecution')}</span>
                     <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: '#e5e7eb', color: '#6b7280' }}>
-                      {streamTools.length} 个操作
+                      {t('action.operations', { count: streamTools.length })}
                     </span>
                   </h3>
                   <div className="flex flex-wrap gap-1">
-                    {streamTools.map((t, i) => {
+                    {streamTools.map((tool, i) => {
                       const toolColor = (() => {
-                        switch (t.type) {
+                        switch (tool.type) {
                           case 'read_file': case 'list_dir': case 'search': return { bg: '#dbeafe', text: '#2563eb' };
                           case 'insert_lines': case 'replace_lines': case 'create_file': return { bg: '#dcfce7', text: '#16a34a' };
                           case 'delete_lines': return { bg: '#fee2e2', text: '#dc2626' };
@@ -176,7 +191,7 @@ export default function ActionDialog({
                       return (
                       <span key={i} className="text-[9px] px-2 py-0.5 rounded font-mono"
                         style={{ background: toolColor.bg, color: toolColor.text }}>
-                        {t.type}{t.file ? `: ${t.file.split('/').pop()}` : ''}
+                        {tool.type}{tool.file ? `: ${tool.file.split('/').pop()}` : ''}
                       </span>
                     )})}
                   </div>
@@ -188,11 +203,11 @@ export default function ActionDialog({
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: config.color }} />
-                    <span className="text-caption font-medium" style={{ color: '#6b7280' }}>Agent 输出</span>
+                    <span className="text-caption font-medium" style={{ color: '#6b7280' }}>{t('action.agentOutput')}</span>
                     {streamRunning && !streamPhase && (
                       <span className="flex items-center gap-1 text-[9px]" style={{ color: '#9ca3af' }}>
                         <span className="inline-block w-1 h-1 rounded-full animate-pulse" style={{ background: '#22c55e' }}/>
-                        运行中...
+                        {t('action.running')}
                       </span>
                     )}
                   </div>
@@ -205,7 +220,7 @@ export default function ActionDialog({
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid #fecaca' }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs">🔍</span>
-                    <span className="text-caption font-medium" style={{ color: '#dc2626' }}>Reviewer 验收</span>
+                    <span className="text-caption font-medium" style={{ color: '#dc2626' }}>{t('action.reviewerVerify')}</span>
                   </div>
                   <MarkdownContent text={streamReviewOutput} />
                 </div>
@@ -220,7 +235,7 @@ export default function ActionDialog({
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-sm">{streamResult.success ? '✅' : '❌'}</span>
                     <span className="text-xs font-semibold" style={{ color: streamResult.success ? '#22c55e' : '#ff4444' }}>
-                      {streamResult.success ? '执行完成' : '执行失败'}
+                      {streamResult.success ? t('action.execComplete') : t('action.execFailed')}
                     </span>
                   </div>
                   {streamResult.message && (
@@ -273,7 +288,7 @@ export default function ActionDialog({
                   </span>
                   <span className="text-caption font-mono" style={{ color: '#9ca3af' }}>{node.kind}</span>
                 </div>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{node.detail || '无详细描述'}</p>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{node.detail || t('action.noDescription')}</p>
                 {node.file && (
                   <div className="mt-2 flex items-center gap-1.5">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5">
@@ -287,14 +302,14 @@ export default function ActionDialog({
               {/* Context info — varies by action */}
               {action === 'test' && (
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🧪 测试范围</h3>
+                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>{t('action.testScope')}</h3>
                   <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
-                    将对 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 及其关联链路执行完整测试。
+                    {t('action.testContext', { name: node.label })}
                   </p>
                   <div className="mt-3 flex items-center gap-2">
-                    <span className="text-caption" style={{ color: '#9ca3af' }}>测试类型:</span>
-                    {['单元测试', '集成测试', '端到端'].map(t => (
-                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{t}</span>
+                    <span className="text-caption" style={{ color: '#9ca3af' }}>{t('action.testTypes')}:</span>
+                    {[t('action.unitTest'), t('action.integrationTest'), t('action.e2eTest')].map(label => (
+                      <span key={label} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{label}</span>
                     ))}
                   </div>
                 </div>
@@ -302,26 +317,25 @@ export default function ActionDialog({
 
               {action === 'fix' && (
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🔧 修复范围</h3>
+                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>{t('action.fixScope')}</h3>
                   <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
-                    仅修复 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 节点的问题。
+                    {t('action.fixContext', { name: node.label })}
                   </p>
                 </div>
               )}
 
               {action === 'refactor' && (
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>♻️ 重构范围</h3>
+                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>{t('action.refactorScope')}</h3>
                   <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
-                    以 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 为起点，
-                    重构该节点及其所有下游节点
+                    {t('action.refactorContext', { name: node.label })}
                     {downstreamCount > 0 && (
-                      <span>（共 <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{downstreamCount}</span> 个下游节点）</span>
+                      <span>{t('action.downstreamCount', { count: downstreamCount })}</span>
                     )}。
                   </p>
                   {downstreamNodes && downstreamNodes.length > 0 && (
                     <div className="mt-3 space-y-1">
-                      <span className="text-caption" style={{ color: '#9ca3af' }}>影响节点:</span>
+                      <span className="text-caption" style={{ color: '#9ca3af' }}>{t('action.affectedNodes')}</span>
                       {downstreamNodes.slice(0, 10).map((n) => (
                         <div key={n.id} className="flex items-center gap-2 text-caption pl-2 py-0.5">
                           <span className="w-1 h-1 rounded-full" style={{ background: config.color }} />
@@ -330,7 +344,7 @@ export default function ActionDialog({
                         </div>
                       ))}
                       {downstreamNodes.length > 10 && (
-                        <span className="text-caption" style={{ color: '#9ca3af' }}>...还有 {downstreamNodes.length - 10} 个节点</span>
+                        <span className="text-caption" style={{ color: '#9ca3af' }}>{t('action.moreNodes', { count: downstreamNodes.length - 10 })}</span>
                       )}
                     </div>
                   )}
@@ -339,9 +353,9 @@ export default function ActionDialog({
 
               {action === 'explain' && (
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>📝 文档生成</h3>
+                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>{t('action.docGeneration')}</h3>
                   <ul className="space-y-1 text-xs" style={{ color: '#6b7280' }}>
-                    {['功能概述与业务逻辑', '调用链路与数据流图', '关键函数签名与参数说明', '上下游依赖关系', '边界情况与注意事项'].map(item => (
+                    {[t('action.docItem1'), t('action.docItem2'), t('action.docItem3'), t('action.docItem4'), t('action.docItem5')].map(item => (
                       <li key={item}>· {item}</li>
                     ))}
                   </ul>
@@ -350,13 +364,13 @@ export default function ActionDialog({
 
               {action === 'develop' && (
                 <div className="rounded-xl p-4" style={{ background: '#f8f9fa', border: '1px solid var(--color-border-subtle)' }}>
-                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>🚀 开发任务</h3>
+                  <h3 className="text-xs font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>{t('action.devTask')}</h3>
                   <p className="text-xs leading-relaxed" style={{ color: '#6b7280' }}>
-                    完成 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 新功能的开发。
+                    {t('action.devContext', { name: node.label })}
                   </p>
                   <div className="mt-3 flex items-center gap-2">
-                    {['新建文件', '实现函数', '建立调用链'].map(t => (
-                      <span key={t} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{t}</span>
+                    {[t('action.createFiles'), t('action.implFunctions'), t('action.buildCallChain')].map(label => (
+                      <span key={label} className="text-caption px-2 py-0.5 rounded" style={{ background: '#e5e7eb', color: 'var(--color-text-secondary)' }}>{label}</span>
                     ))}
                   </div>
                 </div>
@@ -365,17 +379,17 @@ export default function ActionDialog({
               {/* Instruction input */}
               <div>
                 <label className="text-xs font-medium mb-1.5 block" style={{ color: '#6b7280' }}>
-                  补充说明 <span className="font-light" style={{ color: '#9ca3af' }}>（可选）</span>
+                  {t('action.additionalInstructions')} <span className="font-light" style={{ color: '#9ca3af' }}>{t('action.optional')}</span>
                 </label>
                 <textarea
                   value={instruction}
                   onChange={(e) => setInstruction(e.target.value)}
                   placeholder={
-                    action === 'test' ? '指定测试范围或测试策略...' :
-                    action === 'fix' ? '描述已知的问题原因或修复方向...' :
-                    action === 'refactor' ? '描述重构目标和期望的架构方向...' :
-                    action === 'explain' ? '指定文档侧重点或需要强调的内容...' :
-                    '描述功能需求和技术约束...'
+                    action === 'test' ? t('action.testPlaceholder') :
+                    action === 'fix' ? t('action.fixPlaceholder') :
+                    action === 'refactor' ? t('action.refactorPlaceholder') :
+                    action === 'explain' ? t('action.explainPlaceholder') :
+                    t('action.developPlaceholder')
                   }
                   rows={3}
                   className="w-full px-3 py-2 rounded-lg text-sm bg-transparent resize-none outline-none transition-colors focus:ring-1"
@@ -398,11 +412,11 @@ export default function ActionDialog({
           {isStreaming ? (
             <>
               {streamRunning ? (
-                <span className="text-caption" style={{ color: '#9ca3af' }}>⏳ Agent 正在处理，请等待...</span>
+                <span className="text-caption" style={{ color: '#9ca3af' }}>{t('action.agentProcessing')}</span>
               ) : streamResult?.review_passed === false ? (
-                <span className="text-caption" style={{ color: '#ff4444' }}>❌ Reviewer 未通过，请检查反馈</span>
+                <span className="text-caption" style={{ color: '#ff4444' }}>{t('action.reviewerFailed')}</span>
               ) : (
-                <span className="text-caption" style={{ color: '#22c55e' }}>✅ 处理完成，可关闭窗口</span>
+                <span className="text-caption" style={{ color: '#22c55e' }}>{t('action.processingComplete')}</span>
               )}
               <button
                 onClick={onClose}
@@ -410,13 +424,13 @@ export default function ActionDialog({
                 className="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-black/[0.03] disabled:opacity-30"
                 style={{ color: '#6b7280' }}
               >
-                {streamRunning ? '处理中...' : '关闭'}
+                {streamRunning ? t('action.processing') : t('common.close')}
               </button>
             </>
           ) : (
             <>
               <span className="text-caption" style={{ color: '#9ca3af' }}>
-                AI Agent 将读取文件并执行操作，修改前自动备份
+                {t('action.autoBackup')}
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -424,14 +438,14 @@ export default function ActionDialog({
                   className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-black/[0.03] active:scale-[0.98]"
                   style={{ color: '#6b7280' }}
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleConfirm}
                   className="px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
                   style={{ background: config.color, color: '#fff' }}
                 >
-                  开始{config.label}
+                  {t('action.startAction', { label: config.label })}
                 </button>
               </div>
             </>

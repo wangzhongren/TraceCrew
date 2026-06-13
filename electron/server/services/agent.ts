@@ -11,6 +11,23 @@ import { getFileSummary } from './db';
 
 const MAX_CONTEXT_CHARS = 24000;
 
+/* ── Locale-aware language instructions ── */
+
+const LANGUAGE_INSTRUCTIONS: Record<string, string> = {
+  'zh-CN': '请使用中文回答。',
+  'en': 'Please respond in English.',
+  'ja': '日本語で回答してください。',
+  'ko': '한국어로 답변해 주세요.',
+};
+
+/** Append a language instruction to a system prompt based on user's locale */
+function withLocale(prompt: string, locale?: string): string {
+  if (!locale || locale === 'zh-CN') return prompt; // Default is Chinese, prompts are already Chinese
+  const langInstruction = LANGUAGE_INSTRUCTIONS[locale];
+  if (!langInstruction) return prompt;
+  return `${prompt}\n\n【重要】${langInstruction}`;
+}
+
 /* ── System Prompts ── */
 
 /* ═══════════════════════════════════════════════════════════
@@ -584,6 +601,7 @@ export class AgentService {
     history?: Array<{ role: string; content: string }> | null;
     project_path?: string | null;
     mode?: string | null;
+    locale?: string | null;
   }): AsyncGenerator<{ event: string; data: string }> {
     const messages = this.buildMessages(req.history);
     const projectPath = req.project_path || '';
@@ -599,7 +617,7 @@ export class AgentService {
     console.log('1222222'+req.mode);
     const mode = req.mode || 'default';
 
-    const systemPrompt = SYSTEM_PROMPTS[mode] || PROTOCOL_EXECUTE;
+    const systemPrompt = withLocale(SYSTEM_PROMPTS[mode] || PROTOCOL_EXECUTE, req.locale || undefined);
     console.log(systemPrompt);
     if (systemPrompt && messages[0]?.role !== 'system') {
       messages.unshift({ role: 'system', content: systemPrompt});
@@ -925,6 +943,7 @@ export class AgentService {
     instruction?: string;
     project_path: string;
     downstream_nodes?: Record<string, unknown>[];
+    locale?: string;
   }): AsyncGenerator<{ event: string; data: string }> {
     const { action, node, instruction, project_path, downstream_nodes } = req;
     const projectPath = project_path || '';
@@ -932,7 +951,7 @@ export class AgentService {
     // Phase 1: Action agent
     yield { event: 'phase', data: JSON.stringify({ phase: 'action', action }) };
 
-    const systemPrompt = ACTION_SYSTEM_PROMPTS[action] || PROTOCOL_EXECUTE;
+    const systemPrompt = withLocale(ACTION_SYSTEM_PROMPTS[action] || PROTOCOL_EXECUTE, req.locale);
     const isReadOnly = action === 'explain';
 
     // Build user message
@@ -1097,7 +1116,7 @@ export class AgentService {
 {"passed": true/false, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}`;
 
       const reviewMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-        { role: 'system', content: REVIEWER_EXEC_SYSTEM_PROMPT },
+        { role: 'system', content: withLocale(REVIEWER_EXEC_SYSTEM_PROMPT, req.locale) },
         { role: 'user', content: reviewMsg },
       ];
 

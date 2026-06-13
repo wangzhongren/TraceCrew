@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GraphNode } from './MapCanvas';
-import { ACTION_CONFIGS, type ActionType } from './ActionDialog';
+import { getActionConfig, type ActionType } from './ActionDialog';
+import { useT } from '../i18n';
 
 export interface StreamState {
   running: boolean;
@@ -38,9 +39,10 @@ interface Props {
 export default function ActionPanel({
   action, node, downstreamNodes, onClose, onConfirm, stream,
 }: Props) {
+  const t = useT();
   const [instruction, setInstruction] = useState('');
   const outputRef = useRef<HTMLDivElement>(null);
-  const config = ACTION_CONFIGS[action];
+  const config = getActionConfig(action, t);
   const isStreaming = stream.running || stream.result || stream.error;
 
   // Auto-scroll streaming output
@@ -68,7 +70,7 @@ export default function ActionPanel({
           <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
             {isStreaming ? (
               <span>
-                {stream.phase === 'review' ? '🔍 Reviewer 验收中...' : stream.running ? '⏳ Agent 正在执行...' : '✅ 执行完成'}
+                {stream.phase === 'review' ? t('action.reviewerVerifying') : stream.running ? t('action.agentExecuting') : t('action.execComplete')}
               </span>
             ) : config.description}
           </p>
@@ -90,18 +92,18 @@ export default function ActionPanel({
             {stream.tools && stream.tools.length > 0 && (
               <div className="rounded-lg p-2.5" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
                 <h4 className="text-[10px] font-medium mb-1.5 flex items-center gap-2" style={{ color: 'var(--color-text-disabled)' }}>
-                  <span>🔧 工具执行</span>
+                  <span>{t('action.toolExecution')}</span>
                   <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-muted)' }}>
-                    {stream.tools.length} 个操作
+                    {t('action.operations', { count: stream.tools.length })}
                   </span>
                 </h4>
                 <div className="flex flex-wrap gap-1">
-                  {stream.tools.map((t, i) => {
-                    const toolColor = getToolColor(t.type);
+                  {stream.tools.map((tool, i) => {
+                    const toolColor = getToolColor(tool.type);
                     return (
                       <span key={i} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
                         style={{ background: toolColor.bg, color: toolColor.text }}>
-                        {t.type}{t.file ? `: ${t.file.split('/').pop()}` : ''}
+                        {tool.type}{tool.file ? `: ${tool.file.split('/').pop()}` : ''}
                       </span>
                     );
                   })}
@@ -114,11 +116,11 @@ export default function ActionPanel({
               <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ background: config.color }} />
-                  <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>Agent 输出</span>
+                  <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>{t('action.agentOutput')}</span>
                   {stream.running && !stream.phase && (
                     <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>
                       <span className="inline-block w-1 h-1 rounded-full animate-pulse" style={{ background: '#22c55e' }}/>
-                      运行中...
+                      {t('action.running')}
                     </span>
                   )}
                 </div>
@@ -131,7 +133,7 @@ export default function ActionPanel({
               <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid #fecaca' }}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[10px]">🔍</span>
-                  <span className="text-[10px] font-medium" style={{ color: '#dc2626' }}>Reviewer 验收</span>
+                  <span className="text-[10px] font-medium" style={{ color: '#dc2626' }}>{t('action.reviewerVerify')}</span>
                 </div>
                 <MarkdownContent text={stream.reviewOutput} />
               </div>
@@ -146,7 +148,7 @@ export default function ActionPanel({
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-xs">{stream.result.success ? '✅' : '❌'}</span>
                   <span className="text-[10px] font-semibold" style={{ color: stream.result.success ? '#22c55e' : '#ff4444' }}>
-                    {stream.result.success ? '执行完成' : '执行失败'}
+                    {stream.result.success ? t('action.execComplete') : t('action.execFailed')}
                   </span>
                 </div>
                 {stream.result.message && <MarkdownContent text={stream.result.message} />}
@@ -197,7 +199,7 @@ export default function ActionPanel({
                 </span>
                 {node.kind && <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-disabled)' }}>{node.kind}</span>}
               </div>
-              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{node.detail || '无详细描述'}</p>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{node.detail || t('action.noDescription')}</p>
               {node.file && (
                 <div className="mt-1.5 flex items-center gap-1">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="1.5">
@@ -209,17 +211,17 @@ export default function ActionPanel({
             </div>
 
             {/* Context info — varies by action */}
-            <ActionContext action={action} node={node} config={config} downstreamNodes={downstreamNodes} downstreamCount={downstreamCount} />
+            <ActionContext action={action} node={node} config={config} downstreamNodes={downstreamNodes} downstreamCount={downstreamCount} t={t} />
 
             {/* Instruction input */}
             <div>
               <label className="text-[10px] font-medium mb-1 block" style={{ color: 'var(--color-text-muted)' }}>
-                补充说明 <span className="font-light" style={{ color: 'var(--color-text-disabled)' }}>（可选）</span>
+                {t('action.additionalInstructions')} <span className="font-light" style={{ color: 'var(--color-text-disabled)' }}>{t('action.optional')}</span>
               </label>
               <textarea
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
-                placeholder={getPlaceholder(action)}
+                placeholder={getPlaceholder(action, t)}
                 rows={2}
                 className="w-full px-3 py-2 rounded-lg text-xs bg-transparent resize-none outline-none transition-colors focus:ring-1"
                 style={{
@@ -241,33 +243,33 @@ export default function ActionPanel({
         {isStreaming ? (
           <>
             {stream.running ? (
-              <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>⏳ Agent 正在处理...</span>
+              <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>{t('action.agentProcessing')}</span>
             ) : stream.result?.review_passed === false ? (
-              <span className="text-[9px]" style={{ color: '#ff4444' }}>❌ Reviewer 未通过</span>
+              <span className="text-[9px]" style={{ color: '#ff4444' }}>{t('action.reviewerFailedShort')}</span>
             ) : (
-              <span className="text-[9px]" style={{ color: '#22c55e' }}>✅ 处理完成</span>
+              <span className="text-[9px]" style={{ color: '#22c55e' }}>{t('action.processingCompleteShort')}</span>
             )}
             <button onClick={onClose} disabled={stream.running}
               className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:bg-black/[0.03] disabled:opacity-30"
               style={{ color: 'var(--color-text-muted)' }}>
-              {stream.running ? '处理中...' : '关闭'}
+              {stream.running ? t('action.processing') : t('common.close')}
             </button>
           </>
         ) : (
           <>
             <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>
-              修改前自动备份
+              {t('action.autoBackupShort')}
             </span>
             <div className="flex items-center gap-2">
               <button onClick={onClose}
                 className="px-3 py-1.5 rounded-md text-xs font-medium transition-all hover:bg-black/[0.03] active:scale-[0.98]"
                 style={{ color: 'var(--color-text-muted)' }}>
-                取消
+                {t('common.cancel')}
               </button>
               <button onClick={handleConfirm}
                 className="px-4 py-1.5 rounded-md text-xs font-semibold transition-all hover:opacity-90 active:scale-[0.98]"
                 style={{ background: config.color, color: '#fff' }}>
-                开始{config.label}
+                {t('action.startAction', { label: config.label })}
               </button>
             </div>
           </>
@@ -279,16 +281,16 @@ export default function ActionPanel({
 
 /* ── Action-specific context info ── */
 
-function ActionContext({ action, node, config, downstreamNodes, downstreamCount }: {
-  action: ActionType; node: GraphNode; config: typeof ACTION_CONFIGS[ActionType];
-  downstreamNodes?: GraphNode[]; downstreamCount: number;
+function ActionContext({ action, node, config, downstreamNodes, downstreamCount, t }: {
+  action: ActionType; node: GraphNode; config: ReturnType<typeof getActionConfig>;
+  downstreamNodes?: GraphNode[]; downstreamCount: number; t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
   switch (action) {
     case 'fix':
       return (
         <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
           <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            仅修复 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 节点的问题。
+            {t('action.fixContext', { name: node.label })}
           </p>
         </div>
       );
@@ -296,11 +298,11 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
       return (
         <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
           <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            将对 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 及其关联链路执行完整测试。
+            {t('action.testContext', { name: node.label })}
           </p>
           <div className="mt-2 flex items-center gap-1.5">
-            {['单元测试', '集成测试', '端到端'].map(t => (
-              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>{t}</span>
+            {[t('action.unitTest'), t('action.integrationTest'), t('action.e2eTest')].map(label => (
+              <span key={label} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>{label}</span>
             ))}
           </div>
         </div>
@@ -309,8 +311,8 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
       return (
         <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
           <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            以 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 为起点，重构该节点及其所有下游节点
-            {downstreamCount > 0 && <span>（共 <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{downstreamCount}</span> 个）</span>}。
+            {t('action.refactorContext', { name: node.label })}
+            {downstreamCount > 0 && <span>{t('action.downstreamCountShort', { count: downstreamCount })}</span>}。
           </p>
           {downstreamNodes && downstreamNodes.length > 0 && (
             <div className="mt-2 space-y-0.5">
@@ -322,7 +324,7 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
                 </div>
               ))}
               {downstreamNodes.length > 8 && (
-                <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>...还有 {downstreamNodes.length - 8} 个</span>
+                <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>{t('action.moreNodesShort', { count: downstreamNodes.length - 8 })}</span>
               )}
             </div>
           )}
@@ -332,7 +334,7 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
       return (
         <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
           <ul className="space-y-0.5 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-            {['功能概述与业务逻辑', '调用链路与数据流图', '关键函数签名与参数说明', '上下游依赖关系', '边界情况与注意事项'].map(item => (
+            {[t('action.docItem1'), t('action.docItem2'), t('action.docItem3'), t('action.docItem4'), t('action.docItem5')].map(item => (
               <li key={item}>· {item}</li>
             ))}
           </ul>
@@ -342,11 +344,11 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
       return (
         <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
           <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            完成 <span style={{ color: config.color, fontWeight: 600 }}>{node.label}</span> 新功能的开发。
+            {t('action.devContext', { name: node.label })}
           </p>
           <div className="mt-2 flex items-center gap-1.5">
-            {['新建文件', '实现函数', '建立调用链'].map(t => (
-              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>{t}</span>
+            {[t('action.createFiles'), t('action.implFunctions'), t('action.buildCallChain')].map(label => (
+              <span key={label} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-secondary)' }}>{label}</span>
             ))}
           </div>
         </div>
@@ -358,14 +360,14 @@ function ActionContext({ action, node, config, downstreamNodes, downstreamCount 
 
 /* ── Helpers ── */
 
-function getPlaceholder(action: ActionType): string {
+function getPlaceholder(action: ActionType, t: (key: string) => string): string {
   switch (action) {
-    case 'test': return '指定测试范围或测试策略...';
-    case 'fix': return '描述已知的问题原因或修复方向...';
-    case 'refactor': return '描述重构目标和期望的架构方向...';
-    case 'explain': return '指定文档侧重点或需要强调的内容...';
-    case 'develop': return '描述功能需求和技术约束...';
-    default: return '输入补充说明...';
+    case 'test': return t('action.testPlaceholder');
+    case 'fix': return t('action.fixPlaceholder');
+    case 'refactor': return t('action.refactorPlaceholder');
+    case 'explain': return t('action.explainPlaceholder');
+    case 'develop': return t('action.developPlaceholder');
+    default: return t('action.defaultPlaceholder');
   }
 }
 

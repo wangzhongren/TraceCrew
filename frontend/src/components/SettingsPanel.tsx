@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useT } from '../i18n';
 
 interface LLMSettings {
   apiKey: string;
@@ -21,6 +22,7 @@ function save(s: LLMSettings) {
 }
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const [settings, setSettings] = useState<LLMSettings>(() => loadLocal() || { apiKey: '', baseUrl: '', model: '' });
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -74,7 +76,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       style={{ background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
-        <span className="text-sm font-medium" style={{ color: 'var(--ibm-text)' }}>LLM Settings</span>
+        <span className="text-sm font-medium" style={{ color: 'var(--ibm-text)' }}>{t('settings.llm')}</span>
         <button onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
           style={{ color: 'var(--ibm-text-placeholder)' }}>
@@ -87,10 +89,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       {/* Fields */}
       <div className="px-4 py-3 space-y-3">
         {loading && (
-          <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>Loading from .env...</div>
+          <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>{t('settings.loading')}</div>
         )}
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>API Key</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.apiKey')}</span>
           <input
             type="password"
             value={settings.apiKey}
@@ -102,7 +104,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Base URL</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.baseUrl')}</span>
           <input
             type="text"
             value={settings.baseUrl}
@@ -114,7 +116,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>Model</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.model')}</span>
           <input
             type="text"
             value={settings.model}
@@ -129,12 +131,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
         <span className="text-xs" style={{ color: saved ? '#24a148' : 'transparent' }}>
-          ✓ Saved
+          {t('settings.saved')}
         </span>
         <button onClick={handleSave}
           className="px-4 py-1.5 text-xs font-medium rounded transition-colors"
           style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
-          Save
+          {t('settings.save')}
         </button>
       </div>
     </div>

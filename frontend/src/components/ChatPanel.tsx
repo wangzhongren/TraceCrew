@@ -6,6 +6,7 @@ import type { PipelineState } from '../App';
 import PlanCard from './PlanCard';
 import ReviewCard from './ReviewCard';
 import type { CallGraph } from './MapCanvas';
+import { useT, useLocale } from '../i18n';
 
 /* ── Timeline entry ── */
 type TimelineEntry =
@@ -44,6 +45,8 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   projectPath: string | null;
   onPipelineChange: (s: Partial<PipelineState>) => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
@@ -64,7 +67,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   ) => {
     const res = await fetch('/api/v1/agent/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, project_path: projectPath }), signal: abortRef.current?.signal,
+      body: JSON.stringify({ ...body, project_path: projectPath, locale }), signal: abortRef.current?.signal,
     });
     const reader = res.body?.getReader();
     if (!reader) return { text: '' };
@@ -195,7 +198,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     const didReadFiles = plannerUsedTools.current;
 
     if (!didReadFiles) {
-      pushTimeline({ kind: 'system', text: '📖 Planner 未读取文件，跳过后续验证' });
+      pushTimeline({ kind: 'system', text: t('chat.plannerNoFiles') });
       onPipelineChange({ phase: 'done' });
       setRunning(false);
       return;
@@ -222,7 +225,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       await runMapper(instruction, plan, plannerText);
     } else {
       // Plan rejected → retry Planner
-      pushTimeline({ kind: 'system', text: '🔄 审查未通过，重新分析...' });
+      pushTimeline({ kind: 'system', text: t('chat.reviewFailed') });
       setRunning(false);
       setTimeout(() => runPlanner(instruction), 500);
     }
@@ -247,7 +250,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
       flushSync(() => onPipelineChange({ phase: 'done', graph }));
     } else {
-      pushTimeline({ kind: 'system', text: '⚠️ Mapper 未生成有效的调用图' });
+      pushTimeline({ kind: 'system', text: t('chat.mapperNoGraph') });
       onPipelineChange({ phase: 'done' });
     }
 
@@ -267,9 +270,9 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   return (
     <div className="flex flex-col h-full">
       <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-        <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>Agent Pipeline</h2>
+        <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>{t('chat.pipeline')}</h2>
         <p className="text-xs mt-0.5 font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
-          Planner&nbsp;→&nbsp;Reviewer&nbsp;→&nbsp;Mapper
+          {t('chat.pipelineFlow')}
         </p>
       </header>
 
@@ -282,8 +285,8 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
                 <circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/><circle cx="22" cy="12" r="2"/>
                 <line x1="12" y1="13" x2="15" y2="17"/><line x1="20" y1="13" x2="17" y2="17"/>
               </svg>
-              <p className="mt-4 text-sm font-light tracking-wide">Describe your task</p>
-              <p className="mt-1 text-xs font-light opacity-60">The agent pipeline will plan, map, execute, and review</p>
+              <p className="mt-4 text-sm font-light tracking-wide">{t('chat.describeTask')}</p>
+              <p className="mt-1 text-xs font-light opacity-60">{t('chat.pipelineHint')}</p>
             </div>
           </div>
         )}
@@ -350,8 +353,8 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
                 <AgentBlock color={AG.mapper.color} name="Mapper" status="done">
                   <div className="flex items-center gap-3 pb-2">
                     <span className="text-xs tracking-wide" style={{ color: AG.mapper.color }}>
-                      Call graph &nbsp;
-                      <span style={{ color: 'var(--ibm-text-secondary)' }}>{entry.nodes} nodes, {entry.edges} edges</span>
+                      {t('chat.callGraph')} &nbsp;
+                      <span style={{ color: 'var(--ibm-text-secondary)' }}>{t('chat.nodesCount', { count: entry.nodes }) + ', ' + t('chat.edgesCount', { count: entry.edges })}</span>
                     </span>
                   </div>
                 </AgentBlock>
@@ -359,7 +362,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
 
               {/* Agent: review result */}
               {entry.kind === 'review' && (
-                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'} doneLabel="审核结果">
+                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'} doneLabel={t('chat.reviewResult')}>
                   <ReviewCard passed={entry.passed} feedback={entry.feedback} issues={entry.issues} color={AG.reviewer.color} />
                 </AgentBlock>
               )}
@@ -372,7 +375,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       <footer className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
         <div className="flex items-end gap-3 p-2 rounded-lg" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--color-border-default)' }}>
           <textarea value={input} onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe what you want to build or fix..."
+            placeholder={t('chat.inputPlaceholder')}
             disabled={running} rows={2}
             className="flex-1 py-1 text-sm bg-transparent outline-none resize-none min-h-[44px] focus:outline-none focus:ring-0"
             style={{ fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)' }}
@@ -388,7 +391,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
               <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
                 className="px-3 py-2 rounded-md text-xs font-medium transition-colors"
                 style={{ color: 'var(--ibm-error)', border: '1px solid var(--ibm-error)', background: 'transparent' }}>
-                Stop
+                {t('chat.stop')}
               </button>
             ) : (
               <button onClick={handleSend} disabled={!input.trim()}
@@ -403,10 +406,10 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
         </div>
         <div className="flex justify-between mt-2 px-2">
           <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
-            Enter to send, Shift+Enter for new line
+            {t('chat.enterHint')}
           </span>
           <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
-            {input.length} / 4000
+            {t('chat.charCount', { count: input.length })}
           </span>
         </div>
       </footer>
@@ -417,6 +420,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
 /* ── Collapsible tool group ── */
 
 function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   if (tools.length === 0) return null;
   return (
@@ -427,7 +431,7 @@ function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: strin
           <span className="w-1 h-1 rounded-full" style={{ background: color }} />
         </span>
         <span className="text-caption" style={{ color: 'var(--color-text-muted)' }}>
-          🔧 {tools.length} 个工具操作
+          🔧 {t('chat.toolOperations', { count: tools.length })}
         </span>
         <span className="text-caption" style={{ color: 'var(--color-text-disabled)' }}>
           {tools.slice(0, 3).map((t: any) => TOOL_LABEL[t.tool] || t.tool).join(', ')}{tools.length > 3 ? '...' : ''}
@@ -466,8 +470,9 @@ function AgentBlock({ text, color, name, status, doneLabel, children }: {
   doneLabel?: string;
   children?: React.ReactNode;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(!!children);
-  const label = status === 'failed' ? '未通过' : status === 'done' ? (doneLabel || '完成') : text ? `${Math.round((text || '').length / 100)} 字` : '思考中...';
+  const label = status === 'failed' ? t('chat.failed') : status === 'done' ? (doneLabel || t('chat.done')) : text ? `${Math.round((text || '').length / 100)} ${t('chat.chars')}` : t('chat.thinking');
   const spinner = status === 'thinking' || (!status && (text || '').length < 10);
 
   return (

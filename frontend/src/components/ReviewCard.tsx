@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useT } from '../i18n';
 
 function cleanTags(text: string): string {
   return text
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function ReviewCard({ passed, feedback, issues, color }: Props) {
+  const t = useT();
   const statusColor = passed ? '#22c55e' : '#ff4444';
   const cleaned = useMemo(() => cleanTags(feedback || ''), [feedback]);
 
@@ -26,7 +28,7 @@ export default function ReviewCard({ passed, feedback, issues, color }: Props) {
     <div>
       <div className="flex items-center gap-1.5 mb-1">
         <span className="w-1 h-3 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-caption text-muted font-medium tracking-wide">审核结果</span>
+        <span className="text-caption text-muted font-medium tracking-wide">{t('chat.reviewResult')}</span>
         <span className="text-caption font-bold tracking-wider px-1.5 py-0.5 rounded" style={{ background: statusColor + '20', color: statusColor, fontSize: '9px' }}>{passed ? 'PASSED' : 'FAILED'}</span>
       </div>
       <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>

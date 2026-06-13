@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import dagre from 'dagre';
 import { STATUS_COLORS, EDGE_COLORS, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
+import { useT } from '../i18n';
 
 /* ═══════════════════════════════════════════════════════════
    Call Graph Canvas — Node-Link diagram for code structure
@@ -140,6 +141,7 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge
 /* ══════════════════════════════════════════════════ */
 
 function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: Props) {
+  const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ x: 60, y: 40, scale: 1 });
@@ -241,8 +243,8 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
           <div className="text-center space-y-3">
             <div className="text-4xl opacity-20">◈</div>
             <p className="text-sm font-light" style={{ color: '#6b7280' }}>
-              {phase === 'idle' ? 'Call graph will appear when Mapper analyzes the code' :
-               phase === 'planning' ? 'Mapper is analyzing call chains...' : 'No graph yet'}
+              {phase === 'idle' ? t('graph.emptyHint') :
+               phase === 'planning' ? t('graph.analyzing') : t('graph.noGraph')}
             </p>
           </div>
         </div>
@@ -289,7 +291,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                     fill="#e11d48" opacity={0.7} />
                   <text x={midX - 4} y={(sy + ty) / 2 - 6} textAnchor="end"
                     fill="#e11d48" fontSize="9" fontFamily="var(--font-family-ui)" opacity={0.6}>
-                    ↩ {edge.label || 'feedback'}
+                    ↩ {edge.label || t('graph.feedback')}
                   </text>
                 </g>
               );
@@ -380,7 +382,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                       fill="#3b82f6" opacity={0.15} />
                     <text x={node.x + NODE_W - 53} y={node.y + 16} textAnchor="middle"
                       fill="#3b82f6" fontSize="10" fontWeight={700}
-                      fontFamily="var(--font-family-ui)">起点</text>
+                      fontFamily="var(--font-family-ui)">{t('graph.start')}</text>
                   </>
                 )}
 
@@ -393,7 +395,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                       fill="#9ca3af" opacity={0.15} />
                     <text x={node.x + NODE_W / 2} y={node.y + node.h - 11} textAnchor="middle"
                       fill="#9ca3af" fontSize="11" fontWeight={700}
-                      fontFamily="var(--font-family-ui)">终点</text>
+                      fontFamily="var(--font-family-ui)">{t('graph.end')}</text>
                   </>
                 )}
 
@@ -478,10 +480,10 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
         <div className="absolute bottom-4 left-4 rounded-xl px-4 py-2.5 flex gap-4 flex-wrap"
           style={{ background: '#ffffffdd', backdropFilter: 'blur(8px)', border: '1px solid var(--color-border-default)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
           {[
-            { key: 'existing', label: '现有代码', count: statusCounts.existing || 0 },
-            { key: 'problem', label: '问题/待修复', count: (statusCounts.problem || 0) + (statusCounts.planned_change || 0) },
-            { key: 'planned_new', label: '新增', count: statusCounts.planned_new || 0 },
-            { key: 'done', label: '已完成', count: statusCounts.done || 0 },
+            { key: 'existing', label: t('graph.existingCode'), count: statusCounts.existing || 0 },
+            { key: 'problem', label: t('graph.problemToFix'), count: (statusCounts.problem || 0) + (statusCounts.planned_change || 0) },
+            { key: 'planned_new', label: t('graph.new'), count: statusCounts.planned_new || 0 },
+            { key: 'done', label: t('graph.completed'), count: statusCounts.done || 0 },
           ]
           .filter(item => item.count > 0 || item.key === 'existing')
           .map(({ key, label, count }) => {
@@ -497,17 +499,17 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
           {/* Start/End markers */}
           <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#3b82f6' }}>▶ 起点</span>
+            <span className="text-caption" style={{ color: '#3b82f6' }}>▶ {t('graph.start')}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#9ca3af' }}>━ 终点</span>
+            <span className="text-caption" style={{ color: '#9ca3af' }}>━ {t('graph.end')}</span>
           </div>
           {/* Edge legend */}
           <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
           {[
-            { key: 'existing', label: '调用', color: EDGE_COLORS.existing },
-            { key: 'error', label: '异常', color: EDGE_COLORS.error },
-            { key: 'new', label: '新增', color: EDGE_COLORS.new },
+            { key: 'existing', label: t('graph.call'), color: EDGE_COLORS.existing },
+            { key: 'error', label: t('graph.error'), color: EDGE_COLORS.error },
+            { key: 'new', label: t('graph.new'), color: EDGE_COLORS.new },
           ].map(({ key, label, color }) => (
             <div key={`e-${key}`} className="flex items-center gap-1.5">
               <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth={key === 'error' ? 2 : 1.2} strokeDasharray={key === 'removed' ? '4,3' : undefined}/><polygon points="14,2 18,5 14,8" fill={color}/></svg>
