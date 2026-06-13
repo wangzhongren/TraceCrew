@@ -88,7 +88,7 @@
   --color-status-problem: #dc2626;
   --color-status-change: #d97706;
   --color-status-new: #16a34a;
-  --color-status-done: #16a34a;
+  --color-status-done: #2563eb;
 
   /* ── Semantic tokens: spacing ── */
   --spacing-xs: 4px;

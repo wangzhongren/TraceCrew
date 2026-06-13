@@ -21,7 +21,7 @@ export const STATUS_COLORS: Record<NodeStatus, StatusColor> = {
   problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#dc2626', text: '#991b1b', icon: '✕' },
   planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#d97706', text: '#92400e', icon: '✎' },
   planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#16a34a', text: '#166534', icon: '+' },
-  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#16a34a', text: '#166534', icon: '✓' },
+  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#2563eb', text: '#1e40af', icon: '✓' },
 };
 
 export const STATUS_COLOR_DIM: StatusColor = {
