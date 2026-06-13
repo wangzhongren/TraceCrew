@@ -239,13 +239,77 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
 
       {/* Empty state */}
       {(!graph || graph.nodes.length === 0) && (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'transparent' }}>
-          <div className="text-center space-y-3">
-            <div className="text-4xl opacity-20">◈</div>
-            <p className="text-sm font-light" style={{ color: '#6b7280' }}>
-              {phase === 'idle' ? t('graph.emptyHint') :
-               phase === 'planning' ? t('graph.analyzing') : t('graph.noGraph')}
-            </p>
+        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'transparent', zIndex: 10 }}>
+          <div className="text-center space-y-5 max-w-xs">
+            {/* Graph network illustration */}
+            <svg width="120" height="90" viewBox="0 0 120 90" fill="none" className="mx-auto" style={{ opacity: 0.18 }}>
+              {/* Nodes */}
+              <rect x="40" y="2" width="40" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
+              <rect x="4" y="36" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
+              <rect x="52" y="36" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
+              <rect x="22" y="70" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
+              <rect x="72" y="70" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
+              {/* Edges */}
+              <path d="M50 20 L22 36" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
+              <path d="M70 20 L70 36" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
+              <path d="M22 54 L40 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
+              <path d="M70 54 L70 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
+              <path d="M70 54 L90 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
+              {/* Node accent bars */}
+              <rect x="40" y="2" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
+              <rect x="4" y="36" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
+              <rect x="52" y="36" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
+              <rect x="22" y="70" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
+              <rect x="72" y="70" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
+              {/* Dot labels inside nodes */}
+              <line x1="48" y1="8" x2="72" y2="8" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
+              <line x1="48" y1="13" x2="66" y2="13" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
+              <line x1="12" y1="42" x2="32" y2="42" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
+              <line x1="12" y1="47" x2="28" y2="47" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
+              <line x1="60" y1="42" x2="80" y2="42" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
+              <line x1="60" y1="47" x2="76" y2="47" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
+            </svg>
+
+            {/* Title */}
+            <div>
+              <p className="text-sm font-medium tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
+                {t('graph.callGraph')}
+              </p>
+              <p className="text-xs font-light mt-1.5" style={{ color: 'var(--color-text-muted)' }}>
+                {phase === 'idle' ? t('graph.emptyHint') :
+                 phase === 'planning' ? t('graph.analyzing') :
+                 phase === 'executing' || phase === 'reviewing' ? t('graph.processing') : t('graph.noGraph')}
+              </p>
+            </div>
+
+            {/* Pipeline step indicator */}
+            {phase !== 'idle' && (
+              <div className="flex items-center justify-center gap-1.5 mt-1">
+                {(['planning', 'reviewing', 'executing'] as const).map((step, i) => (
+                  <span key={step} className="flex items-center gap-1.5">
+                    <span className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{
+                        background: phase === step ? 'var(--color-text-link)' : 'var(--color-text-disabled)',
+                        animation: phase === step ? 'pulse-dot 1.5s ease-in-out infinite' : 'none',
+                      }} />
+                      <span className="text-[10px] font-light" style={{
+                        color: phase === step ? 'var(--color-text-link)' : 'var(--color-text-disabled)',
+                      }}>
+                        {step === 'planning' ? 'Planner' : step === 'reviewing' ? 'Reviewer' : 'Mapper'}
+                      </span>
+                    </span>
+                    {i < 2 && <span className="text-[10px]" style={{ color: 'var(--color-text-disabled)' }}>→</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Idle hint: point to chat panel */}
+            {phase === 'idle' && (
+              <p className="text-[11px] font-light leading-relaxed" style={{ color: 'var(--color-text-disabled)' }}>
+                {t('graph.emptyAction')}
+              </p>
+            )}
           </div>
         </div>
       )}

@@ -277,7 +277,7 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       </header>
 
       {/* Timeline */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
         {timeline.length === 0 && (
           <div className="flex items-center justify-center h-full px-8">
             <div className="text-center" style={{ color: 'var(--ibm-text-placeholder)' }}>
@@ -556,6 +556,9 @@ function Markdown({ text, muted }: { text: string; muted?: boolean }) {
           h3: ({ children }: any) => <h3 className="text-sm font-medium mt-2 mb-1">{children}</h3>,
           blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-3 my-1 italic opacity-70" style={{ borderColor: 'var(--ibm-border)' }}>{children}</blockquote>,
           a: ({ href, children }: any) => <a href={href} className="md-link" target="_blank" rel="noopener">{children}</a>,
+          table: ({ children }: any) => <div className="overflow-x-auto my-2"><table className="w-full border-collapse text-xs">{children}</table></div>,
+          th: ({ children }: any) => <th className="border px-2 py-1 text-left font-medium" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>{children}</th>,
+          td: ({ children }: any) => <td className="border px-2 py-1" style={{ borderColor: 'var(--color-border-subtle)' }}>{children}</td>,
           hr: () => <hr className="my-2" style={{ borderColor: 'var(--ibm-border-subtle)' }} />,
         }}>
         {cleaned}
