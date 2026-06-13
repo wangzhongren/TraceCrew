@@ -66,6 +66,7 @@
   "action.explainDesc": "Generate detailed Markdown documentation explaining the node's logic and call flow",
   "action.developDesc": "Complete development of the new feature, generating required code and call chains",
   "action.reviewerVerifying": "🔍 Reviewer verifying...",
+  "action.remapping": "Re-mapping call graph...",
   "action.agentExecuting": "⏳ Agent executing...",
   "action.execComplete": "✅ Execution complete",
   "action.toolExecution": "🔧 Tool Execution",

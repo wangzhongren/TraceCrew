@@ -107,11 +107,45 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   };
 
   const parseJson = (text: string): any => {
+    if (!text) return null;
+    // Strategy 1: ```json ... ``` code fence (most reliable)
     let m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (!m) m = text.match(/`json\s*([\s\S]*?)`/);
-    if (!m) m = text.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    try { return JSON.parse(m[1] || m[0]); } catch { return null; }
+    if (m) { try { return JSON.parse(m[1]); } catch {} }
+    // Strategy 2: find JSON object specifically containing "call_graph"
+    const cgIdx = text.indexOf('"call_graph"');
+    if (cgIdx !== -1) {
+      const start = text.lastIndexOf('{', cgIdx);
+      if (start !== -1) {
+        // Walk forward to find the matching closing brace
+        let depth = 0, end = -1;
+        for (let i = start; i < text.length; i++) {
+          if (text[i] === '{') depth++;
+          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+        }
+        if (end !== -1) {
+          try { return JSON.parse(text.slice(start, end)); } catch {}
+        }
+      }
+    }
+    // Strategy 3: find any JSON object containing "plan_summary" (for planner)
+    const planIdx = text.indexOf('"plan_summary"');
+    if (planIdx !== -1) {
+      const start = text.lastIndexOf('{', planIdx);
+      if (start !== -1) {
+        let depth = 0, end = -1;
+        for (let i = start; i < text.length; i++) {
+          if (text[i] === '{') depth++;
+          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+        }
+        if (end !== -1) {
+          try { return JSON.parse(text.slice(start, end)); } catch {}
+        }
+      }
+    }
+    // Strategy 4: last-resort greedy match
+    m = text.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch {} }
+    return null;
   };
 
   /* ── Agent loop ── */
@@ -194,10 +228,11 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     // Planner outputs Markdown directly (not JSON), so fallback to raw fullText
     pushTimeline({ kind: 'plan', agent: 'planner', plan: { plan_summary: (plan?.plan_summary || message || fullText), raw: fullText } });
 
-    // Check if Planner actually used tools
+    // Check if Planner produced meaningful output (either used tools or generated substantial analysis)
     const didReadFiles = plannerUsedTools.current;
+    const hasSubstantiveOutput = (message || fullText).length > 100;
 
-    if (!didReadFiles) {
+    if (!didReadFiles && !hasSubstantiveOutput) {
       pushTimeline({ kind: 'system', text: t('chat.plannerNoFiles') });
       onPipelineChange({ phase: 'done' });
       setRunning(false);
@@ -238,15 +273,27 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     const planCtx = plan?.plan_summary
       ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
       : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
-    const { fullText } = await agentLoop('mapper', '',
+    const { fullText, message } = await agentLoop('mapper', '',
       `【需求】${instruction}\n${planCtx}`,
       (text) => !!(parseJson(text)?.call_graph), false);
 
-    const data = parseJson(fullText);
+    // Try parsing from both fullText and done event's message
+    let data = parseJson(fullText);
+    if (!data?.call_graph) data = parseJson(message);
     console.log(`[Mapper] parsed data:`, data ? `has call_graph=${!!data.call_graph} nodes=${data.call_graph?.nodes?.length || 0}` : 'null', '| last500=', fullText.slice(-500));
 
     if (data?.call_graph?.nodes?.length > 0) {
-      const graph: CallGraph = { nodes: data.call_graph.nodes, edges: data.call_graph.edges || [] };
+      // Normalize edge status: mapper may return "planned_new"/"planned_change" but GraphEdge expects "new"/"existing"
+      const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
+        existing: 'existing', new: 'new', removed: 'removed', error: 'error',
+        planned_new: 'new', planned_change: 'existing',
+      };
+      const rawEdges = data.call_graph.edges || [];
+      const edges = rawEdges.map((e: any) => ({
+        ...e,
+        status: EDGE_STATUS_MAP[e.status] || 'new',
+      }));
+      const graph: CallGraph = { nodes: data.call_graph.nodes, edges };
       pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
       flushSync(() => onPipelineChange({ phase: 'done', graph }));
     } else {

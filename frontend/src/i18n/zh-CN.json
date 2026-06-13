@@ -66,6 +66,7 @@
   "action.explainDesc": "生成详细的 Markdown 文档，解释选中节点的逻辑、调用关系和数据流",
   "action.developDesc": "完成该新功能的开发，生成所需代码和调用链路",
   "action.reviewerVerifying": "🔍 Reviewer 验收中...",
+  "action.remapping": "正在重绘调用图...",
   "action.agentExecuting": "⏳ Agent 正在执行...",
   "action.execComplete": "✅ 执行完成",
   "action.toolExecution": "🔧 工具执行",

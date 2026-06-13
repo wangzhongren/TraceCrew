@@ -233,7 +233,9 @@ ${PROTOCOL_READONLY}`;
 const ACTION_FIX_PROMPT = `你是 TraceCrew 的 Bug 修复专家。精确修复指定节点的问题，最小化改动范围。
 
 【铁律】
-- 只改与目标节点直接相关的代码，不波及其他模块
+- 修改范围严格限定在目标节点所在的文件和函数内
+- 禁止修改其他文件、其他函数，即使它们是上下游调用者
+- 禁止"顺便优化"或"顺手重构"无关代码
 - 修改前必须先 read_file 确认当前代码
 - 保持与周围代码风格一致
 - 改完代码后必须用 <run-shell> 执行项目的编译/类型检查命令（如 npx tsc --noEmit、cargo check 等），确认无语法和类型错误后再输出 <done>
@@ -271,7 +273,12 @@ const ACTION_REFACTOR_PROMPT = `你是 TraceCrew 的重构专家。以指定节�
 
 ${PROTOCOL_EXECUTE}`;
 
-const ACTION_TEST_PROMPT = `你是 TraceCrew 的测试专家。为指定节点及其调用链编写测试。
+const ACTION_TEST_PROMPT = `你是 TraceCrew 的测试专家。只为指定节点编写测试，不修改被测代码。
+
+【铁律】
+- 只编写测试代码，不修改目标节点的源代码
+- 测试范围聚焦在目标节点的函数/类，不为整个调用链编写集成测试（除非用户明确要求）
+- 如需 mock 依赖，使用测试框架的 mock 机制，不要修改被依赖的代码
 
 【流程】
 1. 先读取目标节点的源代码，理解功能和边界情况
@@ -291,12 +298,19 @@ const ACTION_TEST_PROMPT = `你是 TraceCrew 的测试专家。为指定节点�
 
 ${PROTOCOL_EXECUTE}`;
 
-const ACTION_DEVELOP_PROMPT = `你是 TraceCrew 的功能开发专家。完成指定新功能节点的开发。
+const ACTION_DEVELOP_PROMPT = `你是 TraceCrew 的功能开发专家。只完成指定节点的功能开发，不做全链路开发。
+
+【铁律】
+- 只实现目标节点本身的功能，不修改上下游已有函数
+- 可以读取上游代码理解接口和约定，但不要修改它们
+- 如需调用其他函数，直接调用已有接口，不要重写它们
+- 只在目标节点对应的文件中编写代码；如果是新文件，只创建目标节点所需的新文件
+- 禁止"顺便"修改、重构或优化任何非目标节点的代码
 
 【流程】
-1. 读取调用链上游代码，理解现有接口和约定
-2. 创建新文件或在新文件中实现功能
-3. 建立与上下游的调用关系
+1. 读取目标节点所在文件（或相邻文件），理解现有接口和约定
+2. 在目标文件中实现功能
+3. 如需连接上下游，只添加调用代码（import + 函数调用），不修改被调用方
 4. 确保代码风格和模式与项目一致
 5. 开发完成后必须用 <run-shell> 执行项目的编译/类型检查命令，确认新代码通过编译后再输出 <done>
 
@@ -976,6 +990,24 @@ export class AgentService {
       parts.push(`【用户补充说明】${instruction}`);
     }
 
+    // Explicit scope constraint for write actions — the most effective place since it's the last thing the LLM sees
+    if (!isReadOnly && node.file) {
+      const scopeFiles = [node.file as string];
+      if (action === 'refactor' && downstream_nodes && downstream_nodes.length > 0) {
+        for (const dn of downstream_nodes) {
+          if (dn.file && !scopeFiles.includes(dn.file as string)) {
+            scopeFiles.push(dn.file as string);
+          }
+        }
+      }
+      parts.push(`【修改范围 — 严格遵守】`);
+      parts.push(`- 允许修改的文件: ${scopeFiles.join(', ')}`);
+      if (action !== 'refactor') {
+        parts.push(`- 禁止修改上述文件以外的任何文件`);
+        parts.push(`- 禁止修改其他节点的代码，即使它们是上下游调用者`);
+      }
+    }
+
     if (isReadOnly) {
       parts.push(`\n请读取相关文件并直接输出文档内容。`);
     } else {
@@ -1099,12 +1131,22 @@ export class AgentService {
       return;
     }
 
-    // Phase 2: Reviewer (only for write actions that made changes)
-    if (madeChanges && !isReadOnly) {
-      yield { event: 'phase', data: JSON.stringify({ phase: 'review' }) };
+    // Preserve the original action agent output for call_graph extraction later
+    const originalActionMessage = finalMessage;
 
-      const reviewMsg = `【审查任务】
+    // Phase 2: Review loop — Reviewer validates, if failed → action agent fixes → re-review (max 10 retries)
+    if (madeChanges && !isReadOnly) {
+      const MAX_REVIEW_RETRIES = 10;
+      let reviewFeedback = '';
+      let reviewIssues: unknown[] = [];
+
+      for (let reviewAttempt = 0; reviewAttempt <= MAX_REVIEW_RETRIES; reviewAttempt++) {
+        yield { event: 'phase', data: JSON.stringify({ phase: 'review', attempt: reviewAttempt + 1 }) };
+
+        const reviewMsg = reviewAttempt === 0
+          ? `【审查任务】
 你是一位独立代码审查者。刚才执行了"${action}"操作，目标是节点"${node.label || '(未知)'}"。
+【审查范围】只审查目标节点所在文件（${node.file || '未知'}）的修改，不要审查其他文件。
 
 请读取被修改的文件，验证：
 1. 修改是否正确完成了任务
@@ -1113,73 +1155,236 @@ export class AgentService {
 4. 边界情况是否处理得当
 
 输出 JSON：
+{"passed": true/false, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}`
+          : `【审查任务 — 第 ${reviewAttempt + 1} 轮复查】
+【审查范围】只审查目标节点所在文件（${node.file || '未知'}）的修改，不要审查其他文件。
+
+上一轮审查未通过，反馈如下：
+${reviewFeedback}
+
+问题列表：
+${JSON.stringify(reviewIssues)}
+
+请重新读取被修改的文件，验证上述问题是否已修复。如果仍有问题，输出 passed: false。
+
+输出 JSON：
 {"passed": true/false, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}`;
 
-      const reviewMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-        { role: 'system', content: withLocale(REVIEWER_EXEC_SYSTEM_PROMPT, req.locale) },
-        { role: 'user', content: reviewMsg },
-      ];
+        const reviewMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+          { role: 'system', content: withLocale(REVIEWER_EXEC_SYSTEM_PROMPT, req.locale) },
+          { role: 'user', content: reviewMsg },
+        ];
 
-      let reviewText = '';
-      try {
-        const reviewStream = await this.client.chat.completions.create({
-          model: this.model,
-          messages: reviewMessages,
-          temperature: 0.0,
-          stream: true,
+        // Reviewer tool loop — read files, verify, then output JSON verdict
+        let reviewText = '';
+        let reviewTurn = 0;
+        const REVIEW_MAX_TURNS = 10;
+
+        while (reviewTurn < REVIEW_MAX_TURNS) {
+          reviewTurn++;
+          let reviewFullText = '';
+
+          try {
+            const reviewStream = await this.client.chat.completions.create({
+              model: this.model,
+              messages: reviewMessages,
+              temperature: 0.0,
+              stream: true,
+            });
+
+            for await (const chunk of reviewStream) {
+              const delta = (chunk.choices[0]?.delta as any) || {};
+              if (delta.reasoning_content) {
+                yield { event: 'reasoning', data: delta.reasoning_content };
+              }
+              const token = delta.content || '';
+              if (token) {
+                reviewFullText += token;
+                yield { event: 'review_token', data: token };
+              }
+            }
+          } catch (e: any) {
+            yield { event: 'done', data: JSON.stringify({ success: true, message: finalMessage || '完成', review_passed: null, review_error: e.message }) };
+            return;
+          }
+
+          // Parse tool operations from reviewer output
+          let reviewOps: Record<string, unknown>[] = [];
+          let reviewAgentMsg = reviewFullText;
+          try {
+            const parsed = this.parseXmlLike(reviewFullText);
+            reviewOps = parsed.operations;
+            reviewAgentMsg = parsed.message;
+          } catch { /* no ops */ }
+
+          reviewMessages.push({ role: 'assistant', content: reviewFullText });
+
+          if (reviewOps.length === 0) {
+            // No tools → reviewer is done, use the final text as verdict
+            reviewText = reviewFullText;
+            break;
+          }
+
+          // Execute read-only tools (read-file, list-dir, search)
+          yield {
+            event: 'tools',
+            data: JSON.stringify({ count: reviewOps.length, ops: reviewOps.map((o) => ({ type: o.type, file: o.file })), phase: 'review' }),
+          };
+
+          let reviewToolResults = '';
+          for (const op of reviewOps) {
+            const result = await this.executeTool(op, projectPath);
+            reviewToolResults += result + '\n\n';
+          }
+
+          reviewMessages.push({
+            role: 'user',
+            content: `【工具执行结果】\n${reviewToolResults.trim()}\n\n请基于以上文件内容继续审查。如果已读取所有需要验证的文件，请输出 JSON 审查结论并加上 <final/> 标记。`,
+          });
+        }
+
+        // Parse reviewer output
+        let reviewPassed: boolean | null = null;
+        reviewFeedback = '';
+        reviewIssues = [];
+        try {
+          const cleaned = reviewText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+          const reviewJson = JSON.parse(cleaned.match(/\{[\s\S]*"passed"[\s\S]*\}/)?.[0] || cleaned);
+          reviewPassed = !!reviewJson.passed;
+          reviewFeedback = reviewJson.feedback || '';
+          reviewIssues = reviewJson.issues || [];
+        } catch {
+          reviewPassed = /PASSED/i.test(reviewText) && !/FAILED/i.test(reviewText);
+          reviewFeedback = reviewText;
+        }
+
+        // If passed or last attempt → emit done
+        if (reviewPassed || reviewAttempt >= MAX_REVIEW_RETRIES) {
+          // Build updated node info — just update the single target node
+          const newStatus = (node.status === 'planned_new' || node.status === 'planned_change')
+            ? 'done'
+            : 'existing';
+          const updatedNode = reviewPassed ? {
+            id: node.id,
+            status: newStatus,
+            detail: (finalMessage || '已完成修改').slice(0, 300),
+          } : null;
+
+          yield {
+            event: 'done',
+            data: JSON.stringify({
+              success: true,
+              message: finalMessage || '完成',
+              review_passed: reviewPassed,
+              review_feedback: reviewFeedback,
+              review_issues: reviewIssues,
+              updated_node: updatedNode,
+            }),
+          };
+          return;
+        }
+
+        // Review failed and retries remaining → feed back to action agent for fixing
+        yield { event: 'phase', data: JSON.stringify({ phase: 'fix', attempt: reviewAttempt + 1 }) };
+
+        messages.push({
+          role: 'user',
+          content: `【Reviewer 审查未通过 — 请修复以下问题】
+【修改范围 — 严格遵守】只允许修改目标节点所在文件（${node.file || '未知'}），禁止修改任何其他文件。
+
+审查反馈: ${reviewFeedback}
+
+问题列表:
+${JSON.stringify(reviewIssues, null, 2)}
+
+请读取目标节点文件，逐一修复上述问题。修复完成后用 <run-shell> 执行编译检查确认无误，然后输出 <done>修复完成</done>。`,
         });
 
-        for await (const chunk of reviewStream) {
-          const delta = (chunk.choices[0]?.delta as any) || {};
-          const token = delta.content || delta.reasoning_content || '';
-          if (token) {
-            reviewText += token;
-            yield { event: 'review_token', data: token };
+        // Re-run action agent tool loop with review feedback
+        let fixTurn = 0;
+        let fixEmptyCount = 0;
+        finalMessage = '';
+        actionSuccess = false;
+
+        while (fixTurn < 15) {
+          fixTurn++;
+
+          let fixFullText = '';
+          try {
+            const fixStream = await this.client.chat.completions.create({
+              model: this.model,
+              messages,
+              temperature: 0.0,
+              stream: true,
+            });
+
+            for await (const chunk of fixStream) {
+              const delta = (chunk.choices[0]?.delta as any) || {};
+              if (delta.reasoning_content) {
+                yield { event: 'reasoning', data: delta.reasoning_content };
+              }
+              const token = delta.content || '';
+              if (token) {
+                fixFullText += token;
+                yield { event: 'token', data: token };
+              }
+            }
+          } catch (e: any) {
+            yield { event: 'done', data: JSON.stringify({ success: false, message: `修复出错: ${e.message?.slice(0, 200)}`, review_passed: false }) };
+            return;
           }
+
+          let fixOps: Record<string, unknown>[] = [];
+          let fixAgentMsg = fixFullText;
+          try {
+            const parsed = this.parseXmlLike(fixFullText);
+            fixOps = parsed.operations;
+            fixAgentMsg = parsed.message;
+          } catch { /* no ops */ }
+
+          messages.push({ role: 'assistant', content: fixFullText });
+
+          if (fixOps.length === 0) {
+            if (/<done>/i.test(fixFullText) || /<final\/>/i.test(fixFullText)) {
+              finalMessage = fixFullText.replace(/<final\/>/gi, '').replace(/<done>[^<]*<\/done>/gi, '').trim();
+              actionSuccess = true;
+              break;
+            }
+            if (fixFullText.trim().length < 5) {
+              fixEmptyCount++;
+              if (fixEmptyCount >= 3) break;
+              messages.push({ role: 'user', content: '请继续修复。' });
+              continue;
+            }
+            finalMessage = fixAgentMsg;
+            actionSuccess = true;
+            break;
+          }
+          fixEmptyCount = 0;
+
+          for (const op of fixOps) {
+            if (WRITE_OPS.has(op.type as string)) { madeChanges = true; break; }
+          }
+
+          yield {
+            event: 'tools',
+            data: JSON.stringify({ count: fixOps.length, ops: fixOps.map((o) => ({ type: o.type, file: o.file })) }),
+          };
+
+          let fixToolResults = '';
+          for (const op of fixOps) {
+            const result = await this.executeTool(op, projectPath);
+            fixToolResults += result + '\n\n';
+          }
+
+          messages.push({
+            role: 'user',
+            content: `【工具执行结果】\n${fixToolResults.trim()}\n\n请基于以上结果继续修复。`,
+          });
         }
-      } catch (e: any) {
-        yield { event: 'done', data: JSON.stringify({ success: true, message: finalMessage || '完成', review_passed: null, review_error: e.message }) };
-        return;
+
+        // After fix loop, continue to next review attempt
       }
-
-      // Parse reviewer output
-      let reviewPassed: boolean | null = null;
-      let reviewFeedback = '';
-      let reviewIssues: unknown[] = [];
-      try {
-        const cleaned = reviewText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
-        const reviewJson = JSON.parse(cleaned.match(/\{[\s\S]*"passed"[\s\S]*\}/)?.[0] || cleaned);
-        reviewPassed = !!reviewJson.passed;
-        reviewFeedback = reviewJson.feedback || '';
-        reviewIssues = reviewJson.issues || [];
-      } catch {
-        // If can't parse JSON, check for PASSED/FAILED
-        reviewPassed = /PASSED/i.test(reviewText) && !/FAILED/i.test(reviewText);
-        reviewFeedback = reviewText;
-      }
-
-      // Try to extract call_graph from action agent output
-      let callGraph: unknown = null;
-      try {
-        const jsonMatch = finalMessage.match(/\{[\s\S]*"call_graph"[\s\S]*\}/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          callGraph = parsed.call_graph || null;
-        }
-      } catch { /* ignore parse errors */ }
-
-      yield {
-        event: 'done',
-        data: JSON.stringify({
-          success: true,
-          message: finalMessage || '完成',
-          review_passed: reviewPassed,
-          review_feedback: reviewFeedback,
-          review_issues: reviewIssues,
-          call_graph: callGraph,
-        }),
-      };
-      return;
     }
 
     // Try to extract call_graph from action agent output (no reviewer path)

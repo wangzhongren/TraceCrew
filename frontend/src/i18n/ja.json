@@ -66,6 +66,7 @@
   "action.explainDesc": "ノードのロジック、呼び出し関係、データフローを説明する詳細な Markdown ドキュメントを生成します",
   "action.developDesc": "新機能の開発を完了し、必要なコードとコールチェーンを生成します",
   "action.reviewerVerifying": "🔍 Reviewer が検証中...",
+  "action.remapping": "コールグラフを再描画中...",
   "action.agentExecuting": "⏳ Agent が実行中...",
   "action.execComplete": "✅ 実行完了",
   "action.toolExecution": "🔧 ツール実行",

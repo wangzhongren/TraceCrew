@@ -7,10 +7,15 @@ import { useT } from '../i18n';
 
 export interface StreamState {
   running: boolean;
-  phase: 'action' | 'review' | null;
-  actionOutput: string;
-  reviewOutput: string;
-  tools: Array<{ type: string; file: string }>;
+  phase: 'action' | 'review' | 'fix' | 'remap' | null;
+  timeline: Array<{
+    phase: 'action' | 'review' | 'fix' | 'remap';
+    output: string;
+    tools: Array<{ type: string; file: string }>;
+    reviewPassed?: boolean | null;
+    reviewFeedback?: string;
+    reviewIssues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
+  }>;
   result: {
     success?: boolean;
     message?: string;
@@ -19,12 +24,11 @@ export interface StreamState {
     review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
     call_graph?: any;
   } | null;
-  reviewRequired: boolean;
   error: string | null;
 }
 
 export const INITIAL_STREAM_STATE: StreamState = {
-  running: false, phase: null, actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null,
+  running: false, phase: null, timeline: [], result: null, error: null,
 };
 
 interface Props {
@@ -50,7 +54,7 @@ export default function ActionPanel({
     if (isStreaming && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [stream.actionOutput, stream.reviewOutput, isStreaming]);
+  }, [stream.timeline, isStreaming]);
 
   const handleConfirm = () => {
     onConfirm(instruction);
@@ -70,7 +74,10 @@ export default function ActionPanel({
           <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
             {isStreaming ? (
               <span>
-                {stream.phase === 'review' ? t('action.reviewerVerifying') : stream.running ? t('action.agentExecuting') : t('action.execComplete')}
+                {stream.phase === 'review' ? t('action.reviewerVerifying') :
+                 stream.phase === 'fix' ? t('action.agentExecuting') :
+                 stream.phase === 'remap' ? '🗺️ ' + t('action.remapping') :
+                 stream.running ? t('action.agentExecuting') : t('action.execComplete')}
               </span>
             ) : config.description}
           </p>
@@ -88,56 +95,21 @@ export default function ActionPanel({
       <div ref={outputRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
         {isStreaming ? (
           <>
-            {/* Tools executed */}
-            {stream.tools && stream.tools.length > 0 && (
-              <div className="rounded-lg p-2.5" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
-                <h4 className="text-[10px] font-medium mb-1.5 flex items-center gap-2" style={{ color: 'var(--color-text-disabled)' }}>
-                  <span>{t('action.toolExecution')}</span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px]" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-muted)' }}>
-                    {t('action.operations', { count: stream.tools.length })}
-                  </span>
-                </h4>
-                <div className="flex flex-wrap gap-1">
-                  {stream.tools.map((tool, i) => {
-                    const toolColor = getToolColor(tool.type);
-                    return (
-                      <span key={i} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
-                        style={{ background: toolColor.bg, color: toolColor.text }}>
-                        {tool.type}{tool.file ? `: ${tool.file.split('/').pop()}` : ''}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Action output */}
-            {stream.actionOutput && (
-              <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: config.color }} />
-                  <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>{t('action.agentOutput')}</span>
-                  {stream.running && !stream.phase && (
-                    <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>
-                      <span className="inline-block w-1 h-1 rounded-full animate-pulse" style={{ background: '#22c55e' }}/>
-                      {t('action.running')}
-                    </span>
-                  )}
-                </div>
-                <MarkdownContent text={stream.actionOutput} />
-              </div>
-            )}
-
-            {/* Review output */}
-            {stream.reviewOutput && (
-              <div className="rounded-lg p-3" style={{ background: 'var(--color-bg-layer)', border: '1px solid #fecaca' }}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-[10px]">🔍</span>
-                  <span className="text-[10px] font-medium" style={{ color: '#dc2626' }}>{t('action.reviewerVerify')}</span>
-                </div>
-                <MarkdownContent text={stream.reviewOutput} />
-              </div>
-            )}
+            {/* Phase timeline */}
+            {stream.timeline.map((entry, idx) => {
+              const isCurrent = idx === stream.timeline.length - 1 && stream.running;
+              const phaseConfig = getPhaseConfig(entry.phase, t);
+              return (
+                <PhaseSection
+                  key={idx}
+                  entry={entry}
+                  phaseConfig={phaseConfig}
+                  isCurrent={isCurrent}
+                  actionColor={config.color}
+                  t={t}
+                />
+              );
+            })}
 
             {/* Result summary */}
             {stream.result && (
@@ -166,9 +138,9 @@ export default function ActionPanel({
                     )}
                   </div>
                 )}
-                {stream.result.review_issues?.length > 0 && (
+                {(stream.result.review_issues?.length ?? 0) > 0 && (
                   <div className="mt-2 space-y-1">
-                    {stream.result.review_issues.map((issue: any, j: number) => (
+                    {stream.result.review_issues!.map((issue: any, j: number) => (
                       <div key={j} className="text-[9px] flex items-start gap-1.5" style={{ color: '#ff4444' }}>
                         <span className="shrink-0 mt-0.5">⚠</span>
                         <span>[{issue.severity || '?'}] {issue.file || '?'}: {issue.claim || ''}{issue.reality ? ` → ${issue.reality}` : ''}</span>
@@ -275,6 +247,83 @@ export default function ActionPanel({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── Phase section — collapsible card for each timeline entry ── */
+
+function getPhaseConfig(phase: string, t: (k: string) => string) {
+  switch (phase) {
+    case 'action':  return { icon: '⚙️', label: t('action.agentExecuting'), borderColor: 'var(--color-border-subtle)' };
+    case 'review':  return { icon: '🔍', label: t('action.reviewerVerifying'), borderColor: '#fecaca' };
+    case 'fix':     return { icon: '🔧', label: t('action.agentExecuting'), borderColor: '#fed7aa' };
+    case 'remap':   return { icon: '🗺️', label: t('action.remapping'), borderColor: '#c4b5fd' };
+    default:        return { icon: '⚙️', label: phase, borderColor: 'var(--color-border-subtle)' };
+  }
+}
+
+function PhaseSection({ entry, phaseConfig, isCurrent, actionColor, t }: {
+  entry: StreamState['timeline'][0];
+  phaseConfig: ReturnType<typeof getPhaseConfig>;
+  isCurrent: boolean;
+  actionColor: string;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasContent = entry.output.trim().length > 0 || entry.tools.length > 0;
+
+  if (!hasContent && !isCurrent) return null;
+
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${phaseConfig.borderColor}` }}>
+      {/* Phase header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-black/[0.02]"
+        style={{ background: 'var(--color-bg-layer)' }}>
+        <span className="text-[11px]">{phaseConfig.icon}</span>
+        <span className="text-[10px] font-medium flex-1" style={{ color: 'var(--color-text-secondary)' }}>
+          {phaseConfig.label}
+        </span>
+        {isCurrent && (
+          <span className="flex items-center gap-1 text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>
+            <span className="inline-block w-1 h-1 rounded-full animate-pulse" style={{ background: '#22c55e' }}/>
+            {t('action.running')}
+          </span>
+        )}
+        {entry.tools.length > 0 && (
+          <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--color-bg-alt)', color: 'var(--color-text-muted)' }}>
+            🔧 {entry.tools.length}
+          </span>
+        )}
+        <svg width="8" height="8" viewBox="0 0 8 8" className="shrink-0"
+          style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s', color: 'var(--color-text-disabled)' }}>
+          <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      </button>
+
+      {/* Expandable content */}
+      {expanded && (
+        <div className="px-3 py-2" style={{ background: 'var(--color-bg-primary)' }}>
+          {/* Tool badges */}
+          {entry.tools.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {entry.tools.map((tool: { type: string; file: string }, i: number) => {
+                const toolColor = getToolColor(tool.type);
+                return (
+                  <span key={i} className="text-[9px] px-1.5 py-0.5 rounded font-mono"
+                    style={{ background: toolColor.bg, color: toolColor.text }}>
+                    {tool.type}{tool.file ? `: ${tool.file.split('/').pop()}` : ''}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {/* Output text */}
+          {entry.output && <MarkdownContent text={entry.output} />}
+        </div>
+      )}
     </div>
   );
 }

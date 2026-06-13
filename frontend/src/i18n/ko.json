@@ -66,6 +66,7 @@
   "action.explainDesc": "노드의 로직, 호출 관계, 데이터 흐름을 설명하는 상세 Markdown 문서를 생성합니다",
   "action.developDesc": "새 기능 개발을 완료하고 필요한 코드와 콜 체인을 생성합니다",
   "action.reviewerVerifying": "🔍 Reviewer 검증 중...",
+  "action.remapping": "콜 그래프 다시 그리는 중...",
   "action.agentExecuting": "⏳ Agent 실행 중...",
   "action.execComplete": "✅ 실행 완료",
   "action.toolExecution": "🔧 도구 실행",

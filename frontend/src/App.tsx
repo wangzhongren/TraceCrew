@@ -99,6 +99,16 @@ export default function App() {
   // Action handlers (lifted from MapperView)
   const handleRequestAction = useCallback((action: ActionType) => {
     setActiveAction(action);
+    setStream(INITIAL_STREAM_STATE);
+  }, []);
+
+  const handleSelectNode = useCallback((id: string | null) => {
+    setSelectedNode(id);
+    // Reset stream when selecting a different node while action panel is open
+    setActiveAction(prev => {
+      if (prev) setStream(INITIAL_STREAM_STATE);
+      return prev;
+    });
   }, []);
 
   const handleActionClose = useCallback(() => {
@@ -113,7 +123,7 @@ export default function App() {
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
 
-    setStream({ running: true, phase: 'action', actionOutput: '', reviewOutput: '', tools: [], result: null, reviewRequired: false, error: null });
+    setStream({ running: true, phase: 'action', timeline: [{ phase: 'action', output: '', tools: [] }], result: null, error: null });
 
     try {
       const res = await fetch('/api/v1/agent/action/stream', {
@@ -131,7 +141,7 @@ export default function App() {
 
       const reader = res.body?.getReader();
       if (!reader) {
-        setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: t('app.cannotReadStream') }));
+        setStream(prev => ({ ...prev, running: false, error: t('app.cannotReadStream') }));
         return;
       }
 
@@ -158,88 +168,77 @@ export default function App() {
             const payload = JSON.parse(data);
             setStream(prev => {
               switch (event) {
-                case 'phase':
-                  return { ...prev, phase: payload.phase || 'action' };
+                case 'phase': {
+                  const newPhase = payload.phase || 'action';
+                  return {
+                    ...prev,
+                    phase: newPhase,
+                    timeline: [...prev.timeline, { phase: newPhase, output: '', tools: [] }],
+                  };
+                }
                 case 'token':
-                  return { ...prev, actionOutput: prev.actionOutput + data };
+                case 'review_token':
+                case 'remap_token': {
+                  // Append token to the last timeline entry
+                  const tl = [...prev.timeline];
+                  if (tl.length > 0) {
+                    const last = { ...tl[tl.length - 1] };
+                    last.output += data;
+                    tl[tl.length - 1] = last;
+                  }
+                  return { ...prev, timeline: tl };
+                }
                 case 'reasoning':
                   return prev;
-                case 'review_token':
-                  return { ...prev, reviewOutput: prev.reviewOutput + data };
-                case 'tools':
-                  return { ...prev, tools: [...prev.tools, ...(payload.ops || [])] };
+                case 'tools': {
+                  // Add tools to the last timeline entry
+                  const tl = [...prev.timeline];
+                  if (tl.length > 0) {
+                    const last = { ...tl[tl.length - 1] };
+                    last.tools = [...last.tools, ...(payload.ops || [])];
+                    tl[tl.length - 1] = last;
+                  }
+                  return { ...prev, timeline: tl };
+                }
                 case 'done':
-                  if (payload.call_graph && graphRef.current) {
-                    const cg = payload.call_graph;
-                    if (cg.nodes && Array.isArray(cg.nodes) && cg.nodes.length > 0) {
-                      const updatedNodes = cg.nodes as GraphNode[];
-                      const updatedEdges = (cg.edges || []) as GraphEdge[];
-                      const currentGraph = graphRef.current;
-
-                      const nodeMap = new Map(currentGraph.nodes.map(n => [n.id, n]));
-                      for (const un of updatedNodes) {
-                        nodeMap.set(un.id, un);
-                      }
-
-                      const edgeKey = (e: GraphEdge) => `${e.from}->${e.to}`;
-                      const edgeMap = new Map(currentGraph.edges.map(e => [edgeKey(e), e]));
-                      for (const ue of updatedEdges) {
-                        edgeMap.set(edgeKey(ue), ue);
-                      }
-
-                      const newNodes = Array.from(nodeMap.values());
-                      const newEdges = Array.from(edgeMap.values());
-
-                      const oldNodes = currentGraph.nodes;
-                      const oldEdges = currentGraph.edges;
-                      let changed = newNodes.length !== oldNodes.length
-                                || newEdges.length !== oldEdges.length;
-                      if (!changed) {
-                        const oldNodeMap = new Map(oldNodes.map(n => [n.id, n]));
-                        for (const nn of newNodes) {
-                          const on = oldNodeMap.get(nn.id);
-                          if (!on || on.status !== nn.status
-                              || on.label !== nn.label
-                              || on.detail !== nn.detail
-                              || on.kind !== nn.kind
-                              || on.file !== nn.file
-                              || on.line !== nn.line) {
-                            changed = true;
-                            break;
-                          }
-                        }
-                      }
-                      if (!changed) {
-                        const oldEdgeSet = new Set(oldEdges.map(e => edgeKey(e)));
-                        for (const ne of newEdges) {
-                          if (!oldEdgeSet.has(edgeKey(ne))) {
-                            changed = true;
-                            break;
-                          }
-                        }
-                      }
-
-                      if (changed) {
-                        handleGraphChange({ nodes: newNodes, edges: newEdges });
-                      }
+                  // Update single target node if review passed
+                  if (payload.updated_node && graphRef.current) {
+                    const un = payload.updated_node;
+                    const currentGraph = graphRef.current;
+                    const nodeIdx = currentGraph.nodes.findIndex(n => n.id === un.id);
+                    if (nodeIdx !== -1) {
+                      const updatedNodes = [...currentGraph.nodes];
+                      updatedNodes[nodeIdx] = {
+                        ...updatedNodes[nodeIdx],
+                        status: un.status || updatedNodes[nodeIdx].status,
+                        detail: un.detail || updatedNodes[nodeIdx].detail,
+                      };
+                      handleGraphChange({ nodes: updatedNodes, edges: currentGraph.edges });
                     }
                   }
-                  return { ...prev, running: false, result: payload, reviewRequired: payload.review_passed === false };
+                  return { ...prev, running: false, result: payload };
                 default:
                   return prev;
               }
             });
           } catch {
-            if (event === 'token') {
-              setStream(prev => ({ ...prev, actionOutput: prev.actionOutput + data }));
-            } else if (event === 'review_token') {
-              setStream(prev => ({ ...prev, reviewOutput: prev.reviewOutput + data }));
+            // Non-JSON data — append as token to last timeline entry
+            if (event === 'token' || event === 'review_token' || event === 'remap_token') {
+              setStream(prev => {
+                const tl = [...prev.timeline];
+                if (tl.length > 0) {
+                  const last = { ...tl[tl.length - 1] };
+                  last.output += data;
+                  tl[tl.length - 1] = last;
+                }
+                return { ...prev, timeline: tl };
+              });
             }
           }
         }
       }
     } catch (e: any) {
-      setStream(prev => ({ ...prev, running: false, reviewRequired: false, error: e.message || t('app.networkError') }));
+      setStream(prev => ({ ...prev, running: false, error: e.message || t('app.networkError') }));
     }
   }, [activeAction, selectedNodeData, projectPath, downstreamNodes, handleGraphChange, t]);
 
@@ -288,7 +287,7 @@ export default function App() {
                   graph={pipeline.graph}
                   phase={pipeline.phase}
                   selectedNode={selectedNode}
-                  onSelectNode={setSelectedNode}
+                  onSelectNode={handleSelectNode}
                   onGraphChange={handleGraphChange}
                   projectPath={projectPath}
                   activeAction={activeAction}
