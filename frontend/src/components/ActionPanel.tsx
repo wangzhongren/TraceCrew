@@ -22,6 +22,7 @@ export interface StreamState {
     review_passed?: boolean | null;
     review_feedback?: string;
     review_issues?: Array<{ severity: string; file: string; claim: string; reality: string }>;
+    need_replan?: boolean;
     call_graph?: any;
   } | null;
   error: string | null;
@@ -37,11 +38,12 @@ interface Props {
   downstreamNodes?: GraphNode[];
   onClose: () => void;
   onConfirm: (instruction: string) => Promise<void>;
+  onReplan?: () => void;
   stream: StreamState;
 }
 
 export default function ActionPanel({
-  action, node, downstreamNodes, onClose, onConfirm, stream,
+  action, node, downstreamNodes, onClose, onConfirm, onReplan, stream,
 }: Props) {
   const t = useT();
   const [instruction, setInstruction] = useState('');
@@ -147,6 +149,18 @@ export default function ActionPanel({
                       </div>
                     ))}
                   </div>
+                )}
+                {stream.result.need_replan && onReplan && (
+                  <button
+                    onClick={onReplan}
+                    className="mt-3 w-full text-[10px] font-semibold px-3 py-1.5 rounded-md transition-colors flex items-center justify-center gap-1.5"
+                    style={{ background: '#fbbf24', color: '#1c1917' }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                    </svg>
+                    {t('action.replan')}
+                  </button>
                 )}
               </div>
             )}

@@ -120,6 +120,13 @@ export default function App() {
     setPipeline(prev => ({ ...prev, graph: newGraph }));
   }, []);
 
+  const handleReplan = useCallback(() => {
+    // Close action panel and signal re-plan needed
+    // The user can re-enter their task in the chat panel
+    handleActionClose();
+    setPipeline(prev => ({ ...prev, phase: 'idle' }));
+  }, [handleActionClose]);
+
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
 
@@ -311,6 +318,7 @@ export default function App() {
                       stream={stream}
                       onActionConfirm={handleActionConfirm}
                       onActionClose={handleActionClose}
+                      onReplan={handleReplan}
                     />
                   </div>
                 </>

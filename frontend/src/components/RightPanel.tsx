@@ -17,12 +17,13 @@ interface Props {
   stream: StreamState;
   onActionConfirm: (instruction: string) => Promise<void>;
   onActionClose: () => void;
+  onReplan?: () => void;
 }
 
 export default function RightPanel({
   filePath, projectPath, scrollToLine,
   activeAction, actionNode, downstreamNodes, stream,
-  onActionConfirm, onActionClose,
+  onActionConfirm, onActionClose, onReplan,
 }: Props) {
   const [codeRatio, setCodeRatio] = useState(0.5); // 50% code, 50% action when both visible
   const dragging = useState(false);
@@ -68,6 +69,7 @@ export default function RightPanel({
           downstreamNodes={downstreamNodes}
           onClose={onActionClose}
           onConfirm={onActionConfirm}
+          onReplan={onReplan}
           stream={stream}
         />
       </div>

@@ -74,6 +74,11 @@ const PROTOCOL_EXECUTE = `${PROTOCOL_BASE}
 - delete-file: 删除文件
 - run-shell: 在终端执行命令。标签体内写 shell 命令
 
+【⚠️ 写入内容禁止含行号】
+read-file 返回的内容带有行号前缀（如 "   1| import ..."），这些行号仅供定位参考。
+写入文件（create-file / update）时，标签体内的代码**绝对不能**包含行号前缀，必须是纯源代码。
+read-file 读到的 "    1| import React" → create-file 中写 "import React"（去掉行号前缀）
+
 <list-dir path="."></list-dir>
 <search path="src/">关键词</search>
 <search path="src/" regex="true">useState\(</search>
@@ -131,6 +136,13 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 2. 如果需要画图，基于 Planner 的分析结果绘制调用图。可以输出 Markdown 分析过程，但最终必须在末尾附上 call_graph JSON 代码块
 3. 如果不需要画图，直接输出 skip 标记
 
+【核心规则 0：新项目识别与根节点】
+绘制前必须先 list-dir 确认项目根目录结构：
+- 如果项目几乎为空（无 package.json / 无 src 目录 / 文件总数 < 3），说明这是**新项目**
+- 新项目必须创建根节点：id="root-env", label="[项目] 项目环境搭建", status="planned_new", detail="新项目脚手架搭建：包含项目初始化、构建配置、依赖安装、入口文件创建等基础环境准备"
+- 所有 Planner 规划的功能节点必须通过 edge 连接到这个根节点（from="root-env", to="目标节点"）
+- 如果项目已有完整结构（有 package.json + src 目录 + 多个源文件），则不需要此根节点，按正常调用链绘制
+
 【核心规则 1：统一维度】
 所有节点 kind 必须统一，按需求选一个：
 - Bug 修复/功能改动 → 函数调用链（kind="function"）
@@ -143,6 +155,7 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 - electron/ 或 electron/server/ → 前缀 [后端]
 - IPC 通道 / 事件 → 前缀 [IPC]
 - 第三方库 / node_modules → 前缀 [库]
+- 项目基础设施（根节点）→ 前缀 [项目]
 
 例如 label: "[前端] handleClose", "[后端] window:close handler", "[IPC] invoke window:close"
 
@@ -159,6 +172,7 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 - 从 read-file 的输出中（带行号前缀）找到定义所在行
 - line 为数字类型，不是字符串
 - 这是必填字段，用于代码查看器跳转到准确位置
+- **新项目节点的 line 设为 1**
 
 【输出格式】
 \`\`\`json
@@ -205,7 +219,8 @@ const WORKER_SYSTEM_PROMPT = `你是代码执行者。收到任务后直接输�
 【规则】
 - 直接动手，先输出操作标签，最后再总结
 - path 使用相对路径
-- 不要输出"我来读取..."之类的废话，直接 <read-file>`;
+- 不要输出"我来读取..."之类的废话，直接 <read-file>
+- ⚠️ create-file / update 标签体内的代码**禁止包含行号前缀**（read-file 返回的 "   1| " 仅供定位，写入时去掉）`;
 
 /* ═══════════════════════════════════════════════════════════
    Action system prompts — for the action toolbar
@@ -731,6 +746,16 @@ export class AgentService {
           const startLine = (op.start_line as number) || 1;
           const endLine = op.end_line as number | undefined;
           const result = readFile(fullPath, startLine, endLine);
+
+          // Handle file not found / read error
+          if (result.error) {
+            const isNotFound = result.error.includes('文件不存在') || result.error.includes('ENOENT');
+            if (isNotFound) {
+              return `[read_file ${filePath}]\n❌ 文件不存在: ${fullPath}\n\n💡 建议: 请使用 list_dir 确认目录结构，检查文件路径是否正确。如果这是新项目需要创建文件，请使用 create_file 操作。`;
+            }
+            return `[read_file ${filePath}]\n❌ ${result.error}`;
+          }
+
           // Async summarizer: only when reading the full file (no line range)
           if (!op.start_line && !op.end_line && projectPath) {
             this.summarizer.enqueue(projectPath, filePath, result.content, result.lineCount);
@@ -1220,6 +1245,15 @@ ${JSON.stringify(reviewIssues)}
           reviewFeedback = reviewText;
         }
 
+        // Detect structural failures: project empty, files missing, scaffold not created
+        const hasStructuralIssues = ((reviewIssues as any[]) || []).filter((i: any) => i.severity === 'critical').some((i: any) => {
+          const claim = (i.claim || '').toLowerCase();
+          const reality = (i.reality || '').toLowerCase();
+          return claim.includes('不存在') || claim.includes('not found') || claim.includes('no such file')
+            || reality.includes('不存在') || reality.includes('not exist') || reality.includes('为空')
+            || reality.includes('empty') || reality.includes('未创建') || reality.includes('not created');
+        });
+
         // If passed or last attempt → emit done
         if (reviewPassed || reviewAttempt >= MAX_REVIEW_RETRIES) {
           // Build updated node info — just update the single target node
@@ -1241,6 +1275,7 @@ ${JSON.stringify(reviewIssues)}
               review_feedback: reviewFeedback,
               review_issues: reviewIssues,
               updated_node: updatedNode,
+              need_replan: !reviewPassed && hasStructuralIssues,
             }),
           };
           return;
@@ -1249,9 +1284,28 @@ ${JSON.stringify(reviewIssues)}
         // Review failed and retries remaining → feed back to action agent for fixing
         yield { event: 'phase', data: JSON.stringify({ phase: 'fix', attempt: reviewAttempt + 1 }) };
 
-        messages.push({
-          role: 'user',
-          content: `【Reviewer 审查未通过 — 请修复以下问题】
+        if (hasStructuralIssues && reviewAttempt === 0) {
+          // First review found structural issues → tell action agent to create the project scaffold
+          messages.push({
+            role: 'user',
+            content: `【Reviewer 审查未通过 — 项目结构缺失，请创建所需文件】
+
+审查反馈: ${reviewFeedback}
+
+问题列表:
+${JSON.stringify(reviewIssues, null, 2)}
+
+⚠️ 上述问题表明项目基础文件尚未创建。请使用以下步骤重建：
+1. 使用 list_dir 确认项目当前目录结构
+2. 使用 create_file 按顺序创建所有缺失的关键文件（package.json、入口文件、类型定义等）
+3. 创建完成后使用 read_file 验证每个文件内容正确
+4. 所有文件创建完毕且验证通过后，输出 <done>项目脚手架已创建</done>。`,
+          });
+        } else {
+          // Normal code-quality fix
+          messages.push({
+            role: 'user',
+            content: `【Reviewer 审查未通过 — 请修复以下问题】
 【修改范围 — 严格遵守】只允许修改目标节点所在文件（${node.file || '未知'}），禁止修改任何其他文件。
 
 审查反馈: ${reviewFeedback}
@@ -1260,7 +1314,8 @@ ${JSON.stringify(reviewIssues)}
 ${JSON.stringify(reviewIssues, null, 2)}
 
 请读取目标节点文件，逐一修复上述问题。修复完成后用 <run-shell> 执行编译检查确认无误，然后输出 <done>修复完成</done>。`,
-        });
+          });
+        }
 
         // Re-run action agent tool loop with review feedback
         let fixTurn = 0;

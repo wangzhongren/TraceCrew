@@ -87,7 +87,11 @@ ipcMain.handle('window:close', () => mainWindow?.close());
   });
 
   ipcMain.handle('file:readFile', (_e, filePath: string, startLine?: number, endLine?: number) => {
-    return readFile(resolveProjectPath(filePath), startLine, endLine);
+    try {
+      return readFile(resolveProjectPath(filePath), startLine, endLine);
+    } catch (e: any) {
+      return { path: filePath, lines: [], content: '', lineCount: 0, error: e.code === 'ENOENT' ? `文件不存在: ${filePath}` : `读取失败: ${e.message?.slice(0, 200)}` };
+    }
   });
 
   ipcMain.handle('file:writeFile', (_e, filePath: string, content: string) => {

@@ -69,6 +69,7 @@
   "action.remapping": "コールグラフを再描画中...",
   "action.agentExecuting": "⏳ Agent が実行中...",
   "action.execComplete": "✅ 実行完了",
+  "action.replan": "🔄 再計画",
   "action.toolExecution": "🔧 ツール実行",
   "action.operations": "{count} 件の操作",
   "action.agentOutput": "Agent 出力",

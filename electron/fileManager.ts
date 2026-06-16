@@ -19,6 +19,7 @@ export interface FileContent {
   lines: string[];
   content: string;
   lineCount: number;
+  error?: string;
 }
 
 export interface EditResult {
@@ -69,20 +70,32 @@ export function listDirectory(dirPath: string, depth = 0): FileEntry[] {
 }
 
 export function readFile(filePath: string, startLine?: number, endLine?: number): FileContent {
-  const content = readFileSync(filePath, 'utf-8');
-  let lines = content.split('\n');
-  if (startLine && endLine) {
-    lines = lines.slice(startLine - 1, endLine);
-  } else if (startLine) {
-    lines = lines.slice(startLine - 1);
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    let lines = content.split('\n');
+    if (startLine && endLine) {
+      lines = lines.slice(startLine - 1, endLine);
+    } else if (startLine) {
+      lines = lines.slice(startLine - 1);
+    }
+    const sliced = lines.join('\n');
+    return {
+      path: filePath,
+      lines,
+      content: sliced,
+      lineCount: lines.length,
+    };
+  } catch (e: any) {
+    return {
+      path: filePath,
+      lines: [],
+      content: '',
+      lineCount: 0,
+      error: e.code === 'ENOENT'
+        ? `文件不存在: ${filePath}`
+        : `读取失败: ${e.message?.slice(0, 200)}`,
+    };
   }
-  const sliced = lines.join('\n');
-  return {
-    path: filePath,
-    lines,
-    content: sliced,
-    lineCount: lines.length,
-  };
 }
 
 function findProjectRoot(filePath: string): string {

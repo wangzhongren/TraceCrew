@@ -69,6 +69,7 @@
   "action.remapping": "Re-mapping call graph...",
   "action.agentExecuting": "⏳ Agent executing...",
   "action.execComplete": "✅ Execution complete",
+  "action.replan": "🔄 Re-plan",
   "action.toolExecution": "🔧 Tool Execution",
   "action.operations": "{count} operations",
   "action.agentOutput": "Agent Output",

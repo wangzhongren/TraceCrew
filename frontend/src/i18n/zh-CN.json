@@ -69,6 +69,7 @@
   "action.remapping": "正在重绘调用图...",
   "action.agentExecuting": "⏳ Agent 正在执行...",
   "action.execComplete": "✅ 执行完成",
+  "action.replan": "🔄 重新规划",
   "action.toolExecution": "🔧 工具执行",
   "action.operations": "{count} 个操作",
   "action.agentOutput": "Agent 输出",
