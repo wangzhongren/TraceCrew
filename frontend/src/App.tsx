@@ -88,6 +88,21 @@ export default function App() {
   const graphRef = useRef(pipeline.graph);
   graphRef.current = pipeline.graph;
 
+  // Persist graph state to disk (debounced)
+  useEffect(() => {
+    if (!pipeline.graph?.nodes?.length || !projectPath) return;
+    const timer = setTimeout(async () => {
+      try {
+        await window.tracecrew.file.writeFile('.tracecrew/STATE.json', JSON.stringify({
+          graph: pipeline.graph,
+          savedPlan: pipeline.savedPlan,
+          updatedAt: new Date().toISOString(),
+        }, null, 2));
+      } catch { /* best-effort */ }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [pipeline.graph, pipeline.savedPlan, projectPath]);
+
   /** Compute downstream nodes for the selected node (used by refactor action) */
   const downstreamNodes = useMemo((): GraphNode[] => {
     if (!pipeline.graph || !selectedNode) return [];
@@ -115,10 +130,24 @@ export default function App() {
 
   const handleOpenProject = useCallback((p: string) => {
     setProjectPath(p);
-    setPipeline({ phase: 'idle', graph: null });
     setSelectedNode(null);
     setActiveAction(null);
     setStream(INITIAL_STREAM_STATE);
+
+    // Try to restore saved state
+    (async () => {
+      try {
+        const fc = await window.tracecrew.file.readFile(p + '/.tracecrew/STATE.json');
+        if (fc?.content) {
+          const state = JSON.parse(fc.content);
+          if (state.graph?.nodes?.length > 0) {
+            setPipeline({ phase: 'done', graph: state.graph, savedPlan: state.savedPlan });
+            return;
+          }
+        }
+      } catch { /* no saved state */ }
+      setPipeline({ phase: 'idle', graph: null });
+    })();
   }, []);
 
   useEffect(() => {
