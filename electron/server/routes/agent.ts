@@ -99,8 +99,8 @@ router.post('/step/stream', async (req, res) => {
 /* ── Action stream ── */
 
 router.post('/action/stream', async (req, res) => {
-  const { action, node, instruction, project_path, downstream_nodes, locale } = req.body || {};
-  console.log(`[route /action/stream] action=${action} node=${node?.label} project=${(project_path || '').slice(-30)} locale=${locale}`);
+  const { action, node, instruction, project_path, downstream_nodes, locale, plan_context } = req.body || {};
+  console.log(`[route /action/stream] action=${action} node=${node?.label} project=${(project_path || '').slice(-30)} locale=${locale} has_plan=${!!plan_context}`);
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -116,6 +116,7 @@ router.post('/action/stream', async (req, res) => {
       project_path: project_path || '',
       downstream_nodes: downstream_nodes || [],
       locale: locale || 'zh-CN',
+      plan_context: plan_context || null,
     })) {
       if (res.destroyed) break;
       res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);

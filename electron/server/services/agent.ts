@@ -4,6 +4,7 @@ import {
   listDirectory, readFile, writeFile,
   insertLines, replaceLines, deleteLines, deleteFile,
   searchInFiles, runShell, killShell,
+  appendTaskLog, readTaskLog,
 } from '../../fileManager';
 import { existsSync } from 'fs';
 import { SummarizerService } from './summarizer';
@@ -941,6 +942,71 @@ export class AgentService {
 
   /* ── Action stream ── */
 
+  /** Build a plan context preamble so the action agent knows the big picture. */
+  private buildPlanContext(plan: { plan_summary: string; steps: any[]; key_files: string[]; raw: string }, node: Record<string, unknown>, projectPath: string): string {
+    const label = (node.label as string) || '';
+    const file = (node.file as string) || '';
+    const detail = (node.detail as string) || '';
+
+    // Find matching step(s) for this node
+    const matchingSteps = (plan.steps || []).filter((s: any) => {
+      const desc = (s.description || s.desc || '').toLowerCase();
+      const target = (s.target || '').toLowerCase();
+      const nodeLabel = label.toLowerCase();
+      const nodeFile = file.toLowerCase();
+      return desc.includes(nodeLabel) || target.includes(nodeLabel)
+        || desc.includes(nodeFile) || target.includes(nodeFile)
+        || nodeLabel.includes(target);
+    });
+
+    let ctx = '';
+    ctx += `【项目总体规划 — Planner 已审核通过】
+总体目标: ${plan.plan_summary || '(无)'}
+涉及的关键文件: ${(plan.key_files || []).join(', ') || '(无)'}
+
+`;
+
+    if (matchingSteps.length > 0) {
+      ctx += `【当前节点的计划步骤】
+`;
+      for (const s of matchingSteps) {
+        ctx += `- ${s.description || s.desc || JSON.stringify(s)}
+`;
+      }
+    } else {
+      ctx += `【当前节点】${label} (${file})
+节点详情: ${detail}
+`;
+    }
+
+    ctx += `
+【Planner 原始分析（节选）】
+${(plan.raw || '').slice(0, 2000)}
+
+`;
+
+    // Include what previous nodes have already done (task log)
+    const taskLog = readTaskLog(projectPath, 20);
+    if (taskLog) {
+      ctx += `---
+【前面节点已完成的工作 — 任务日志】
+以下节点已经完成开发，你可以依赖它们提供的文件/接口。
+但不要修改这些节点已经创建或修改过的文件，除非是为了接入你的接口而做的最小化修改。
+
+${taskLog}
+---
+`;
+    }
+
+    ctx += `
+【重要】以上是 Planner 的总体规划。你现在只负责当前节点的实现，严格限定在本节点的文件和范围内。
+不要修改其他节点的代码，不要做全链路改动。完成当前节点后输出 <done>...</done>。
+---
+
+`;
+    return ctx;
+  }
+
   async *runActionStream(req: {
     action: string;
     node: Record<string, unknown>;
@@ -948,14 +1014,19 @@ export class AgentService {
     project_path: string;
     downstream_nodes?: Record<string, unknown>[];
     locale?: string;
+    plan_context?: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null;
   }): AsyncGenerator<{ event: string; data: string }> {
-    const { action, node, instruction, project_path, downstream_nodes } = req;
+    const { action, node, instruction, project_path, downstream_nodes, plan_context } = req;
     const projectPath = project_path || '';
+
+    // Build plan context string — inject into system prompt so agent has full context
+    const planCtxStr = plan_context ? this.buildPlanContext(plan_context, node, projectPath) : '';
 
     // Phase 1: Action agent
     yield { event: 'phase', data: JSON.stringify({ phase: 'action', action }) };
 
-    const systemPrompt = withLocale(ACTION_SYSTEM_PROMPTS[action] || PROTOCOL_EXECUTE, req.locale);
+    const basePrompt = ACTION_SYSTEM_PROMPTS[action] || PROTOCOL_EXECUTE;
+    const systemPrompt = withLocale(planCtxStr + basePrompt, req.locale);
     const isReadOnly = action === 'explain';
 
     // Build user message
@@ -1265,6 +1336,18 @@ ${JSON.stringify(reviewIssues)}
             status: newStatus,
             detail: (finalMessage || '已完成修改').slice(0, 300),
           } : null;
+
+          // Write task log entry if review passed (so later nodes know what changed)
+          if (reviewPassed && projectPath) {
+            appendTaskLog(projectPath, {
+              node_id: (node.id as string) || '',
+              node_label: (node.label as string) || '',
+              action,
+              summary: (finalMessage || '完成').slice(0, 300),
+              files_created: [],
+              files_changed: [],
+            });
+          }
 
           yield {
             event: 'done',

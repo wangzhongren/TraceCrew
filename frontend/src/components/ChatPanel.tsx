@@ -256,7 +256,17 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     historyRef.current.push({ role: 'assistant', content: `[Reviewer] ${fullText}` });
 
     if (review.passed) {
-      // Plan approved → now draw the call graph
+      // Plan approved → save it so action agents can use it as context
+      onPipelineChange({
+        phase: 'done',
+        savedPlan: {
+          plan_summary: plan?.plan_summary || '',
+          steps: plan?.steps || [],
+          key_files: plan?.key_files || [],
+          raw: plannerText,
+        },
+      });
+      // Now draw the call graph
       await runMapper(instruction, plan, plannerText);
     } else {
       // Plan rejected → retry Planner

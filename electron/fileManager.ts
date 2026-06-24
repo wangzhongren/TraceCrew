@@ -516,3 +516,68 @@ export function killAllShells(): void {
     killShell(id);
   }
 }
+
+/* ── Task Log ── */
+
+export interface TaskLogEntry {
+  node_id: string;
+  node_label: string;
+  action: string;         // develop | fix | refactor | test | explain
+  summary: string;        // 一句话描述做了什么
+  files_created: string[];
+  files_changed: string[];
+  plan_step?: string;     // 对应的 plan step 描述
+}
+
+/** Append a task completion record to .tracecrew/TASKLOG.md (append-only, no conflicts). */
+export function appendTaskLog(projectPath: string, entry: TaskLogEntry): void {
+  try {
+    const logDir = join(projectPath, '.tracecrew');
+    if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
+    const logFile = join(logDir, 'TASKLOG.md');
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    const filesCreated = entry.files_created.length > 0
+      ? entry.files_created.map(f => '`' + f + '`').join(', ')
+      : '(无)';
+    const filesChanged = entry.files_changed.length > 0
+      ? entry.files_changed.map(f => '`' + f + '`').join(', ')
+      : '(无)';
+
+    const section = [
+      '',
+      `## ${now} — ${entry.node_label} — ${entry.action} ✅`,
+      `- **节点 ID**: ${entry.node_id}`,
+      `- **摘要**: ${entry.summary}`,
+      `- **新建文件**: ${filesCreated}`,
+      `- **修改文件**: ${filesChanged}`,
+      entry.plan_step ? `- **计划步骤**: ${entry.plan_step}` : '',
+      '',
+    ].filter(Boolean).join('\n');
+
+    if (!existsSync(logFile)) {
+      writeFileSync(logFile, `# TraceCrew Task Log\n\n> 项目: ${basename(projectPath)}\n${section}`, 'utf-8');
+    } else {
+      writeFileSync(logFile, section, { flag: 'a' });
+    }
+  } catch { /* best-effort logging, don't crash on write failure */ }
+}
+
+/** Read recent task log entries as Markdown (for agent context). */
+export function readTaskLog(projectPath: string, maxEntries: number = 20): string {
+  try {
+    const logFile = join(projectPath, '.tracecrew', 'TASKLOG.md');
+    if (!existsSync(logFile)) return '';
+
+    const content = readFileSync(logFile, 'utf-8');
+    const sections = content.split('\n## ').filter((s: string) => s.trim());
+    // First section is the title; rest are entries
+    const entries = sections.length > 1 ? sections.slice(1) : [];
+    if (entries.length === 0) return '';
+
+    const recent = entries.slice(-maxEntries);
+    return '## ' + recent.join('\n## ');
+  } catch {
+    return '';
+  }
+}

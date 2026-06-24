@@ -13,6 +13,7 @@ import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel
 export interface PipelineState {
   phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
   graph: CallGraph | null;
+  savedPlan?: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null;
 }
 
 export default function App() {
@@ -27,6 +28,22 @@ export default function App() {
   // Action state (lifted from MapperView)
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM_STATE);
+
+  // Per-node stream persistence: save/restore action state when switching nodes
+  const savedStreamsRef = useRef<Record<string, StreamState>>({});
+  const streamRef = useRef(stream);
+  streamRef.current = stream;
+
+  // Saved plan ref for use in handleActionConfirm (avoids stale closure)
+  const savedPlanRef = useRef(pipeline.savedPlan);
+  savedPlanRef.current = pipeline.savedPlan;
+
+  // Sync current node's stream to saved storage on every change
+  useEffect(() => {
+    if (selectedNode) {
+      savedStreamsRef.current[selectedNode] = streamRef.current;
+    }
+  }, [stream, selectedNode]);
 
   const updatePipeline = useCallback((update: Partial<PipelineState>) => {
     setPipeline(prev => ({ ...prev, ...update }));
@@ -103,18 +120,29 @@ export default function App() {
   }, []);
 
   const handleSelectNode = useCallback((id: string | null) => {
-    setSelectedNode(id);
-    // Reset stream when selecting a different node while action panel is open
-    setActiveAction(prev => {
-      if (prev) setStream(INITIAL_STREAM_STATE);
-      return prev;
+    setSelectedNode(prevId => {
+      // Save current node's stream before switching away
+      if (prevId && activeAction) {
+        savedStreamsRef.current[prevId] = streamRef.current;
+      }
+      // Restore target node's saved stream, or start fresh
+      if (id && savedStreamsRef.current[id]) {
+        setStream(savedStreamsRef.current[id]);
+      } else if (activeAction) {
+        setStream(INITIAL_STREAM_STATE);
+      }
+      return id;
     });
-  }, []);
+  }, [activeAction]);
 
   const handleActionClose = useCallback(() => {
+    // Clear saved stream for this node when closing the action
+    if (selectedNode) {
+      delete savedStreamsRef.current[selectedNode];
+    }
     setActiveAction(null);
     setStream(INITIAL_STREAM_STATE);
-  }, []);
+  }, [selectedNode]);
 
   const handleGraphChange = useCallback((newGraph: CallGraph) => {
     setPipeline(prev => ({ ...prev, graph: newGraph }));
@@ -143,6 +171,7 @@ export default function App() {
           project_path: projectPath,
           downstream_nodes: activeAction === 'refactor' ? downstreamNodes : [],
           locale,
+          plan_context: savedPlanRef.current || null,
         }),
       });
 
