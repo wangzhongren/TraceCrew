@@ -1,6 +1,6 @@
 # <img src="icon.png" alt="TraceCrew" width="32" height="32" style="vertical-align: middle;" /> TraceCrew
 
-A multi-agent collaborative IDE for code intelligence. A structured agent crew (Planner → Reviewer → Mapper) replaces the single-agent paradigm — achieving large-model quality code understanding and modification with a team of smaller, specialized models. An interactive call graph serves as the operating map: right-click any node to fix, refactor, test, or explain.
+A multi-agent collaborative IDE for code intelligence. A structured agent crew (Planner → Reviewer → Mapper) replaces the single-agent paradigm — achieving large-model quality code understanding and modification with a team of smaller, specialized models. A **Kanban task board** serves as the operating map: plan tasks, execute automatically in dependency order, and review results.
 
 > *Single agent has a ceiling. A crew doesn't.*
 
@@ -13,38 +13,33 @@ Claude Opus ──── read/write files         Planner ───── archit
   │  ──── understand architecture          │
   │  ──── search codebase         Reviewer ──── evidence verification (checks & balances)
   │  ──── write changes                    │
-  │  ──── verify impact           Mapper ────── call-chain tracing (pattern matching)
+  │  ──── verify impact           Mapper ────── task planning & dependency ordering
   │                                       │
   └─ one brain does everything    Executor ───── execute operations (ultra-narrow context)
 
 Token cost: $$$$                        Token cost: $
 Role confusion, no oversight            Clear division of labor, structured validation
-Linear execution, no parallelism         Graph naturally shows impact scope
 ```
-
-Each agent has a distinct responsibility, a tailored system prompt, and structured I/O (JSON). The Planner only needs to understand architecture. The Mapper only needs to trace call chains. The Executor only sees the current node's context. Small models in narrow domains perform close to large models — at a fraction of the cost.
 
 ## Interface
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Title Bar                                  │
-├──────────────────────┬───────────────────────────────────────────┤
+┌──────────────────────┬───────────────────────────────────────────┐
 │                      │                                           │
-│    Chat Panel        │        Mapper View (Call Graph)           │
+│    Chat Panel        │        Kanban Task Board                  │
 │                      │                                           │
-│  Planner             │  ┌─ TitleBar.tsx ───────────────────┐    │
-│    ↓                 │  │ onClick → action('close')          │    │
-│  Reviewer            │  └────────────┬──────────────────────┘    │
-│    ↓ (pass)          │               │ IPC invoke                 │
-│  Mapper              │  ┌────────────▼──────────────────────┐    │
-│                      │  │ ipcMain.handle('window:close')    │    │
-│  ↻ retry on fail    │  │ 🔴 calls app.quit() — skips      │    │
-│                      │  │    lifecycle hooks                │    │
-│  PlanCard            │  └───────────────────────────────────┘    │
-│  ReviewCard          │                                           │
-│                      │  Right-click node → Fix/Refactor/Test     │
-│  [input] [Send]      │  Drag / Zoom / Expand nodes               │
+│  Planner             │  ┌─ 待开始 ────┬── 进行中 ──┬── 完成 ──┐ │
+│    ↓                 │  │             │             │           │ │
+│  Reviewer            │  │ [后端] IPC  │ [项目] 环境 │ ✅ 完成   │ │
+│    ↓ (pass)          │  │ handler     │ 搭建        │           │ │
+│  Mapper              │  │ [开发]      │ ⏳ 执行中   │           │ │
+│                      │  │             │             │           │ │
+│  ↻ retry on fail    │  │ [前端] 通知 │             │           │ │
+│                      │  │ 弹窗组件    │             │           │ │
+│  PlanCard            │  │             │             │           │ │
+│  ReviewCard          │  └─────────────┴─────────────┴───────────┘ │
+│                      │                                           │
+│  [input] [Send]      │  [▶ 一键执行]  [全部|问题|待改|新增]      │
 │                      │                                           │
 └──────────────────────┴───────────────────────────────────────────┘
 ```
@@ -55,41 +50,47 @@ Each agent has a distinct responsibility, a tailored system prompt, and structur
 |-------|------|----------------|
 | **Planner** | Architect | Analyzes requirements, explores codebase, outputs structured execution plan |
 | **Reviewer** | Inspector | Verifies Planner's analysis against code evidence — pass or send back |
-| **Mapper** | Cartographer | Traces call chains, draws annotated call graph with change locations |
+| **Mapper** | Cartographer | Plans task dependencies, produces call graph nodes and edges for the Kanban board |
 
-**Flow**: `User Input → Planner → Reviewer → Mapper`
+**Flow**: `User Input → Planner → Reviewer → Mapper → Kanban Board → Auto-exec or Manual`
 - Planner reads code, produces structured plan and key file list
 - Reviewer validates the plan against real code → pass / reject with feedback ↻
-- Mapper traces relevant call chains, draws annotated graph (only after plan approval)
-- Right-click any node on the graph to execute operations (fix, refactor, test, explain) via SSE streaming
+- Mapper produces task nodes with dependencies (only after plan approval)
+- Tasks appear on the Kanban board: **待开始 | 进行中 | 完成**
+- Click any pending card to **开发/测试/修复/解释**, or click **▶ 一键执行** to run all in order
 
-### Call Graph Node States
+### Task Node States
 
-- ◈ **existing** — current code, no changes
+- ◉ **planned_new** — new task to develop
 - ✕ **problem** — issue detected, needs fixing
-- △ **planned_change** — scheduled modification
-- \+ **planned_new** — new addition
+- ✎ **planned_change** — scheduled modification
+- ✓ **done** — completed
 
-Each node shows: source prefix ([frontend]/[backend]/[IPC]), file path, line number, status description. Edges show call relationships with labels, including curved arcs for back-edges.
+Each node shows: source prefix ([前端]/[后端]/[项目]), file path, Planner's analysis detail. Dependencies are automatically resolved — a blocked task shows "⏳ 等待依赖".
 
 ## Features
 
-- **Multi-Agent Crew** — Planner → Reviewer → Mapper structured pipeline with `<final/>` explicit completion
-- **Graph-Based Operations** — Right-click nodes directly on the call graph to trigger fix/refactor/test/explain/develop, streamed via SSE
-- **Server-Side Tool Execution** — All LLM tools (read, write, search, shell) executed by backend, single request per agent
-- **Semantic File Indexing** — Async summarization after each `read_file`, cached to SQLite, injected into future context
-- **Code Viewer** — Click a node to open source file, auto-scrolled to function definition line
-- **Resizable Panels** — ChatPanel, MapperView, and CodeViewer widths all adjustable via drag handles
-- **Dark Theme** — GitHub-inspired design system with CSS three-layer token architecture
+- **Multi-Agent Crew** — Planner → Reviewer → Mapper structured pipeline
+- **Kanban Task Board** — Three-column layout (pending / active / done), with status filters
+- **One-Click Auto-Exec** — `▶ 一键执行` button: topological sort → execute all tasks in dependency order → auto-advance on completion, stop anytime
+- **Per-Node Action Streaming** — SSE streaming for develop/fix/refactor/test/explain, with real-time output and review pass/fail
+- **Live Output** — Expanded card shows real-time agent output (XML tags stripped)
+- **Execution Records** — Review results (pass/fail, feedback, issues) saved per node, expandable in card
+- **Task Log** — `.tracecrew/TASKLOG.md` append-only log of completed tasks for context passing
+- **Plan Persistence** — Approved Planner reports saved to `.tracecrew/PLAN.md`, survives restarts
+- **Code Viewer** — Click card → right panel shows source file at function definition line
+- **Markdown Rendering** — Planner analysis and agent output rendered via `marked`
+- **JSON Lines SSE** — Backend streams `JSON.stringify(ev) + '\n'`, frontend `JSON.parse(line)`
+- **Reasoning Display** — LLM reasoning tokens shown in collapsible "💭 思考过程" section
+- **Resizable Panels** — ChatPanel, KanbanBoard, and CodeViewer widths all adjustable
 - **Custom Title Bar** — Frameless window with native controls
+- **i18n** — Chinese, English, Japanese, Korean
 
 ## Tech Stack
 
-- **Frontend**: Electron, React 19, TypeScript, Tailwind CSS, Vite 6, dagre
+- **Frontend**: Electron, React 19, TypeScript, Tailwind CSS, Vite 6, marked
 - **Backend**: Express (embedded in Electron main process), better-sqlite3, OpenAI SDK
 - **Build**: vite-plugin-electron
-
-Everything runs in a single Electron application — no external processes.
 
 ## Quick Start
 
@@ -119,8 +120,6 @@ TRACECREW_LLM_BASE_URL=https://api.openai.com/v1
 TRACECREW_LLM_MODEL=gpt-4o
 ```
 
-Or configure via the ⚙️ settings button in the toolbar.
-
 ### Run
 
 ```bash
@@ -128,13 +127,13 @@ cd frontend
 npm run electron:dev
 ```
 
-Windows users: double-click `start.bat`.
-
 ## Project Data
 
 | Path | Purpose |
 |------|---------|
 | `.tracecrew/tracecrew.db` | SQLite database (file summaries, change queue) |
+| `.tracecrew/TASKLOG.md` | Append-only task completion log for context passing |
+| `.tracecrew/PLAN.md` | Approved Planner report, survives restarts |
 | `.tracecrew/backups/` | File backups before edits (with meta.json) |
 | `.tracecrew-logs/` | Shell execution logs |
 

@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import MapCanvas from './MapCanvas';
-import type { CallGraph, GraphNode, GraphEdge, ContextMenuAction } from './MapCanvas';
+import { useState, useMemo, useEffect } from 'react';
+import type { CallGraph } from './MapCanvas';
 import { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
-import { STATUS_COLORS_SIMPLE, STATUS_ICONS, STATUS_LABELS } from '../types/theme';
+import { STATUS_COLORS_SIMPLE, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
 import { useT } from '../i18n';
 
@@ -14,454 +13,424 @@ interface Props {
   onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;
   projectPath: string | null;
-  // Action props (lifted to App)
   activeAction: ActionType | null;
   onRequestAction: (action: ActionType) => void;
   streamRunning: boolean;
+  /** Start auto-executing all pending tasks in dependency order */
+  onAutoExec?: () => void;
+  /** Stop the currently running auto-exec */
+  onStopAutoExec?: () => void;
+  /** Whether auto-exec is currently running */
+  autoExecRunning?: boolean;
+  /** Auto-exec progress */
+  autoExecProgress?: { current: number; total: number; currentNodeId: string | null } | null;
+  /** Per-node execution records for card expand */
+  execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
+  /** Live streaming output for currently executing node */
+  liveOutput?: Record<string, string>;
 }
 
-/** Get sub-graph reachable from given root */
-function subGraph(rootId: string, nodes: any[], edges: any[]): CallGraph {
-  const visited = new Set<string>();
-  const q = [rootId];
-  while (q.length > 0) {
-    const id = q.shift()!;
-    if (visited.has(id)) continue;
-    visited.add(id);
-    for (const e of edges) if (e.from === id && !visited.has(e.to)) q.push(e.to);
-  }
-  return {
-    nodes: nodes.filter(n => visited.has(n.id)),
-    edges: edges.filter(e => visited.has(e.from) && visited.has(e.to)),
-  };
+/* ── Helpers ── */
+
+type ColumnKey = 'pending' | 'active' | 'done';
+
+function classifyNode(status: string, isActive: boolean): ColumnKey {
+  if (isActive) return 'active';
+  if (status === 'done' || status === 'existing') return 'done';
+  return 'pending';
 }
 
-interface TreeNode {
-  id: string; label: string; detail?: string; status: string; kind?: string; file?: string; line?: number;
-  children: TreeNode[];
-}
+/* ── KanbanBoard ── */
 
-function buildTree(roots: any[], nodes: any[], edges: any[]): TreeNode[] {
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const childrenMap = new Map<string, string[]>();
-  for (const n of nodes) childrenMap.set(n.id, []);
-  for (const e of edges) {
-    const arr = childrenMap.get(e.from) || [];
-    arr.push(e.to);
-    childrenMap.set(e.from, arr);
-  }
-  function walk(id: string, visited: Set<string>): TreeNode | null {
-    if (visited.has(id)) return null;
-    visited.add(id);
-    const n = nodeMap.get(id);
-    if (!n) return null;
-    return {
-      id: n.id, label: n.label, detail: n.detail, status: n.status,
-      kind: n.kind, file: n.file, line: n.line,
-      children: (childrenMap.get(id) || [])
-        .map(cid => walk(cid, new Set(visited)))
-        .filter(Boolean) as TreeNode[],
-    };
-  }
-  return roots.map(r => walk(r.id, new Set())).filter(Boolean) as TreeNode[];
-}
-
-/** Card popup with tree structure */
-function NodeCardsPopup({ graph, onSelect, onClose, selectedNode: sel }: {
+function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput }: {
   graph: CallGraph;
   onSelect: (id: string) => void;
-  onClose: () => void;
   selectedNode: string | null;
+  onRequestAction: (action: ActionType) => void;
+  streamRunning: boolean;
+  onAutoExec?: () => void;
+  onStopAutoExec?: () => void;
+  autoExecRunning?: boolean;
+  autoExecProgress?: { current: number; total: number; currentNodeId: string | null } | null;
+  execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
+  liveOutput?: Record<string, string>;
 }) {
-  const popupRef = useRef<HTMLDivElement>(null);
-  const [filter, setFilter] = useState<string>('all');
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const t = useT();
+  const [filter, setFilter] = useState<string>('all');
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
 
+  // Auto-expand the active node's card
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose(); };
-    setTimeout(() => document.addEventListener('mousedown', h), 0);
-    return () => document.removeEventListener('mousedown', h);
-  }, [onClose]);
-
-  // Auto-expand path to selected node
-  useEffect(() => {
-    if (!sel || graph.nodes.length === 0) return;
-    const parents = new Map<string, string>();
-    for (const e of graph.edges) parents.set(e.to, e.from);
-    const toExpand = new Set<string>();
-    let cur: string | undefined = sel;
-    while (cur && parents.has(cur)) {
-      cur = parents.get(cur);
-      if (cur) toExpand.add(cur);
+    const activeId = autoExecProgress?.currentNodeId || (streamRunning ? sel : null);
+    if (activeId) {
+      setExpandedCards(prev => {
+        if (prev.has(activeId)) return prev;
+        const s = new Set(prev);
+        s.add(activeId);
+        return s;
+      });
     }
-    setCollapsed(prev => { const s = new Set(prev); for (const id of toExpand) s.delete(id); return s; });
-  }, [sel, graph]);
+  }, [autoExecProgress?.currentNodeId, streamRunning, sel]);
 
-  const entryPoints = useMemo(() => {
-    const hasIncoming = new Set(graph.edges.map(e => e.to));
-    const hasOutgoing = new Set(graph.edges.map(e => e.from));
-    const roots = graph.nodes.filter(n => !hasIncoming.has(n.id));
-    const connected = roots.filter(n => hasOutgoing.has(n.id));
-    const isolated = roots.filter(n => !hasOutgoing.has(n.id));
-    const result = [...connected, ...isolated];
-    if (result.length > 0) return result;
-    const visited = new Set<string>();
-    const components: any[] = [];
+  // Compute which node is "active" (currently being worked on)
+  const activeNodeId = autoExecProgress?.currentNodeId
+    || (streamRunning ? sel : null);
+
+  // Partition nodes into columns
+  const columns = useMemo(() => {
+    const result: Record<ColumnKey, typeof graph.nodes> = {
+      pending: [], active: [], done: [],
+    };
     for (const n of graph.nodes) {
-      if (visited.has(n.id)) continue;
-      components.push(n);
-      const q = [n.id];
-      while (q.length > 0) {
-        const id = q.shift()!;
-        if (visited.has(id)) continue;
-        visited.add(id);
-        for (const e of graph.edges) {
-          if (e.from === id && !visited.has(e.to)) q.push(e.to);
-          if (e.to === id && !visited.has(e.from)) q.push(e.from);
-        }
-      }
+      if (filter !== 'all' && n.status !== filter) continue;
+      const col = classifyNode(n.status, n.id === activeNodeId);
+      result[col].push(n);
     }
-    return components.length > 0 ? components : graph.nodes.slice(0, 1);
-  }, [graph]);
+    return result;
+  }, [graph, activeNodeId, filter]);
 
-  const trees = useMemo(() => buildTree(entryPoints, graph.nodes, graph.edges), [graph, entryPoints]);
+  // Button uses unfiltered counts — filter only affects visibility, not action availability
+  const unfilteredPending = graph.nodes.filter(n => classifyNode(n.status, n.id === activeNodeId) === 'pending').length;
+  const pendingCount = columns.pending.length;
+  const totalCount = graph.nodes.length;
 
-  const toggleCollapse = (id: string) => {
-    setCollapsed(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
-  };
+  const colDefs: { key: ColumnKey; title: string; icon: string; bg: string; count: number }[] = [
+    { key: 'pending', title: t('graph.toChange'), icon: '●', bg: 'var(--color-bg-layer)', count: columns.pending.length },
+    { key: 'active', title: t('action.agentExecuting').replace('⏳ ', ''), icon: '◉', bg: '#fefce8', count: columns.active.length },
+    { key: 'done', title: t('status.done'), icon: '✓', bg: '#f0fdf4', count: columns.done.length },
+  ];
 
-  const hideByFilter = (node: TreeNode): boolean => {
-    if (filter === 'all') return false;
-    if (node.status === filter) return false;
-    return node.children.every(hideByFilter);
-  };
-
-  const renderTreeNode = (node: TreeNode, depth: number, isLast: boolean): React.ReactNode => {
-    if (hideByFilter(node)) return null;
+  const renderCard = (node: typeof graph.nodes[0]) => {
     const c = STATUS_COLORS_SIMPLE[node.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
     const isSel = sel === node.id;
-    const isCollapsed = collapsed.has(node.id);
-    const hasKids = node.children.length > 0;
+    const isHovered = hoveredNode === node.id;
+    const isActive = node.id === activeNodeId;
+    const actions = getActionsForNode(node.status);
+
+    // Check if dependencies are met
+    const incoming = graph.edges.filter(e => e.to === node.id);
+    const unmetDeps = incoming.filter(e => {
+      const dep = graph.nodes.find(n => n.id === e.from);
+      return dep && dep.status !== 'done' && dep.status !== 'existing';
+    });
+    const blocked = unmetDeps.length > 0 && node.status !== 'done' && node.status !== 'existing';
 
     return (
-      <div key={node.id}>
-        {/* Tree line + card */}
-        <div className="flex" style={{ marginLeft: depth * 20 }}>
-          {/* Tree connector */}
-          {depth > 0 && (
-            <div className="flex items-stretch shrink-0" style={{ width: 20 }}>
-              <div className="w-2.5 border-b-2 self-center border-subtle" />
-              <div className="w-px self-stretch" style={{ background: isLast ? 'transparent' : 'var(--color-border-subtle)' }} />
+      <div
+        key={node.id}
+        className="rounded-lg cursor-pointer transition-all duration-150 mb-2 relative group"
+        style={{
+          background: isSel ? c + '0d' : isHovered ? 'var(--color-bg-hover)' : 'var(--color-bg-primary)',
+          boxShadow: isSel
+            ? `0 0 0 1.5px ${c}50, 0 1px 3px rgba(0,0,0,0.06)`
+            : isHovered
+              ? '0 0 0 1px var(--color-border-subtle), 0 1px 2px rgba(0,0,0,0.04)'
+              : '0 1px 2px rgba(0,0,0,0.04)',
+          opacity: blocked ? 0.55 : 1,
+        }}
+        onMouseEnter={() => setHoveredNode(node.id)}
+        onMouseLeave={() => setHoveredNode(null)}
+        onClick={() => {
+          setExpandedCards(prev => {
+            const s = new Set(prev);
+            s.has(node.id) ? s.delete(node.id) : s.add(node.id);
+            return s;
+          });
+        }}
+      >
+        {/* Status color top bar */}
+        <div className="h-[3px] rounded-t-lg" style={{ background: c }} />
+
+        <div className="px-3 py-2.5">
+          {/* Label + status badge */}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)', wordBreak: 'break-word' }}>
+              {node.label}
+            </span>
+            {node.status !== 'existing' && (
+              <span className="text-[9px] px-1.5 py-px rounded-full font-medium shrink-0"
+                style={{ background: c + '18', color: c }}>
+                {STATUS_LABELS[node.status as NodeStatus]}
+              </span>
+            )}
+            {isActive && (
+              <span className="text-[9px] px-1.5 py-px rounded-full font-medium animate-pulse shrink-0"
+                style={{ background: '#fef3c7', color: '#b45309' }}>
+                ⏳ 执行中
+              </span>
+            )}
+          </div>
+
+          {/* Detail */}
+          {node.detail && (
+            <div className="text-[10px] leading-snug mb-1.5" style={{ color: 'var(--color-text-muted)', wordBreak: 'break-word' }}>
+              {node.detail}
             </div>
           )}
-          {/* Card */}
-          <button
-            onClick={() => onSelect(node.id)}
-            onDoubleClick={() => onSelect(node.id)}
-            className="flex-1 flex items-start gap-2.5 p-2.5 rounded-lg text-left transition-colors hover:bg-black/[0.03] mb-0.5"
-            style={{ background: isSel ? c + '10' : 'var(--color-bg-primary)', border: `1px solid ${isSel ? c + '40' : 'transparent'}` }}>
-            {/* Status icon + expand */}
-            <div className="flex items-center gap-1 shrink-0 mt-0.5">
-              {hasKids ? (
-                <span className="text-[8px] w-3 cursor-pointer"
-                  style={{ color: 'var(--color-text-muted)' }}
-                  onClick={(e) => { e.stopPropagation(); toggleCollapse(node.id); }}>
-                  {isCollapsed ? '▸' : '▾'}
-                </span>
-              ) : <span className="w-3" />}
-              <span className="text-sm">{STATUS_ICONS[node.status]}</span>
+
+          {/* Meta row */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {node.file && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-px rounded"
+                style={{ background: 'var(--color-bg-layer)', color: '#3b82f6' }}>
+                <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" opacity="0.5">
+                  <path d="M2 1 H6 L8 3 V9 H2 Z" strokeLinejoin="round"/>
+                </svg>
+                {node.file.split(/[\\/]/).pop()}
+              </span>
+            )}
+            {node.line && (
+              <span className="text-[9px] opacity-40" style={{ color: 'var(--color-text-muted)' }}>L{node.line}</span>
+            )}
+            {blocked && (
+              <span className="text-[9px] px-1 py-px rounded" style={{ background: '#fef2f2', color: '#dc2626' }}>
+                ⏳ 等待依赖
+              </span>
+            )}
+          </div>
+
+          {/* Bottom bar: view-code always, action buttons for pending (never during execution) */}
+          {(node.file || (actions.length > 0 && !isActive)) && (
+            <div className="flex items-center gap-1 mt-2 pt-2 border-t" style={{ borderColor: 'var(--color-border-subtle)' }}>
+              {node.file && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSelect(node.id); }}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium transition-all duration-150 hover:scale-105"
+                  style={{ background: '#eff6ff', color: '#3b82f6' }}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+                    <path d="M2 1 H6 L8 3 V9 H2 Z" strokeLinejoin="round"/>
+                  </svg>
+                  查看代码
+                </button>
+              )}
+              {actions.length > 0 && !isActive && actions.map(action => {
+                const cfg = ACTION_CONFIGS[action];
+                return (
+                  <button
+                    key={action}
+                    onClick={(e) => { e.stopPropagation(); onSelect(node.id); onRequestAction(action); }}
+                    className="px-2 py-0.5 rounded text-[9px] font-medium transition-all duration-150 hover:scale-105 whitespace-nowrap"
+                    style={{ background: c + '16', color: c }}
+                  >
+                    {cfg.label}
+                  </button>
+                );
+              })}
             </div>
-            {/* Content */}
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium leading-tight mb-0.5" style={{ color: 'var(--color-text-secondary)' }}>{node.label}</div>
-              {node.detail && (
-                <div className="text-[9px] leading-snug mb-1" style={{ color: '#6b7280' }}>
-                  {node.detail.length > 60 ? node.detail.slice(0, 59) + '…' : node.detail}
+          )}
+
+          {/* Expanded detail — click card to toggle */}
+          {expandedCards.has(node.id) && (
+            <div className="mt-2 pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border-subtle)' }}>
+              {/* Live output — show for active node */}
+              {isActive && liveOutput?.[node.id] && (
+                <div className="rounded p-2 text-[9px] font-mono leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
+                  style={{ background: '#1e1e1e', color: '#d4d4d4' }}>
+                  {liveOutput[node.id].replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '').replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '').replace(/<done>[^<]*<\/done>/gi, '').replace(/<final\/>/gi, '') || '⏳ 等待 Agent 响应...'}
                 </div>
               )}
-              <div className="flex items-center gap-2 flex-wrap">
-                {node.file && <span className="text-[8px] font-mono truncate max-w-[140px]" style={{ color: '#3b82f6' }}>{node.file.split('/').pop()}</span>}
-                {node.kind && <span className="text-[8px] font-mono" style={{ color: '#9ca3af' }}>{node.kind}</span>}
-                {node.status !== 'existing' && (
-                  <span className="text-[8px] px-1 py-0.5 rounded" style={{ background: c + '15', color: c }}>
-                    {STATUS_LABELS[node.status]}
-                  </span>
-                )}
-              </div>
+              {/* Planner detail — always show when expanded */}
+              {node.detail && (
+                <div className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+                  <span className="text-[9px] font-semibold opacity-40 mr-1">📋 Planner:</span>
+                  {node.detail}
+                </div>
+              )}
+              {/* Execution record — show if exists */}
+              {execRecords?.[node.id] && (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px]" style={{
+                      color: execRecords[node.id].review_passed ? '#16a34a' : '#dc2626',
+                    }}>
+                      {execRecords[node.id].review_passed ? '✅ 通过' : '❌ 未通过'}
+                    </span>
+                  </div>
+                  {execRecords[node.id].review_feedback && (
+                    <div className="px-2 py-1 rounded text-[9px]" style={{
+                      background: execRecords[node.id].review_passed ? '#f0fdf4' : '#fef2f2',
+                      color: execRecords[node.id].review_passed ? '#16a34a' : '#dc2626',
+                    }}>
+                      {execRecords[node.id].review_feedback}
+                    </div>
+                  )}
+                  {(execRecords[node.id].review_issues?.length ?? 0) > 0 && (
+                    <div className="space-y-0.5">
+                      {execRecords[node.id].review_issues!.map((issue: any, j: number) => (
+                        <div key={j} className="flex items-start gap-1 text-[8px]" style={{ color: '#dc2626' }}>
+                          <span className="shrink-0 mt-0.5">⚠</span>
+                          <span>[{issue.severity || '?'}] {issue.file || '?'}: {issue.claim || ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-          </button>
+          )}
+
+          {/* Expand toggle indicator */}
+          {(node.detail || execRecords?.[node.id]) && (
+            <div className="mt-1.5 flex items-center gap-1 text-[9px] cursor-pointer"
+              style={{ color: 'var(--color-text-muted)' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpandedCards(prev => {
+                  const s = new Set(prev);
+                  s.has(node.id) ? s.delete(node.id) : s.add(node.id);
+                  return s;
+                });
+              }}>
+              <span>{expandedCards.has(node.id) ? '▾ 收起' : '▸ 展开详情'}</span>
+            </div>
+          )}
         </div>
-        {/* Children */}
-        {!isCollapsed && hasKids && node.children.map((child, i, arr) =>
-          renderTreeNode(child, depth + 1, i === arr.length - 1)
-        )}
       </div>
     );
   };
 
   return (
-    <div ref={popupRef} className="absolute top-full left-0 mt-2 z-30 rounded-xl border shadow-2xl"
-      style={{ width: 460, maxHeight: 520, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', overflow: 'hidden' }}>
-      <div className="px-4 py-2.5 border-b flex items-center justify-between" style={{ borderColor: 'var(--color-border-subtle)' }}>
-        <span className="text-xs font-medium tracking-wide" style={{ color: 'var(--color-text-muted)' }}>{t('graph.callChain')}</span>
-        <div className="flex items-center gap-1">
-          {[
-            { key: 'all', label: t('graph.all') },
-            { key: 'problem', label: t('graph.problem') },
-            { key: 'planned_change', label: t('graph.toChange') },
-            { key: 'planned_new', label: t('graph.new') },
-          ].map(({ key, label }) => (
-            <button key={key} onClick={() => setFilter(key)}
-              className="text-[9px] px-2 py-0.5 rounded transition-colors"
-              style={{ color: filter === key ? '#1a1a2e' : '#6b7280', background: filter === key ? '#e5e7eb' : 'transparent' }}>
-              {label}
-            </button>
-          ))}
-          <button onClick={() => setCollapsed(prev => prev.size === 0 ? new Set(trees.flatMap(tree => getAllIds(tree))) : new Set())}
-            className="text-[9px] px-2 py-0.5 rounded" style={{ color: 'var(--color-text-muted)' }}>
-            {collapsed.size > 0 ? t('graph.expand') : t('graph.collapse')}
+    <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
+      {/* Toolbar */}
+      <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b"
+        style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" opacity="0.4" style={{ color: 'var(--color-text-muted)' }}>
+          <rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="10.5" y="0.5" width="5" height="5" rx="1"/>
+          <rect x="0.5" y="10.5" width="5" height="5" rx="1"/><rect x="10.5" y="10.5" width="5" height="5" rx="1"/>
+        </svg>
+        <span className="text-[11px] font-semibold tracking-wide" style={{ color: 'var(--color-text-secondary)' }}>
+          {t('graph.callGraph')}
+        </span>
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--color-border-subtle)' }} />
+
+        {[
+          { key: 'all', label: t('graph.all') },
+          { key: 'problem', label: t('graph.problem') },
+          { key: 'planned_change', label: t('graph.toChange') },
+          { key: 'planned_new', label: t('graph.new') },
+        ].map(({ key, label }) => (
+          <button key={key} onClick={() => setFilter(key)}
+            className="text-[10px] px-2 py-0.5 rounded transition-colors font-medium"
+            style={{
+              color: filter === key ? '#fff' : 'var(--color-text-muted)',
+              background: filter === key
+                ? (key === 'problem' ? '#dc2626' : key === 'planned_change' ? '#d97706' : key === 'planned_new' ? '#16a34a' : '#4b5563')
+                : 'transparent',
+            }}>
+            {label}
           </button>
-        </div>
+        ))}
+
+        <div className="flex-1" />
+
+        {/* Auto-exec button */}
+        {onAutoExec && (
+          <>
+            {autoExecProgress && autoExecRunning && (
+              <span className="text-[10px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
+                {autoExecProgress.current}/{autoExecProgress.total}
+              </span>
+            )}
+            <button
+              onClick={autoExecRunning ? onStopAutoExec : onAutoExec}
+              disabled={streamRunning || (!autoExecRunning && unfilteredPending === 0)}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-semibold transition-all duration-150 disabled:opacity-30"
+              style={{
+                background: autoExecRunning ? '#fee2e2' : '#16a34a',
+                color: autoExecRunning ? '#dc2626' : '#fff',
+              }}>
+              {autoExecRunning ? (
+                <>⏹ {t('chat.stop')}</>
+              ) : (
+                <>▶ 一键执行</>
+              )}
+            </button>
+          </>
+        )}
+
+        <span className="text-[10px] font-medium opacity-40" style={{ color: 'var(--color-text-muted)' }}>
+          {totalCount}N
+        </span>
       </div>
-      <div className="overflow-y-auto p-3" style={{ maxHeight: 460 }}>
-        {trees.map((tree, i) => renderTreeNode(tree, 0, i === trees.length - 1))}
+
+      {/* Kanban columns */}
+      <div className="flex-1 overflow-x-auto overflow-y-hidden flex gap-3 px-4">
+        {colDefs.map(col => (
+          <div key={col.key} className="flex-1 flex flex-col rounded-xl overflow-hidden"
+            style={{ minWidth: 220, maxWidth: 400, border: `1px solid var(--color-border-subtle)` }}>
+            {/* Column header */}
+            <div className="shrink-0 flex items-center gap-1.5 px-3 py-2 border-b"
+              style={{ borderColor: 'var(--color-border-subtle)', background: col.bg }}>
+              <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>{col.icon}</span>
+              <span className="text-[10px] font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
+                {col.title}
+              </span>
+              <span className="text-[10px] ml-auto opacity-50" style={{ color: 'var(--color-text-muted)' }}>
+                {col.count}
+              </span>
+            </div>
+            {/* Column cards — independent scroll */}
+            <div className="flex-1 overflow-y-auto p-2" style={{ background: 'var(--color-bg-primary)' }}>
+              {columns[col.key].length === 0 ? (
+                <div className="flex items-center justify-center h-20">
+                  <span className="text-[10px] opacity-25" style={{ color: 'var(--color-text-muted)' }}>
+                    {t('graph.noGraph')}
+                  </span>
+                </div>
+              ) : (
+                columns[col.key].map(n => renderCard(n))
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-/* ── Right-click context menu popup ── */
+/* ── Empty state ── */
 
-function ContextMenuPopup({ node, x, y, onSelect, onClose }: {
-  node: GraphNode; x: number; y: number;
-  onSelect: (action: ActionType) => void;
-  onClose: () => void;
-}) {
-  const popupRef = useRef<HTMLDivElement>(null);
-  const actions = getActionsForNode(node.status);
-
-  useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (e.button === 2) return; // 忽略右键 mousedown，避免在 contextmenu 之前误关菜单
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose();
-    };
-    // Delay to avoid the right-click mousedown immediately closing the menu
-    const id = setTimeout(() => document.addEventListener('mousedown', h), 100);
-    return () => { clearTimeout(id); document.removeEventListener('mousedown', h); };
-  }, [onClose]);
+function EmptyState({ phase }: { phase: Props['phase'] }) {
+  const t = useT();
+  const msg = phase === 'planning' ? t('graph.analyzing')
+    : phase === 'executing' ? t('graph.processing')
+    : t('graph.emptyHint');
 
   return (
-    <div
-      ref={popupRef}
-      className="fixed z-50 rounded-xl shadow-2xl py-1.5 min-w-[180px] animate-fade-in-scale overflow-hidden"
-      style={{
-        left: Math.min(x, window.innerWidth - 200),
-        top: Math.min(y, window.innerHeight - 40 * (actions.length + 2)),
-        background: '#ffffffee',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        border: '1px solid var(--color-border-default)',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.06)',
-        willChange: 'filter, transform',
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="px-3 py-1.5 border-b border-subtle">
-        <span className="text-caption font-medium text-muted">{node.label}</span>
-      </div>
-      {actions.map((a) => {
-        const cfg = ACTION_CONFIGS[a];
-        return (
-          <button
-            key={a}
-            onClick={() => onSelect(a)}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors hover:bg-black/[0.03]"
-            style={{ color: 'var(--color-text-primary)' }}
-          >
-            <span>{cfg.label}</span>
-            <span className="ml-auto text-caption text-disabled">{cfg.description.slice(0, 8)}</span>
-          </button>
-        );
-      })}
+    <div className="flex flex-col items-center justify-center h-full gap-4" style={{ background: 'var(--color-bg-primary)' }}>
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+        <rect x="8" y="8" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+        <rect x="32" y="8" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+        <rect x="8" y="32" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+        <rect x="32" y="32" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
+      </svg>
+      <div className="text-xs text-center max-w-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>{msg}</div>
+      <div className="text-[10px] text-center" style={{ color: '#9ca3af' }}>{t('graph.emptyAction')}</div>
     </div>
   );
 }
 
-function getAllIds(node: TreeNode): string[] {
-  return [node.id, ...node.children.flatMap(getAllIds)];
-}
+/* ── MapperView ── */
 
-export default function MapperView({ graph, phase, onSelectNode, onGraphChange, selectedNode, projectPath, activeAction, onRequestAction, streamRunning }: Props) {
-   const [showCards, setShowCards] = useState(false);
-   const [activeRoot, setActiveRoot] = useState<string | null>(null);
-   const [contextMenu, setContextMenu] = useState<{ node: GraphNode; x: number; y: number } | null>(null);
-   const t = useT();
-
-   const contextMenuRef = useRef(contextMenu);
-   contextMenuRef.current = contextMenu;
-   const handleContextMenu = useCallback(({ node, x, y }: ContextMenuAction) => {
-     setContextMenu({ node, x, y });
-   }, []);
-   const handleContextMenuSelect = useCallback((action: ActionType) => {
-     setContextMenu(null);
-     const cm = contextMenuRef.current;
-     if (cm) onSelectNode(cm.node.id);
-     onRequestAction(action);
-   }, [onSelectNode, onRequestAction]);
-   const handleContextMenuClose = useCallback(() => setContextMenu(null), []);
-
-  const selectedNodeData = useMemo(() => {
-    if (!selectedNode || !graph) return null;
-    return graph.nodes.find(n => n.id === selectedNode) || null;
-  }, [graph, selectedNode]);
-
-  const entryPoints = useMemo(() => {
-    if (!graph || graph.nodes.length === 0) return [] as any[];
-    const hasIncoming = new Set(graph.edges.map((e: any) => e.to));
-    const hasOutgoing = new Set(graph.edges.map((e: any) => e.from));
-    const roots = graph.nodes.filter((n: any) => !hasIncoming.has(n.id));
-    // Connected roots (have outgoing edges)
-    const connected = roots.filter((n: any) => hasOutgoing.has(n.id));
-    // Isolated nodes (no edges at all) — must not be discarded
-    const isolated = roots.filter((n: any) => !hasOutgoing.has(n.id));
-    const result = [...connected, ...isolated];
-    if (result.length > 0) return result;
-    // All nodes have incoming edges (cycles) → find one rep per component
-    const visited = new Set<string>();
-    const components: any[] = [];
-    for (const n of graph.nodes) {
-      if (visited.has(n.id)) continue;
-      components.push(n);
-      const q = [n.id];
-      while (q.length > 0) {
-        const id = q.shift()!;
-        if (visited.has(id)) continue;
-        visited.add(id);
-        for (const e of graph.edges) {
-          if (e.from === id && !visited.has(e.to)) q.push(e.to);
-          if (e.to === id && !visited.has(e.from)) q.push(e.from);
-        }
-      }
-    }
-    return components.length > 0 ? components : graph.nodes.slice(0, 1);
-  }, [graph]);
-
-  // Auto-select first entry
-  useEffect(() => {
-    if (!graph || graph.nodes.length === 0) return;
-    if (entryPoints.length > 0 && !activeRoot) {
-      setActiveRoot(entryPoints[0].id);
-    }
-  }, [graph, entryPoints, activeRoot]);
-
-  const activeGraph = useMemo(() => {
-    if (!graph) return null;
-    if (!activeRoot) return graph;
-    // No edges → skip subGraph filtering, show all nodes
-    if (graph.edges.length === 0) return graph;
-    return subGraph(activeRoot, graph.nodes, graph.edges);
-  }, [graph, activeRoot]);
-
+export default function MapperView({ graph, phase, onSelectNode, selectedNode, activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput }: Props) {
   if (!graph || graph.nodes.length === 0) {
-    return (
-      <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
-        <MapCanvas graph={null} phase={phase} selectedNode={null} onSelectNode={() => {}} onContextMenu={() => {}} />
-      </div>
-    );
+    return <EmptyState phase={phase} />;
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'var(--color-bg-primary)' }}>
-      {/* ════ Top nav ════ */}
-      <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b"
-        style={{
-          borderColor: 'var(--color-border-subtle)',
-          background: 'var(--color-bg-layer)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-        }}>
-        {/* Cards dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setShowCards(!showCards)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors hover:bg-black/[0.03] text-xs"
-            style={{ border: `1px solid ${showCards ? '#d0d5dd' : 'transparent'}`, color: 'var(--color-text-secondary)' }}>
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/>
-              <rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/>
-            </svg>
-            <span>{t('graph.nodes')}</span>
-            <svg width="7" height="7" viewBox="0 0 8 8"><path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          </button>
-          {showCards && (
-            <NodeCardsPopup
-              graph={graph}
-              onSelect={(id) => { onSelectNode(id); setShowCards(false); }}
-              onClose={() => setShowCards(false)}
-              selectedNode={selectedNode}
-            />
-          )}
-        </div>
-
-        {/* Entry tabs */}
-        {entryPoints.length > 1 && (
-          <div className="flex items-center gap-0.5">
-            {entryPoints.map((ep: any) => {
-              const c = STATUS_COLORS_SIMPLE[ep.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
-              const isActive = activeRoot === ep.id;
-              return (
-                <button key={ep.id}
-                  onClick={() => setActiveRoot(ep.id)}
-                  className="flex items-center gap-1 px-2 py-1 rounded text-caption transition-colors hover:bg-black/[0.03]"
-                  style={{ color: isActive ? '#1a1a2e' : '#6b7280', background: isActive ? c + '10' : undefined }}>
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: c }}/>
-                  <span className="max-w-[100px] truncate">{ep.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Selected node breadcrumb */}
-        {selectedNodeData && (
-          <div className="flex items-center gap-1 ml-2 text-caption overflow-hidden">
-            <span style={{ color: '#9ca3af' }}>{t('graph.selected')}</span>
-            <span style={{ color: STATUS_COLORS_SIMPLE[selectedNodeData.status as NodeStatus] || '#888' }}>
-              {STATUS_ICONS[selectedNodeData.status]}
-            </span>
-            <span style={{ color: 'var(--color-text-secondary)' }} className="truncate max-w-[200px]">
-              {selectedNodeData.label}
-            </span>
-            <button onClick={() => onSelectNode(null)} className="text-caption hover:opacity-80 shrink-0" style={{ color: '#9ca3af' }}>✕</button>
-          </div>
-        )}
-
-        <div className="ml-auto text-caption shrink-0 text-muted">
-          {graph.nodes.length} {t('graph.nodes')} · {graph.edges.length} {t('graph.edges')}
-        </div>
-      </div>
-
-{/* ════ Bottom: MapCanvas — one sub-graph per entry ════ */}
-      <div className="flex-1 overflow-hidden">
-        <MapCanvas
-          graph={activeGraph}
-          phase={phase}
-          selectedNode={selectedNode}
-          onSelectNode={onSelectNode}
-          onContextMenu={handleContextMenu}
-        />
-      </div>
-
-      {/* ════ Right-Click Context Menu ════ */}
-      {contextMenu && (
-        <ContextMenuPopup
-          node={contextMenu.node}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onSelect={handleContextMenuSelect}
-          onClose={handleContextMenuClose}
-        />
-      )}
-    </div>
+    <KanbanBoard
+      graph={graph}
+      onSelect={(id) => onSelectNode(id)}
+      selectedNode={selectedNode}
+      onRequestAction={onRequestAction}
+      streamRunning={streamRunning}
+      onAutoExec={onAutoExec}
+      onStopAutoExec={onStopAutoExec}
+      autoExecRunning={autoExecRunning}
+      autoExecProgress={autoExecProgress}
+      execRecords={execRecords}
+      liveOutput={liveOutput}
+    />
   );
 }

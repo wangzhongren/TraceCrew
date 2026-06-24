@@ -6,9 +6,7 @@ import {
   searchInFiles, runShell, killShell,
   appendTaskLog, readTaskLog,
 } from '../../fileManager';
-import { existsSync } from 'fs';
-import { SummarizerService } from './summarizer';
-import { getFileSummary } from './db';
+import { existsSync, readFileSync } from 'fs';
 
 const MAX_CONTEXT_CHARS = 24000;
 
@@ -140,7 +138,7 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 【核心规则 0：新项目识别与根节点】
 绘制前必须先 list-dir 确认项目根目录结构：
 - 如果项目几乎为空（无 package.json / 无 src 目录 / 文件总数 < 3），说明这是**新项目**
-- 新项目必须创建根节点：id="root-env", label="[项目] 项目环境搭建", status="planned_new", detail="新项目脚手架搭建：包含项目初始化、构建配置、依赖安装、入口文件创建等基础环境准备"
+- 新项目必须创建根节点：id="root-env", label="[项目] 项目环境搭建", status="planned_new", detail="仅创建项目配置文件和目录结构（package.json、tsconfig.json、.env、vite.config.ts 等），不写任何业务源代码。业务代码由下游子节点各自实现"
 - 所有 Planner 规划的功能节点必须通过 edge 连接到这个根节点（from="root-env", to="目标节点"）
 - 如果项目已有完整结构（有 package.json + src 目录 + 多个源文件），则不需要此根节点，按正常调用链绘制
 
@@ -193,9 +191,25 @@ const EXECUTOR_SYSTEM_PROMPT = `你是代码执行者。按计划逐步修改代
 
 ${PROTOCOL_EXECUTE}`;
 
-const REVIEWER_SYSTEM_PROMPT = `你是独立审查者。先读文件验证，再输出 JSON 结论。
+const REVIEWER_SYSTEM_PROMPT = `你是独立审查者。你的任务是审查 Planner（计划者）的分析报告是否基于实际代码、逻辑是否合理、步骤是否可行。
 
-【铁律】没有读文件就直接 failed。读文件阶段用操作标签。读完所有文件后，直接输出纯 JSON（不带代码块）：{"passed": true, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}
+【Planner 的能力边界】
+Planner 是一个只读分析者：
+- ✅ 可以：读取文件（list-dir、read-file、search）、分析项目结构、设计技术方案、规划实施步骤
+- ❌ 不能：创建文件、修改代码、运行命令、执行任何写操作
+- 因此，Planner 不会生成实际代码，只会描述"应该创建什么文件、实现什么功能"。审查时不要以"Planner 没有写代码"作为扣分理由。
+
+【审查标准】
+1. 证据基础：Planner 的结论是否引用了实际读取的文件内容？如果 Planner 声称读了某个文件但分析内容与文件无关 → critical
+2. 逻辑合理性：架构设计、技术选型是否有理有据？方案是否可行？
+3. 完整性：是否覆盖了需求中的所有要点？是否遗漏关键模块？
+4. 边界情况：是否考虑了错误处理、异常流程？
+5. 空项目判断：如果项目目录为空（无 package.json、无 src），Planner 应该基于需求文档进行设计，而不是凭空编造文件内容。这种情况不算"无证据"。
+
+【铁律】
+- 必须先读文件再下结论，没有读文件就直接 failed
+- 读文件阶段使用操作标签（read-file、list-dir、search）
+- 读完所有文件后，直接输出纯 JSON（不带代码块）：{"passed": true, "feedback": "一句话总结", "issues": [{"severity": "critical|high|medium|low", "file": "...", "claim": "...", "reality": "..."}]}
 
 ${PROTOCOL_READONLY}`;
 
@@ -336,26 +350,6 @@ const OPERATION_TAGS = Object.keys(TAG_TO_OPERATION).join('|');
 export class AgentService {
   private _client: OpenAI | null = null;
   private _model: string | null = null;
-  private _summarizer: SummarizerService | null = null;
-
-  private get summarizer(): SummarizerService {
-    if (!this._summarizer) {
-      this._summarizer = new SummarizerService(async (msgs) => {
-        const resp = await this.client.chat.completions.create({
-          model: this.model,
-          messages: msgs as any,
-          temperature: 0.1,
-        });
-        const content = resp.choices[0].message.content;
-        if (!content || content.trim().length === 0) {
-          console.log(`[summarizer] LLM returned empty | finish_reason=${resp.choices[0].finish_reason} | usage=${JSON.stringify(resp.usage)} | model=${this.model}`);
-        }
-        return content || '';
-      }, this.model);
-    }
-    return this._summarizer;
-  }
-
   /** Reset cached client so next request picks up new env vars */
   reload(): void {
     this._client = null;
@@ -757,29 +751,12 @@ export class AgentService {
             return `[read_file ${filePath}]\n❌ ${result.error}`;
           }
 
-          // Async summarizer: only when reading the full file (no line range)
-          if (!op.start_line && !op.end_line && projectPath) {
-            this.summarizer.enqueue(projectPath, filePath, result.content, result.lineCount);
-          }
-          // Attach existing summary if available (path-based lookup)
-          let summaryNote = '';
-          if (projectPath) {
-            try {
-              const existing = getFileSummary(projectPath, filePath);
-              if (existing) {
-                const exports = existing.key_exports?.length
-                  ? existing.key_exports.map((e: any) => `${e.kind} ${e.name}() L${e.line}`).join(', ')
-                  : '无';
-                summaryNote = `\n【已有摘要】${existing.summary} (共${existing.total_lines || '?'}行)\n关键导出: ${exports}\n`;
-              }
-            } catch { /* ignore */ }
-          }
           // Add line numbers so the LLM can reference specific lines
           const numbered = result.lines
             .map((l: string, i: number) => `${String(startLine + i).padStart(4, ' ')}| ${l}`)
             .join('\n');
           const truncated = this.truncate(numbered, 12000);
-          return `${summaryNote}[read_file ${filePath} L${startLine}${endLine ? `-L${endLine}` : `-L${startLine + result.lineCount - 1}`} (${result.lineCount} lines)]\n\`\`\`\n${truncated}\n\`\`\``;
+          return `[read_file ${filePath} L${startLine}${endLine ? `-L${endLine}` : `-L${startLine + result.lineCount - 1}`} (${result.lineCount} lines)]\n\`\`\`\n${truncated}\n\`\`\``;
         }
         case 'search': {
           const query = (op.content as string) || '';
@@ -888,19 +865,39 @@ export class AgentService {
     }
   }
 
+  /** Robust JSON extraction from LLM output.
+   *  Strategy: 1) markdown code fence, 2) brace-matching from key, 3) non-greedy regex. */
+  private extractJsonBlock(text: string, key: string): string | null {
+    // Strategy 1: ```json ... ``` code fence
+    const mdMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/i);
+    if (mdMatch) {
+      const inner = mdMatch[1].trim();
+      if (inner.includes(`"${key}"`)) return inner;
+    }
+    // Strategy 2: brace-matching from key (handles nested objects)
+    const keyIdx = text.indexOf(`"${key}"`);
+    if (keyIdx !== -1) {
+      const start = text.lastIndexOf('{', keyIdx);
+      if (start !== -1) {
+        let depth = 0, end = -1;
+        for (let i = start; i < text.length; i++) {
+          if (text[i] === '{') depth++;
+          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+        }
+        if (end !== -1) return text.slice(start, end);
+      }
+    }
+    // Strategy 3: non-greedy regex fallback
+    const m = text.match(new RegExp(`\\{[\\s\\S]*?"${key}"[\\s\\S]*?\\}`));
+    return m ? m[0] : null;
+  }
+
   private extractPlanJson(text: string): Record<string, unknown> {
-    let match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    if (match) {
-      text = match[1];
-    } else {
-      match = text.match(/\{[\s\S]*"steps"[\s\S]*\}/);
-      if (match) text = match[0];
+    const jsonStr = this.extractJsonBlock(text, 'steps');
+    if (jsonStr) {
+      try { return JSON.parse(jsonStr); } catch {}
     }
-    try {
-      return JSON.parse(text);
-    } catch {
-      return { plan: '无法解析计划', steps: [], raw: text.slice(0, 500) };
-    }
+    return { plan: '无法解析计划', steps: [], raw: text.slice(0, 500) };
   }
 
   /* ── Sub-agent (Worker) ── */
@@ -943,7 +940,28 @@ export class AgentService {
   /* ── Action stream ── */
 
   /** Build a plan context preamble so the action agent knows the big picture. */
-  private buildPlanContext(plan: { plan_summary: string; steps: any[]; key_files: string[]; raw: string }, node: Record<string, unknown>, projectPath: string): string {
+  private buildPlanContext(plan: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null, node: Record<string, unknown>, projectPath: string): string {
+    // If no plan in memory, try reading saved plan from disk (.tracecrew/PLAN.md)
+    if (!plan) {
+      try {
+        const planFile = path.join(projectPath, '.tracecrew', 'PLAN.md');
+        if (existsSync(planFile)) {
+          const raw = readFileSync(planFile, 'utf-8');
+          return `【项目总体规划 — 来自已保存的计划】
+
+${raw.slice(0, 3000)}
+
+---
+【重要】以上是 Planner 的总体规划。你现在只负责当前节点的实现，严格限定在本节点的文件和范围内。
+不要修改其他节点的代码，不要做全链路改动。完成当前节点后输出 <done>...</done>。
+---
+
+`;
+        }
+      } catch { /* no saved plan */ }
+      return '';
+    }
+
     const label = (node.label as string) || '';
     const file = (node.file as string) || '';
     const detail = (node.detail as string) || '';
@@ -998,6 +1016,19 @@ ${taskLog}
 `;
     }
 
+    // Root node (项目环境搭建) gets extra constraints: config + dirs only, NO source code
+    const isRootEnv = (node.id === 'root-env' || ((node.label as string) || '').includes('项目环境搭建'));
+    if (isRootEnv) {
+      ctx += `---
+⚠️【环境搭建节点 — 严格限制】
+当前节点是「项目环境搭建」，只允许做以下操作：
+✅ 允许: 创建目录结构、创建配置文件（package.json、tsconfig.json、.env、vite.config.ts 等）、安装依赖（npm install）
+❌ 禁止: 写入任何业务源代码（.ts/.tsx/.js/.jsx/.vue/.py 等）、实现功能逻辑、创建组件/模块/函数
+📌 业务代码由下游子节点各自实现，你的任务是搭好项目骨架让它们有地方写代码
+---
+`;
+    }
+
     ctx += `
 【重要】以上是 Planner 的总体规划。你现在只负责当前节点的实现，严格限定在本节点的文件和范围内。
 不要修改其他节点的代码，不要做全链路改动。完成当前节点后输出 <done>...</done>。
@@ -1019,8 +1050,8 @@ ${taskLog}
     const { action, node, instruction, project_path, downstream_nodes, plan_context } = req;
     const projectPath = project_path || '';
 
-    // Build plan context string — inject into system prompt so agent has full context
-    const planCtxStr = plan_context ? this.buildPlanContext(plan_context, node, projectPath) : '';
+    // Build plan context string — from API (in-memory) or from disk (.tracecrew/PLAN.md)
+    const planCtxStr = this.buildPlanContext(plan_context || null, node, projectPath);
 
     // Phase 1: Action agent
     yield { event: 'phase', data: JSON.stringify({ phase: 'action', action }) };
@@ -1301,18 +1332,28 @@ ${JSON.stringify(reviewIssues)}
           });
         }
 
-        // Parse reviewer output
+        // Parse reviewer output — use robust JSON extraction
         let reviewPassed: boolean | null = null;
         reviewFeedback = '';
         reviewIssues = [];
-        try {
-          const cleaned = reviewText.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
-          const reviewJson = JSON.parse(cleaned.match(/\{[\s\S]*"passed"[\s\S]*\}/)?.[0] || cleaned);
-          reviewPassed = !!reviewJson.passed;
-          reviewFeedback = reviewJson.feedback || '';
-          reviewIssues = reviewJson.issues || [];
-        } catch {
-          reviewPassed = /PASSED/i.test(reviewText) && !/FAILED/i.test(reviewText);
+        const reviewJsonStr = this.extractJsonBlock(reviewText, 'passed');
+        if (reviewJsonStr) {
+          try {
+            const reviewJson = JSON.parse(reviewJsonStr);
+            reviewPassed = !!reviewJson.passed;
+            reviewFeedback = reviewJson.feedback || '';
+            reviewIssues = reviewJson.issues || [];
+          } catch { /* fall through to fallback */ }
+        }
+        if (reviewPassed === null) {
+          // Fallback: check for explicit "passed": true/false, not just word PRESENCE
+          if (/"passed"\s*:\s*false/i.test(reviewText)) {
+            reviewPassed = false;
+          } else if (/"passed"\s*:\s*true/i.test(reviewText)) {
+            reviewPassed = true;
+          } else {
+            reviewPassed = /PASSED/i.test(reviewText) && !/FAILED/i.test(reviewText);
+          }
           reviewFeedback = reviewText;
         }
 
@@ -1489,13 +1530,13 @@ ${JSON.stringify(reviewIssues, null, 2)}
 
     // Try to extract call_graph from action agent output (no reviewer path)
     let callGraph2: unknown = null;
-    try {
-      const jsonMatch = finalMessage.match(/\{[\s\S]*"call_graph"[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
+    const cgJson = this.extractJsonBlock(finalMessage, 'call_graph');
+    if (cgJson) {
+      try {
+        const parsed = JSON.parse(cgJson);
         callGraph2 = parsed.call_graph || null;
-      }
-    } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    }
 
     // No reviewer needed (read-only or no changes)
     yield {

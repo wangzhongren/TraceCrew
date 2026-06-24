@@ -29,6 +29,36 @@ export default function App() {
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM_STATE);
 
+  // Auto-exec state
+  const [autoExecRunning, setAutoExecRunning] = useState(false);
+  const [autoExecProgress, setAutoExecProgress] = useState<{ current: number; total: number; currentNodeId: string | null } | null>(null);
+  const autoExecStopRef = useRef(false);
+
+  // Per-node execution records (for card expand)
+  const [execRecords, setExecRecords] = useState<Record<string, {
+    summary: string; review_passed: boolean | null;
+    review_feedback?: string; review_issues?: any[];
+  }>>({});
+
+  // Live output for currently executing node
+  const [liveOutput, setLiveOutput] = useState<Record<string, string>>({});
+
+  // Auto-save execution record when stream completes
+  useEffect(() => {
+    if (!stream.result || !selectedNode) return;
+    if (stream.result.message) {
+      setExecRecords(prev => ({
+        ...prev,
+        [selectedNode]: {
+          summary: stream.result!.message || '',
+          review_passed: stream.result!.review_passed ?? null,
+          review_feedback: stream.result!.review_feedback,
+          review_issues: stream.result!.review_issues,
+        },
+      }));
+    }
+  }, [stream.result, selectedNode]);
+
   // Per-node stream persistence: save/restore action state when switching nodes
   const savedStreamsRef = useRef<Record<string, StreamState>>({});
   const streamRef = useRef(stream);
@@ -149,11 +179,174 @@ export default function App() {
   }, []);
 
   const handleReplan = useCallback(() => {
-    // Close action panel and signal re-plan needed
-    // The user can re-enter their task in the chat panel
     handleActionClose();
     setPipeline(prev => ({ ...prev, phase: 'idle' }));
   }, [handleActionClose]);
+
+  // Topological sort nodes by dependency edges
+  const topoSortNodes = useCallback((nodes: GraphNode[], edges: { from: string; to: string }[]): GraphNode[] => {
+    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>();
+    for (const n of nodes) { inDegree.set(n.id, 0); adj.set(n.id, []); }
+    for (const e of edges) {
+      if (inDegree.has(e.to)) inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
+      if (adj.has(e.from)) adj.get(e.from)!.push(e.to);
+    }
+    const queue = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+    const result: GraphNode[] = [];
+    const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      const n = nodeMap.get(id); if (n) result.push(n);
+      for (const to of (adj.get(id) || [])) {
+        const d = (inDegree.get(to) || 1) - 1;
+        inDegree.set(to, d);
+        if (d === 0) queue.push(to);
+      }
+    }
+    return result;
+  }, []);
+
+  // SSE helper: run a single action and return full result
+  const runSingleAction = useCallback(async (
+    node: GraphNode, action: ActionType, projectPath: string,
+    onEvent?: (ev: { type: string; data: string }) => void,
+  ): Promise<{ passed: boolean | null; feedback?: string; issues?: any[]; message?: string }> => {
+    try {
+      const res = await fetch('/api/v1/agent/action/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          node,
+          instruction: '',
+          project_path: projectPath,
+          downstream_nodes: action === 'refactor' ? [] : [],
+          locale,
+          plan_context: savedPlanRef.current || null,
+        }),
+      });
+
+      const reader = res.body?.getReader();
+      if (!reader) return { passed: null };
+      const dec = new TextDecoder();
+      let buf = '';
+      let result: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n');
+        buf = parts.pop() || '';
+        for (const line of parts) {
+          if (!line.trim()) continue;
+          const { event, data } = JSON.parse(line);
+          if (!event) continue;
+          const d = typeof data === 'string' ? JSON.parse(data) : data;
+          if (event === 'token' || event === 'review_token') {
+            onEvent?.({ type: 'token', data: d });
+          } else if (event === 'phase') {
+            try { onEvent?.({ type: 'phase', data: d.phase }); } catch {}
+          } else if (event === 'tools') {
+            try { onEvent?.({ type: 'tools', data: `${d.ops?.length || 0} 个工具操作` }); } catch {}
+          } else if (event === 'done') {
+            result = d;
+          }
+        }
+      }
+      return {
+        passed: result?.review_passed ?? null,
+        feedback: result?.review_feedback,
+        issues: result?.review_issues,
+        message: result?.message,
+      };
+    } catch {
+      return { passed: null };
+    }
+  }, [locale]);
+
+  // Auto-execute all pending tasks in dependency order
+  const handleAutoExec = useCallback(async () => {
+    try {
+      const graph = graphRef.current;
+      if (!graph || !projectPath) return;
+
+      const pending = graph.nodes.filter(n =>
+        n.status !== 'done' && n.status !== 'existing'
+      );
+      if (pending.length === 0) return;
+
+      const sorted = topoSortNodes(pending, graph.edges);
+      const total = sorted.length;
+      autoExecStopRef.current = false;
+      setAutoExecRunning(true);
+      setAutoExecProgress({ current: 0, total, currentNodeId: null });
+
+      let completed = 0;
+      for (const node of sorted) {
+      if (autoExecStopRef.current) break;
+
+      // Check deps
+      const incoming = graph.edges.filter(e => e.to === node.id);
+      const unmetDeps = incoming.filter(e => {
+        const depGraph = graphRef.current?.nodes.find(n => n.id === e.from);
+        return depGraph && depGraph.status !== 'done' && depGraph.status !== 'existing';
+      });
+      if (unmetDeps.length > 0) continue; // skip, dependencies not met
+
+      setAutoExecProgress({ current: completed, total, currentNodeId: node.id });
+
+      // Run the action with live output
+      setLiveOutput(prev => ({ ...prev, [node.id]: '' }));
+      const result = await runSingleAction(node, 'develop', projectPath, (ev) => {
+        if (ev.type === 'token') {
+          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + ev.data }));
+        } else if (ev.type === 'phase') {
+          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n\n[${ev.data}]\n` }));
+        } else if (ev.type === 'tools') {
+          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n🔧 ${ev.data}\n` }));
+        }
+      });
+
+      // Save exec record
+      setExecRecords(prev => ({
+        ...prev,
+        [node.id]: {
+          summary: result.message || '',
+          review_passed: result.passed,
+          review_feedback: result.feedback,
+          review_issues: result.issues,
+        },
+      }));
+
+      if (!autoExecStopRef.current && result.passed === true) {
+        // Update node status — sync ref immediately so next iteration sees it
+        const g = graphRef.current;
+        if (g) {
+          const updatedNodes = g.nodes.map(n =>
+            n.id === node.id ? { ...n, status: 'done' as const, detail: (n.detail || '') + '\n✅ 已完成' } : n
+          );
+          const newGraph = { nodes: updatedNodes, edges: g.edges };
+          graphRef.current = newGraph; // sync immediately for next loop iteration
+          setPipeline(prev => ({ ...prev, graph: newGraph }));
+        }
+      }
+      completed++;
+    }
+
+    } catch (e) {
+      console.error('[autoExec] error:', e);
+    }
+    setAutoExecRunning(false);
+    setAutoExecProgress(null);
+  }, [projectPath, topoSortNodes, runSingleAction]);
+
+  const handleStopAutoExec = useCallback(() => {
+    autoExecStopRef.current = true;
+    setAutoExecRunning(false);
+    setAutoExecProgress(null);
+  }, []);
 
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
@@ -188,24 +381,20 @@ export default function App() {
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
+        const parts = buf.split('\n');
         buf = parts.pop() || '';
 
-        for (const part of parts) {
-          const lines = part.split('\n');
-          let event = '', data = '';
-          for (const l of lines) {
-            if (l.startsWith('event: ')) event = l.slice(7).trim();
-            else if (l.startsWith('data: ')) data = l.slice(6);
-          }
+        for (const line of parts) {
+          if (!line.trim()) continue;
+          const { event, data } = JSON.parse(line);
           if (!event) continue;
 
+          const d = typeof data === 'string' ? JSON.parse(data) : data;
           try {
-            const payload = JSON.parse(data);
             setStream(prev => {
               switch (event) {
                 case 'phase': {
-                  const newPhase = payload.phase || 'action';
+                  const newPhase = d.phase || 'action';
                   return {
                     ...prev,
                     phase: newPhase,
@@ -219,7 +408,7 @@ export default function App() {
                   const tl = [...prev.timeline];
                   if (tl.length > 0) {
                     const last = { ...tl[tl.length - 1] };
-                    last.output += data;
+                    last.output += d;
                     tl[tl.length - 1] = last;
                   }
                   return { ...prev, timeline: tl };
@@ -231,15 +420,15 @@ export default function App() {
                   const tl = [...prev.timeline];
                   if (tl.length > 0) {
                     const last = { ...tl[tl.length - 1] };
-                    last.tools = [...last.tools, ...(payload.ops || [])];
+                    last.tools = [...last.tools, ...(d.ops || [])];
                     tl[tl.length - 1] = last;
                   }
                   return { ...prev, timeline: tl };
                 }
                 case 'done':
                   // Update single target node if review passed
-                  if (payload.updated_node && graphRef.current) {
-                    const un = payload.updated_node;
+                  if (d.updated_node && graphRef.current) {
+                    const un = d.updated_node;
                     const currentGraph = graphRef.current;
                     const nodeIdx = currentGraph.nodes.findIndex(n => n.id === un.id);
                     if (nodeIdx !== -1) {
@@ -252,7 +441,7 @@ export default function App() {
                       handleGraphChange({ nodes: updatedNodes, edges: currentGraph.edges });
                     }
                   }
-                  return { ...prev, running: false, result: payload };
+                  return { ...prev, running: false, result: d };
                 default:
                   return prev;
               }
@@ -329,6 +518,12 @@ export default function App() {
                   activeAction={activeAction}
                   onRequestAction={handleRequestAction}
                   streamRunning={stream.running}
+                  onAutoExec={handleAutoExec}
+                  onStopAutoExec={handleStopAutoExec}
+                  autoExecRunning={autoExecRunning}
+                  autoExecProgress={autoExecProgress}
+                  execRecords={execRecords}
+                  liveOutput={liveOutput}
                 />
               </div>
               {/* Right: Code Viewer + Action Panel */}
@@ -348,6 +543,7 @@ export default function App() {
                       onActionConfirm={handleActionConfirm}
                       onActionClose={handleActionClose}
                       onReplan={handleReplan}
+                      onCloseCode={() => setSelectedNode(null)}
                     />
                   </div>
                 </>

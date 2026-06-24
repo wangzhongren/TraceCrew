@@ -1,27 +1,26 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { marked } from 'marked';
 import type { PipelineState } from '../App';
 import PlanCard from './PlanCard';
 import ReviewCard from './ReviewCard';
 import type { CallGraph } from './MapCanvas';
 import { useT, useLocale } from '../i18n';
 
-/* ── Timeline entry ── */
+/* ── Types ── */
+
 type TimelineEntry =
-  | { kind: 'agent-start'; agent: string }
-  | { kind: 'tool'; agent: string; tool: string; detail: string }
-  | { kind: 'text'; agent: string; text: string }
-  | { kind: 'plan'; agent: string; plan: any }
-  | { kind: 'graph'; agent: string; nodes: number; edges: number }
-  | { kind: 'review'; agent: string; passed: boolean; feedback: string; issues: string[] }
+  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any }
+  | { kind: 'tool'; agent: string; tool: string; file: string }
+  | { kind: 'user'; text: string }
   | { kind: 'system'; text: string };
 
-const AG: Record<string, { name: string; color: string; bg: string }> = {
-  planner:  { name: 'Planner',  color: '#2563eb', bg: 'rgba(37,99,235,0.06)' },
-  mapper:   { name: 'Mapper',   color: '#7c3aed', bg: 'rgba(124,58,237,0.06)' },
-  reviewer: { name: 'Reviewer', color: '#dc2626', bg: 'rgba(220,38,38,0.06)' },
+/* ── Agent config ── */
+
+const AG: Record<string, { name: string; color: string }> = {
+  planner:  { name: 'Planner',  color: '#2563eb' },
+  mapper:   { name: 'Mapper',   color: '#7c3aed' },
+  reviewer: { name: 'Reviewer', color: '#dc2626' },
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -30,16 +29,18 @@ const TOOL_LABEL: Record<string, string> = {
   create_file: 'Create', run_shell: 'Run',
 };
 
-const TOOL_COLOR: Record<string, { bg: string; text: string }> = {
-  read_file:    { bg: '#dbeafe', text: '#2563eb' },
-  list_dir:     { bg: '#dbeafe', text: '#2563eb' },
-  search:       { bg: '#dbeafe', text: '#2563eb' },
-  insert_lines: { bg: '#dcfce7', text: '#16a34a' },
-  replace_lines:{ bg: '#dcfce7', text: '#16a34a' },
-  create_file:  { bg: '#dcfce7', text: '#16a34a' },
-  delete_lines: { bg: '#fee2e2', text: '#dc2626' },
-  run_shell:    { bg: '#fef3c7', text: '#b45309' },
+const TOOL_COLOR: Record<string, { bg: string; c: string }> = {
+  read_file:    { bg: '#dbeafe', c: '#2563eb' },
+  list_dir:     { bg: '#dbeafe', c: '#2563eb' },
+  search:       { bg: '#dbeafe', c: '#2563eb' },
+  insert_lines: { bg: '#dcfce7', c: '#16a34a' },
+  replace_lines:{ bg: '#dcfce7', c: '#16a34a' },
+  create_file:  { bg: '#dcfce7', c: '#16a34a' },
+  delete_lines: { bg: '#fee2e2', c: '#dc2626' },
+  run_shell:    { bg: '#fef3c7', c: '#b45309' },
 };
+
+/* ══════════════════════════════════════════════ */
 
 export default function ChatPanel({ projectPath, onPipelineChange }: {
   projectPath: string | null;
@@ -54,160 +55,115 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Array<{ role: string; content: string }>>([]);
   const plannerUsedTools = useRef(false);
+  const tidxRef = useRef(-1);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [timeline]);
 
-  /* ── Stream ── */
-  const streamWithOps = async (
-    body: Record<string, any>,
-    onToken: (t: string) => void,
-    onTools?: (info: { count: number; ops: any[] }) => void,
-  ) => {
+  /* ── Helpers ── */
+
+  const parseJson = (text: string): any => {
+    if (!text) return null;
+    const m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (m) { try { return JSON.parse(m[1]); } catch {} }
+    for (const key of ['"call_graph"', '"plan_summary"', '"passed"']) {
+      const idx = text.indexOf(key);
+      if (idx !== -1) {
+        const start = text.lastIndexOf('{', idx);
+        if (start !== -1) {
+          let depth = 0, end = -1;
+          for (let i = start; i < text.length; i++) {
+            if (text[i] === '{') depth++;
+            else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+          }
+          if (end !== -1) { try { return JSON.parse(text.slice(start, end)); } catch {} }
+        }
+      }
+    }
+    const greedy = text.match(/\{[\s\S]*\}/);
+    if (greedy) { try { return JSON.parse(greedy[0]); } catch {} }
+    return null;
+  };
+
+  /* ── SSE stream ── */
+
+  const streamSSE = async (body: Record<string, any>, onToken: (t: string) => void, onReasoning?: (t: string) => void, onTools?: (ops: any[]) => void) => {
     const res = await fetch('/api/v1/agent/chat/stream', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, project_path: projectPath, locale }), signal: abortRef.current?.signal,
+      body: JSON.stringify({ ...body, project_path: projectPath, locale }),
+      signal: abortRef.current?.signal,
     });
     const reader = res.body?.getReader();
-    if (!reader) return { text: '' };
+    if (!reader) return '';
     const dec = new TextDecoder();
-    let buf = '', full = '', finalMessage = '';
+    let buf = '', full = '';
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      const parts = buf.split('\n\n');
+      const parts = buf.split('\n');
       buf = parts.pop() || '';
-      for (const part of parts) {
-        const lines = part.split('\n');
-        let et = '', ed = '';
-        for (const l of lines) {
-          if (l.startsWith('event: ')) et = l.slice(7);
-          else if (l.startsWith('data: ')) ed = l.slice(6);
-        }
-        if (et === 'token') { full += ed; onToken(ed); }
-        else if (et === 'tools') { try { onTools?.(JSON.parse(ed)); } catch {} }
-        else if (et === 'done') { try { finalMessage = JSON.parse(ed).message || ''; } catch {} }
-}
-    }
-    // 处理 buf 中残留的最后一个 SSE 事件
-    if (buf.trim()) {
-      const lines = buf.trim().split('\n');
-      let et = '', ed = '';
-      for (const l of lines) {
-        if (l.startsWith('event: ')) et = l.slice(7);
-        else if (l.startsWith('data: ')) ed = l.slice(6);
-      }
-      if (et === 'token') { full += ed; onToken(ed); }
-      else if (et === 'tools') { try { onTools?.(JSON.parse(ed)); } catch {} }
-      else if (et === 'done') { try { finalMessage = JSON.parse(ed).message || ''; } catch {} }
-    }
-    return { text: finalMessage || full };
-  };
-
-  const parseJson = (text: string): any => {
-    if (!text) return null;
-    // Strategy 1: ```json ... ``` code fence (most reliable)
-    let m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-    if (m) { try { return JSON.parse(m[1]); } catch {} }
-    // Strategy 2: find JSON object specifically containing "call_graph"
-    const cgIdx = text.indexOf('"call_graph"');
-    if (cgIdx !== -1) {
-      const start = text.lastIndexOf('{', cgIdx);
-      if (start !== -1) {
-        // Walk forward to find the matching closing brace
-        let depth = 0, end = -1;
-        for (let i = start; i < text.length; i++) {
-          if (text[i] === '{') depth++;
-          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-        }
-        if (end !== -1) {
-          try { return JSON.parse(text.slice(start, end)); } catch {}
+      for (const line of parts) {
+        if (!line.trim()) continue;
+        const { event, data } = JSON.parse(line);
+        if (event === 'token') { full += data; onToken(data); }
+        else if (event === 'reasoning') { onReasoning?.(data); }
+        else if (event === 'tools') {
+          const ops = typeof data === 'string' ? JSON.parse(data).ops : data.ops;
+          onTools?.(ops || []);
         }
       }
     }
-    // Strategy 3: find any JSON object containing "plan_summary" (for planner)
-    const planIdx = text.indexOf('"plan_summary"');
-    if (planIdx !== -1) {
-      const start = text.lastIndexOf('{', planIdx);
-      if (start !== -1) {
-        let depth = 0, end = -1;
-        for (let i = start; i < text.length; i++) {
-          if (text[i] === '{') depth++;
-          else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-        }
-        if (end !== -1) {
-          try { return JSON.parse(text.slice(start, end)); } catch {}
-        }
-      }
-    }
-    // Strategy 4: last-resort greedy match
-    m = text.match(/\{[\s\S]*\}/);
-    if (m) { try { return JSON.parse(m[0]); } catch {} }
-    return null;
+    return full;
   };
 
   /* ── Agent loop ── */
-  const agentLoop = async (
-    agent: string, systemPrompt: string, initialCtx: string,
-    _shouldStop: (text: string, ops: any[]) => boolean,
-    _allowWrite: boolean, history?: Array<{ role: string; content: string }>,
-  ): Promise<{ fullText: string; message: string; textIdx: number }> => {
-    const chatHistory: Array<{ role: string; content: string }> = [...(history || [])];
-    // Fetch file tree and put everything into history as the first user message
+
+  const agentLoop = async (agent: string, systemPrompt: string, ctx: string, history?: Array<{ role: string; content: string }>) => {
+    const messages = [...(history || [])];
     let fileTree: any = null;
     try { fileTree = await window.tracecrew.file.listDirectory(projectPath!); } catch {}
-    const firstMsg = fileTree
-      ? `${initialCtx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}`
-      : `${initialCtx}\n\n${systemPrompt}`;
-    chatHistory.push({ role: 'user', content: firstMsg });
+    messages.push({ role: 'user', content: fileTree ? `${ctx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}` : `${ctx}\n\n${systemPrompt}` });
 
     let fullText = '';
-    let textIdx = -1;
-    setTimeline((prev) => {
-      textIdx = prev.length;
-      return [...prev, { kind: 'text' as const, agent, text: '' }];
-    });
+    setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent, text: '', reasoning: '', result: null }]; });
 
-    // Backend handles tool execution internally — frontend just streams and displays
-    const { text: message } = await streamWithOps({ history: chatHistory, mode: agent }, (t) => {
-      fullText += t;
-      setTimeline((prev) => {
-        const u = [...prev];
-        const target = u[textIdx];
-        if (target?.kind === 'text') {
-          u[textIdx] = { ...target, text: target.text + t };
+    await streamSSE({ history: messages, mode: agent },
+      (t) => {
+        fullText += t;
+        setTimeline(prev => {
+          const u = [...prev];
+          const idx = tidxRef.current;
+          if (idx < 0) return u;
+          const entry = u[idx];
+          if (entry?.kind === 'agent') u[idx] = { ...entry, text: entry.text + t };
+          return u;
+        });
+      },
+      (t) => {
+        setTimeline(prev => {
+          const u = [...prev];
+          const idx = tidxRef.current;
+          if (idx < 0) return u;
+          const entry = u[idx];
+          if (entry?.kind === 'agent') u[idx] = { ...entry, reasoning: (entry.reasoning || '') + t };
+          return u;
+        });
+      },
+      (ops) => {
+        if (agent === 'planner') plannerUsedTools.current = true;
+        for (const op of ops) {
+          setTimeline(prev => [...prev, { kind: 'tool', agent, tool: op.type, file: op.file || '' }]);
         }
-        return u;
-      });
-    }, (toolInfo) => {
-      // Tool events: show what the backend is executing
-      if (agent === 'planner') plannerUsedTools.current = true;
-      for (const op of toolInfo.ops || []) {
-        setTimeline((prev) => [...prev, {
-          kind: 'tool', agent,
-          tool: op.type, detail: op.file || '',
-        }]);
       }
-    });
-
-    // message = done event's parsed message (XML tags stripped by backend)
-    // fullText = raw token accumulation (with XML tags) — fallback only
-    // fullText = cumulative tokens from ALL turns (contains JSON even when done is from a later turn)
-    // message = done event's parsed message — fallback only
-    return { fullText: fullText || message, message: message || '', textIdx };
+    );
+    return { fullText };
   };
 
-  /* ── Helpers ── */
-  const pushTimeline = (e: TimelineEntry) => setTimeline((p) => [...p, e]);
+  /* ════ Pipeline ════ */
 
-  /* ════ Pipeline Flow ════
-     Planner → Reviewer (validates plan) → Mapper (draws graph)
-     If Reviewer fails → retry Planner
-     ═══════════════════════════════════════════ */
-
-  /* ════ Planner ════ */
   const runPlanner = async (instruction: string) => {
     if (!projectPath) return;
     setRunning(true);
@@ -215,411 +171,424 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     abortRef.current = new AbortController();
     const hist = [...historyRef.current, { role: 'user', content: instruction }];
 
-    pushTimeline({ kind: 'agent-start', agent: 'planner' });
     onPipelineChange({ phase: 'planning' });
-
-    const { fullText, message } = await agentLoop('planner', '', '',
-      (text) => !!(parseJson(text)?.plan_summary), false, hist);
-
+    const { fullText } = await agentLoop('planner', '', '', hist);
     const plan = parseJson(fullText);
-    console.log(`[Planner] plan=${!!plan} needs_exec=${plan?.needs_execution} steps=${plan?.steps?.length || 0}`);
     hist.push({ role: 'assistant', content: `[Plan] ${plan?.plan_summary || fullText}` });
     historyRef.current = hist;
-    // Planner outputs Markdown directly (not JSON), so fallback to raw fullText
-    pushTimeline({ kind: 'plan', agent: 'planner', plan: { plan_summary: (plan?.plan_summary || message || fullText), raw: fullText } });
 
-    // Check if Planner produced meaningful output (either used tools or generated substantial analysis)
-    const didReadFiles = plannerUsedTools.current;
-    const hasSubstantiveOutput = (message || fullText).length > 100;
+    // Attach plan result to the agent block
+    setTimeline(prev => {
+      const u = [...prev];
+      for (let i = u.length - 1; i >= 0; i--) {
+        const e: any = u[i];
+        if (e.kind === 'agent' && e.agent === 'planner') {
+          u[i] = { ...e, result: { type: 'plan', plan: plan || { plan_summary: fullText.slice(0, 300) } } };
+          return u;
+        }
+      }
+      return u;
+    });
 
-    if (!didReadFiles && !hasSubstantiveOutput) {
-      pushTimeline({ kind: 'system', text: t('chat.plannerNoFiles') });
+    if (!plannerUsedTools.current && (fullText || '').length <= 100) {
+      setTimeline(prev => [...prev, { kind: 'system', text: t('chat.plannerNoFiles') }]);
       onPipelineChange({ phase: 'done' });
       setRunning(false);
       return;
     }
 
-    // Step 2: Reviewer validates the Plan BEFORE drawing the graph
     await runReviewPlan(instruction, fullText, plan);
   };
 
-  /* ════ Reviewer (validates Plan only) ════ */
   const runReviewPlan = async (instruction: string, plannerText: string, plan: any) => {
-    pushTimeline({ kind: 'agent-start', agent: 'reviewer' });
-
     const { fullText } = await agentLoop('reviewer', '',
       `【需求】${instruction}\n【Planner输出】${plannerText}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}\n\n请验证 Planner 的分析是否基于实际代码，结论是否有证据支撑。`,
-      () => false, false);
+      [...historyRef.current]
+    );
 
-    const review = parseJson(fullText) || { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
-    pushTimeline({ kind: "review", agent: "reviewer", passed: review.passed, feedback: review.feedback || fullText, issues: review.issues || [] });
+    const review = parseJson(fullText) || (() => {
+      if (/"passed"\s*:\s*false/i.test(fullText)) return { passed: false, feedback: fullText, issues: [] };
+      if (/"passed"\s*:\s*true/i.test(fullText)) return { passed: true, feedback: fullText, issues: [] };
+      return { passed: /PASSED/i.test(fullText) && !/FAILED/i.test(fullText), feedback: fullText, issues: [] };
+    })();
+
+    // Attach review result
+    setTimeline(prev => {
+      const u = [...prev];
+      for (let i = u.length - 1; i >= 0; i--) {
+        const e: any = u[i];
+        if (e.kind === 'agent' && e.agent === 'reviewer') {
+          u[i] = { ...e, result: { type: 'review', passed: review.passed, feedback: review.feedback, issues: review.issues || [] } };
+          return u;
+        }
+      }
+      return u;
+    });
+
     historyRef.current.push({ role: 'assistant', content: `[Reviewer] ${fullText}` });
 
     if (review.passed) {
-      // Plan approved → save it so action agents can use it as context
-      onPipelineChange({
-        phase: 'done',
-        savedPlan: {
-          plan_summary: plan?.plan_summary || '',
-          steps: plan?.steps || [],
-          key_files: plan?.key_files || [],
-          raw: plannerText,
-        },
-      });
-      // Now draw the call graph
+      const saved = { plan_summary: plan?.plan_summary || '', steps: plan?.steps || [], key_files: plan?.key_files || [], raw: plannerText };
+      onPipelineChange({ phase: 'done', savedPlan: saved });
+
+      if (projectPath) {
+        const stepsMd = (saved.steps || []).map((s: any, i: number) => `${i + 1}. ${s.description || s.desc || JSON.stringify(s)}`).join('\n');
+        const planMd = `# Planner Report\n\n## 需求\n${instruction}\n\n## 计划摘要\n${saved.plan_summary}\n\n## 步骤\n${stepsMd || '(无)'}\n\n## 关键文件\n${saved.key_files.join(', ') || '(无)'}\n\n## 原始分析\n${plannerText}\n`;
+        try { await window.tracecrew.file.writeFile('.tracecrew/PLAN.md', planMd); } catch {}
+      }
+
       await runMapper(instruction, plan, plannerText);
     } else {
-      // Plan rejected → retry Planner
-      pushTimeline({ kind: 'system', text: t('chat.reviewFailed') });
+      setTimeline(prev => [...prev, { kind: 'system', text: t('chat.reviewFailed') }]);
       setRunning(false);
       setTimeout(() => runPlanner(instruction), 500);
     }
   };
 
-  /* ════ Mapper (draws call graph, only runs after review passes) ════ */
   const runMapper = async (instruction: string, plan: any, plannerText?: string) => {
-    pushTimeline({ kind: 'agent-start', agent: 'mapper' });
-
     const planCtx = plan?.plan_summary
       ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
       : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
-    const { fullText, message } = await agentLoop('mapper', '',
-      `【需求】${instruction}\n${planCtx}`,
-      (text) => !!(parseJson(text)?.call_graph), false);
+    const { fullText } = await agentLoop('mapper', '', `【需求】${instruction}\n${planCtx}`, [...historyRef.current]);
 
-    // Try parsing from both fullText and done event's message
     let data = parseJson(fullText);
-    if (!data?.call_graph) data = parseJson(message);
-    console.log(`[Mapper] parsed data:`, data ? `has call_graph=${!!data.call_graph} nodes=${data.call_graph?.nodes?.length || 0}` : 'null', '| last500=', fullText.slice(-500));
 
+    // Attach mapper result
+    let graph: CallGraph | null = null;
     if (data?.call_graph?.nodes?.length > 0) {
-      // Normalize edge status: mapper may return "planned_new"/"planned_change" but GraphEdge expects "new"/"existing"
       const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
         existing: 'existing', new: 'new', removed: 'removed', error: 'error',
         planned_new: 'new', planned_change: 'existing',
       };
-      const rawEdges = data.call_graph.edges || [];
-      const edges = rawEdges.map((e: any) => ({
-        ...e,
-        status: EDGE_STATUS_MAP[e.status] || 'new',
-      }));
-      const graph: CallGraph = { nodes: data.call_graph.nodes, edges };
-      pushTimeline({ kind: 'graph', agent: 'mapper', nodes: graph.nodes.length, edges: graph.edges.length });
+      const edges = (data.call_graph.edges || []).map((e: any) => ({ ...e, status: EDGE_STATUS_MAP[e.status] || 'new' }));
+      graph = { nodes: data.call_graph.nodes, edges };
+    }
+
+    setTimeline(prev => {
+      const u = [...prev];
+      for (let i = u.length - 1; i >= 0; i--) {
+        const e: any = u[i];
+        if (e.kind === 'agent' && e.agent === 'mapper') {
+          u[i] = { ...e, result: { type: 'graph', nodes: graph?.nodes.length || 0, edges: graph?.edges.length || 0 } };
+          return u;
+        }
+      }
+      return u;
+    });
+
+    if (graph) {
+      if (!data?.call_graph) data = parseJson(fullText); // retry
       flushSync(() => onPipelineChange({ phase: 'done', graph }));
     } else {
-      pushTimeline({ kind: 'system', text: t('chat.mapperNoGraph') });
+      setTimeline(prev => [...prev, { kind: 'system', text: t('chat.mapperNoGraph') }]);
       onPipelineChange({ phase: 'done' });
     }
 
     setRunning(false);
   };
 
-  /* ════ Send ════ */
   const handleSend = () => {
     if (!input.trim() || running) return;
-    const instruction = input.trim();
+    const msg = input.trim();
     setInput('');
-    pushTimeline({ kind: 'text', agent: 'user', text: instruction });
-    runPlanner(instruction);
+    setTimeline(prev => [...prev, { kind: 'user', text: msg }]);
+    runPlanner(msg);
   };
 
   /* ════ Render ════ */
+
   return (
-    <div className="flex flex-col h-full">
-      <header className="shrink-0 px-5 py-3" style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-        <h2 className="text-sm font-medium tracking-wide" style={{ color: 'var(--ibm-text-primary)' }}>{t('chat.pipeline')}</h2>
-        <p className="text-xs mt-0.5 font-light" style={{ color: 'var(--ibm-text-placeholder)' }}>
-          {t('chat.pipelineFlow')}
-        </p>
-      </header>
-
-      {/* Timeline */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
-        {timeline.length === 0 && (
-          <div className="flex items-center justify-center h-full px-8">
-            <div className="text-center" style={{ color: 'var(--ibm-text-placeholder)' }}>
-              <svg width="36" height="36" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1" style={{ margin: '0 auto', opacity: 0.4 }}>
-                <circle cx="10" cy="12" r="2"/><circle cx="16" cy="18" r="2"/><circle cx="22" cy="12" r="2"/>
-                <line x1="12" y1="13" x2="15" y2="17"/><line x1="20" y1="13" x2="17" y2="17"/>
-              </svg>
-              <p className="mt-4 text-sm font-light tracking-wide">{t('chat.describeTask')}</p>
-              <p className="mt-1 text-xs font-light opacity-60">{t('chat.pipelineHint')}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="relative ml-5 mr-5">
-          {/* Timeline vertical line — at x=9px (center of 4px dot at x=7) */}
-          <div className="absolute top-0 bottom-0" style={{ left: 7, width: 1, background: 'var(--ibm-border-subtle)' }} />
-
-          {timeline.map((entry, i) => (
-            <div key={i} className="relative animate-fade-in">
-              {entry.kind === 'agent-start' && (
-                <div className="flex items-center gap-3 pt-4 pb-1">
-                  <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
-                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: AG[entry.agent]?.color || 'var(--ibm-border)' }} />
-                  </span>
-                  <span className="text-sm font-medium tracking-wide" style={{ color: AG[entry.agent]?.color || 'var(--ibm-text-secondary)' }}>
-                    {AG[entry.agent]?.name || entry.agent}
-                  </span>
-                </div>
-              )}
-
-              {entry.kind === 'tool' && (() => {
-                // Group consecutive tool entries — only render on first of the group
-                if (i > 0 && timeline[i - 1]?.kind === 'tool') return null;
-                const group: TimelineEntry[] = [];
-                for (let j = i; j < timeline.length && timeline[j].kind === 'tool'; j++) {
-                  group.push(timeline[j]);
-                }
-                return <CollapsedTools tools={group} color={AG[entry.agent]?.color || '#8b949e'} />;
-              })()}
-
-              {/* Text: user messages */}
-              {entry.kind === 'text' && entry.agent === 'user' && (
-                <div className="flex gap-3 pb-4">
-                  <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0">
-                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--ibm-text-secondary)' }} />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <Markdown text={entry.text} muted={false} />
-                  </div>
-                </div>
-              )}
-
-              {/* Agent: streaming text — check if agent has completed later */}
-              {entry.kind === 'text' && entry.agent !== 'user' && entry.text && (() => {
-                const doneKinds = new Set(['plan', 'graph', 'review']);
-                const hasCompleted = timeline.slice(i + 1).some(
-                  (e: any) => e.agent === entry.agent && doneKinds.has(e.kind)
-                );
-                return (
-                  <AgentBlock text={entry.text} color={AG[entry.agent]?.color || '#8b949e'} name={AG[entry.agent]?.name || entry.agent} status={hasCompleted ? 'done' : 'thinking'} />
-                );
-              })()}
-
-              {/* Agent: plan result */}
-              {entry.kind === 'plan' && (
-                <AgentBlock color={AG.planner.color} name="Planner" status="done">
-                  <PlanCard planSummary={entry.plan?.plan_summary || ''} color={AG.planner.color} />
-                </AgentBlock>
-              )}
-
-              {/* Agent: graph summary */}
-              {entry.kind === 'graph' && (
-                <AgentBlock color={AG.mapper.color} name="Mapper" status="done">
-                  <div className="flex items-center gap-3 pb-2">
-                    <span className="text-xs tracking-wide" style={{ color: AG.mapper.color }}>
-                      {t('chat.callGraph')} &nbsp;
-                      <span style={{ color: 'var(--ibm-text-secondary)' }}>{t('chat.nodesCount', { count: entry.nodes }) + ', ' + t('chat.edgesCount', { count: entry.edges })}</span>
-                    </span>
-                  </div>
-                </AgentBlock>
-              )}
-
-              {/* Agent: review result */}
-              {entry.kind === 'review' && (
-                <AgentBlock color={AG.reviewer.color} name="Reviewer" status={entry.passed ? 'done' : 'failed'} doneLabel={t('chat.reviewResult')}>
-                  <ReviewCard passed={entry.passed} feedback={entry.feedback} issues={entry.issues} color={AG.reviewer.color} />
-                </AgentBlock>
-              )}
-            </div>
-          ))}
+    <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
+      {/* Header */}
+      <div className="shrink-0 px-4 py-3 border-b flex items-center gap-2.5"
+        style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#2563eb12' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+            <circle cx="12" cy="12" r="3"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
+            <circle cx="5" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
+            <line x1="12" y1="8" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="16" y2="12"/>
+          </svg>
+        </div>
+        <div>
+          <div className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>{t('chat.pipeline')}</div>
+          <div className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.pipelineFlow')}</div>
         </div>
       </div>
 
-      {/* Input */}
-      <footer className="shrink-0 px-4 py-3" style={{ borderTop: '1px solid var(--color-border-subtle)' }}>
-        <div className="flex items-end gap-3 p-2 rounded-lg" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--color-border-default)' }}>
-          <textarea value={input} onChange={(e) => setInput(e.target.value)}
-            placeholder={t('chat.inputPlaceholder')}
-            disabled={running} rows={2}
-            className="flex-1 py-1 text-sm bg-transparent outline-none resize-none min-h-[44px] focus:outline-none focus:ring-0"
-            style={{ fontFamily: 'var(--ibm-font)', color: 'var(--ibm-text-primary)' }}
-            onInput={(e) => { const el = e.currentTarget; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault(); handleSend();
-                }
-              }}
-          />
-          <div className="flex items-center gap-2 shrink-0">
-            {running ? (
-              <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
-                className="px-3 py-2 rounded-md text-xs font-medium transition-colors"
-                style={{ color: 'var(--ibm-error)', border: '1px solid var(--ibm-error)', background: 'transparent' }}>
-                {t('chat.stop')}
-              </button>
-            ) : (
-              <button onClick={handleSend} disabled={!input.trim()}
-                className="w-9 h-9 flex items-center justify-center rounded-md transition-all disabled:opacity-20"
-                style={{ background: input.trim() ? 'var(--ibm-primary)' : 'var(--ibm-layer-03)' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+      {/* Timeline */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {timeline.length === 0 ? (
+          <div className="flex items-center justify-center h-full px-6">
+            <div className="text-center">
+              <div className="w-14 h-14 mx-auto mb-3 rounded-2xl flex items-center justify-center"
+                style={{ background: 'var(--color-bg-layer)', border: '2px dashed var(--color-border-subtle)' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ opacity: 0.3, color: 'var(--color-text-muted)' }}>
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                  <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
-              </button>
-            )}
+              </div>
+              <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('chat.describeTask')}</div>
+              <div className="mt-1 text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.pipelineHint')}</div>
+            </div>
           </div>
+        ) : (
+          <TimelineView timeline={timeline} t={t} />
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="shrink-0 px-3 py-2.5 border-t" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+        <div className="flex items-end gap-2 px-3 py-2 rounded-xl border transition-colors"
+          style={{ background: 'var(--color-bg-primary)', borderColor: 'var(--color-border-default)' }}>
+          <textarea value={input} onChange={e => setInput(e.target.value)}
+            placeholder={t('chat.inputPlaceholder')} disabled={running} rows={1}
+            className="flex-1 text-[12px] bg-transparent outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 resize-none min-h-[24px] max-h-[120px] leading-relaxed"
+            style={{ color: 'var(--color-text-primary)' }}
+            onInput={e => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 120) + 'px'; }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
+          />
+          {running ? (
+            <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
+              className="shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-semibold"
+              style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca' }}>
+              ⏹ {t('chat.stop')}
+            </button>
+          ) : (
+            <button onClick={handleSend} disabled={!input.trim()}
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 disabled:opacity-20"
+              style={{ background: input.trim() ? '#2563eb' : 'var(--color-border-subtle)' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+              </svg>
+            </button>
+          )}
         </div>
-        <div className="flex justify-between mt-2 px-2">
-          <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
-            {t('chat.enterHint')}
-          </span>
-          <span className="text-caption" style={{ color: 'var(--ibm-text-disabled)' }}>
-            {t('chat.charCount', { count: input.length })}
-          </span>
+        <div className="flex justify-between mt-1.5 px-1">
+          <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
+          <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.charCount', { count: input.length })}</span>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
 
-/* ── Collapsible tool group ── */
+/* ══════════════════════════════════════════════
+   Timeline renderer — pure, no side effects
+   ══════════════════════════════════════════════ */
 
-function CollapsedTools({ tools, color }: { tools: TimelineEntry[]; color: string }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  if (tools.length === 0) return null;
+function TimelineView({ timeline, t }: { timeline: TimelineEntry[]; t: any }) {
   return (
-    <div className="pb-1">
-      <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full text-left py-0.5 transition-colors hover:bg-black/[0.02]">
-        <span className="w-[15px] flex items-center justify-center shrink-0">
-          <span className="w-1 h-1 rounded-full" style={{ background: color }} />
-        </span>
-        <span className="text-caption" style={{ color: 'var(--color-text-muted)' }}>
-          🔧 {t('chat.toolOperations', { count: tools.length })}
-        </span>
-        <span className="text-caption" style={{ color: 'var(--color-text-disabled)' }}>
-          {tools.slice(0, 3).map((t: any) => TOOL_LABEL[t.tool] || t.tool).join(', ')}{tools.length > 3 ? '...' : ''}
-        </span>
-        <svg width="8" height="8" viewBox="0 0 8 8" className="ml-auto"
-          style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-          <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-      </button>
+    <div className="px-4 py-2 space-y-0.5">
+      {timeline.map((entry, i) => {
+        if (entry.kind === 'system') return <SystemMsg key={i} text={entry.text} />;
+        if (entry.kind === 'user') return <UserMsg key={i} text={entry.text} />;
+        if (entry.kind === 'tool') {
+          const next = timeline[i + 1];
+          const isLast = !next || next.kind !== 'tool';
+          return <ToolRow key={i} entry={entry} isLast={isLast} />;
+        }
+        if (entry.kind === 'agent') return <AgentCard key={i} entry={entry} t={t} />;
+        return null;
+      })}
+    </div>
+  );
+}
+
+function SystemMsg({ text }: { text: string }) {
+  return (
+    <div className="py-1.5 text-center">
+      <span className="text-[9px] px-2.5 py-0.5 rounded-full" style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-layer)' }}>
+        {text}
+      </span>
+    </div>
+  );
+}
+
+function UserMsg({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end py-1">
+      <div className="max-w-[90%] rounded-2xl rounded-tr-md px-3.5 py-2.5"
+        style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
+        <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-primary)' }}>
+          {text}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolRow({ entry, isLast }: { entry: TimelineEntry & { kind: 'tool' }; isLast?: boolean }) {
+  const tc = TOOL_COLOR[entry.tool] || { bg: '#f3f4f6', c: '#6b7280' };
+  return (
+    <div className="flex items-center gap-2 py-0.5 pl-1" style={{ marginBottom: isLast ? 8 : 0 }}>
+      <span className="text-[9px] font-mono font-medium rounded px-1.5 py-0.5 shrink-0"
+        style={{ background: tc.bg, color: tc.c }}>
+        {TOOL_LABEL[entry.tool] || entry.tool}
+      </span>
+      <span className="text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>{entry.file}</span>
+    </div>
+  );
+}
+
+function CollapsibleReasoning({ text }: { text: string }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="mt-2">
+      <div onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[9px] cursor-pointer select-none py-0.5"
+        style={{ color: 'var(--color-text-muted)' }}>
+        <span>{open ? '▾' : '▸'}</span> 💭 思考过程
+      </div>
       {open && (
-        <div className="ml-5 mt-0.5 space-y-0">
-          {tools.map((t: any, j: number) => {
-            const tc = TOOL_COLOR[t.tool] || { bg: '#f0f1f3', text: '#6b7280' };
-            return (
-            <div key={j} className="flex items-center gap-2 py-[1px]">
-              <span className="text-caption font-mono rounded px-1.5 py-0.5"
-                style={{ background: tc.bg, color: tc.text }}>
-                {TOOL_LABEL[t.tool] || t.tool}
-              </span>
-              <span className="text-caption truncate" style={{ color: 'var(--color-text-secondary)' }}>
-                {t.detail}
-              </span>
-            </div>
-          )})}
+        <div className="opacity-60" onClick={() => setOpen(false)}>
+          <Markdown text={text} />
         </div>
       )}
     </div>
   );
 }
 
-/* ── Agent collapsible block (streaming text or result card) ── */
+/* ── Agent card ── */
 
-function AgentBlock({ text, color, name, status, doneLabel, children }: {
-  text?: string; color: string; name: string;
-  status?: 'thinking' | 'done' | 'failed';
-  doneLabel?: string;
-  children?: React.ReactNode;
-}) {
-  const t = useT();
-  const [expanded, setExpanded] = useState(!!children);
-  const label = status === 'failed' ? t('chat.failed') : status === 'done' ? (doneLabel || t('chat.done')) : text ? `${Math.round((text || '').length / 100)} ${t('chat.chars')}` : t('chat.thinking');
-  const spinner = status === 'thinking' || (!status && (text || '').length < 10);
+function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: any }) {
+  const cfg = AG[entry.agent] || { name: entry.agent, color: '#6b7280' };
+  const [expanded, setExpanded] = useState(true);
+  const result = entry.result;
+  const hasText = !!(entry.text || '').trim();
+  const isThinking = !result && hasText;
+
+  // Status from result
+  let status: 'thinking' | 'done' | 'failed' = isThinking ? 'thinking' : 'done';
+  let statusLabel = '';
+  if (result?.type === 'review') {
+    status = result.passed ? 'done' : 'failed';
+    statusLabel = result.passed ? t('chat.done') : t('chat.failed');
+  } else if (result?.type === 'plan') {
+    statusLabel = t('chat.done');
+  } else if (result?.type === 'graph') {
+    statusLabel = `${result.nodes}${t('graph.nodes')} · ${result.edges}${t('graph.edges')}`;
+  } else if (isThinking) {
+    statusLabel = `${Math.round(entry.text.length / 100)}${t('chat.chars')}`;
+  }
 
   return (
-    <div className="flex gap-3 pb-4 animate-fade-in">
-      <span className="w-[15px] h-[15px] flex items-center justify-center shrink-0 mt-0.5">
-        <span className="w-[7px] h-[7px] rounded-full" style={{
-          background: color,
-          animation: spinner ? 'pulse-dot 1.5s infinite' : 'none',
-        }} />
-      </span>
-
-      <div className="flex-1 min-w-0">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-black/[0.03]"
-          style={{ background: color + '08', border: `1px solid ${color}15` }}>
-          {spinner ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"
-              className="animate-spin-slow shrink-0">
-              <circle cx="12" cy="12" r="10" strokeOpacity="0.2" />
+    <div className="rounded-xl overflow-hidden"
+      style={{ background: cfg.color + '06', border: `1px solid ${cfg.color}18` }}>
+      {/* Header */}
+      <button onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-black/[0.015]">
+        {/* Dot */}
+        <span className="shrink-0 w-[15px] h-[15px] rounded-full flex items-center justify-center"
+          style={{ border: `2px solid ${status === 'failed' ? '#dc2626' : cfg.color}`, background: 'var(--color-bg-primary)' }}>
+          {status === 'thinking' ? (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={cfg.color} strokeWidth="3" className="animate-spin">
               <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
             </svg>
           ) : (
-            <span className="text-xs shrink-0" style={{ color }}>
-              {status === 'failed' ? '✕' : status === 'done' ? '✓' : '◉'}
-            </span>
+            <span className="w-[6px] h-[6px] rounded-full" style={{ background: status === 'failed' ? '#dc2626' : cfg.color }} />
           )}
-          <span className="text-xs font-medium" style={{ color }}>{name}</span>
-          <span className="text-xs" style={{ color: status === 'failed' ? 'var(--color-status-problem)' : 'var(--color-text-muted)' }}>{label}</span>
-          <svg width="10" height="10" viewBox="0 0 8 8" className="ml-auto shrink-0"
-            style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-            <path d="M2 3 L4 5 L6 3" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-
-        {expanded && (
-          text ? (
-            <div className="mt-2 ml-1 pl-4 border-l-2" style={{ borderColor: color + '30' }}>
-              <Markdown text={text} muted />
-            </div>
-          ) : (
-            <div className="mt-2">{children}</div>
-          )
+        </span>
+        {/* Name */}
+        <span className="text-[11px] font-semibold" style={{ color: cfg.color }}>{cfg.name}</span>
+        {/* Status badge */}
+        {statusLabel && (
+          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full" style={{
+            background: status === 'failed' ? '#fef2f2' : status === 'done' ? '#f0fdf4' : cfg.color + '12',
+            color: status === 'failed' ? '#dc2626' : status === 'done' ? '#16a34a' : 'var(--color-text-muted)',
+          }}>
+            {status === 'failed' ? '✕ ' : status === 'done' ? '✓ ' : ''}{statusLabel}
+          </span>
         )}
-      </div>
+        <div className="flex-1" />
+        <svg width="10" height="10" viewBox="0 0 8 8"
+          style={{ transform: expanded ? 'rotate(180deg)' : '', transition: 'transform 0.15s' }}>
+          <path d="M2 3 L4 5 L6 3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" style={{ color: cfg.color }} />
+        </svg>
+      </button>
+
+      {/* Body */}
+      {expanded && (
+        <div className="px-3.5 pb-3">
+          {/* Text content */}
+          {(entry.text || '').trim() && <Markdown text={entry.text} />}
+
+          {/* Reasoning — separate collapsible section */}
+          {entry.reasoning && (
+            <CollapsibleReasoning text={entry.reasoning} />
+          )}
+
+          {/* Plan result */}
+          {result?.type === 'plan' && (
+            <div className={hasText ? 'mt-2 pt-2 border-t' : ''} style={{ borderColor: 'var(--color-border-subtle)' }}>
+              <PlanCard planSummary={result.plan?.plan_summary || ''} color={cfg.color} />
+            </div>
+          )}
+
+          {/* Graph result */}
+          {result?.type === 'graph' && (
+            <div className={hasText ? 'mt-2 pt-2 border-t' : ''} style={{ borderColor: 'var(--color-border-subtle)' }}>
+              <div className="flex items-center gap-2 text-[10px]" style={{ color: cfg.color }}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" opacity="0.6">
+                  <rect x="0.5" y="0.5" width="5" height="5" rx="1"/><rect x="10.5" y="0.5" width="5" height="5" rx="1"/>
+                  <rect x="0.5" y="10.5" width="5" height="5" rx="1"/><rect x="10.5" y="10.5" width="5" height="5" rx="1"/>
+                  <line x1="5.5" y1="3" x2="10.5" y2="3"/><line x1="3" y1="5.5" x2="3" y2="10.5"/>
+                </svg>
+                <span className="font-medium">{t('chat.callGraph')}</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{statusLabel}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Review result */}
+          {result?.type === 'review' && (
+            <div className={hasText ? 'mt-2 pt-2 border-t' : ''} style={{ borderColor: 'var(--color-border-subtle)' }}>
+              <ReviewCard passed={result.passed} feedback={result.feedback} issues={result.issues} color={cfg.color} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── Markdown renderer ── */
+/* ── Markdown component ── */
 
-function Markdown({ text, muted }: { text: string; muted?: boolean }) {
-  const cleaned = useMemo(() => {
-    if (!text) return '';
-    return text
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
-      .replace(/<done>[^<]*<\/done>/gi, '')
-      .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
-      .replace(/<all-done>[^<]*<\/all-done>/gi, '')
-      .replace(/<final\/>/gi, '')
-      .replace(/\n{3,}/g, '\n\n').trim();
-  }, [text]);
-
-  if (!cleaned) return null;
+function Markdown({ text }: { text: string }) {
+  const cleaned = text
+    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '\n')
+    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '\n')
+    .replace(/<done>[^<]*<\/done>/gi, '\n')
+    .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '\n')
+    .replace(/<all-done>[^<]*<\/all-done>/gi, '\n')
+    .replace(/<final\/>/gi, '\n')
+    .replace(/([^\n])(#{1,4}\s)/g, '$1\n$2');
 
   return (
-    <div className="text-body leading-relaxed" style={{ color: muted ? 'var(--ibm-text-placeholder)' : 'var(--ibm-text-secondary)' }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}
-        components={{
-          code: ({ className, children, ...props }: any) => {
-            const inline = !className;
-            if (inline) return <code className="inline-code" {...props}>{children}</code>;
-            return <pre className="my-2 p-3 rounded-md overflow-x-auto text-xs" style={{ background: 'var(--ibm-layer-01)', border: '1px solid var(--ibm-border-subtle)' }}><code className={className} {...props}>{children}</code></pre>;
-          },
-          p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
-          ul: ({ children }: any) => <ul className="list-disc pl-5 mb-1 space-y-0.5">{children}</ul>,
-          ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-1 space-y-0.5">{children}</ol>,
-          h1: ({ children }: any) => <h1 className="text-base font-semibold mt-3 mb-1">{children}</h1>,
-          h2: ({ children }: any) => <h2 className="text-sm font-semibold mt-2 mb-1">{children}</h2>,
-          h3: ({ children }: any) => <h3 className="text-sm font-medium mt-2 mb-1">{children}</h3>,
-          blockquote: ({ children }: any) => <blockquote className="border-l-2 pl-3 my-1 italic opacity-70" style={{ borderColor: 'var(--ibm-border)' }}>{children}</blockquote>,
-          a: ({ href, children }: any) => <a href={href} className="md-link" target="_blank" rel="noopener">{children}</a>,
-          table: ({ children }: any) => <div className="overflow-x-auto my-2"><table className="w-full border-collapse text-xs">{children}</table></div>,
-          th: ({ children }: any) => <th className="border px-2 py-1 text-left font-medium" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>{children}</th>,
-          td: ({ children }: any) => <td className="border px-2 py-1" style={{ borderColor: 'var(--color-border-subtle)' }}>{children}</td>,
-          hr: () => <hr className="my-2" style={{ borderColor: 'var(--ibm-border-subtle)' }} />,
-        }}>
-        {cleaned}
-      </ReactMarkdown>
+    <div className="mt-1" style={{ fontSize: 11, color: '#374151', lineHeight: 1.65 }}>
+      <style>{`
+        .md-body h1 { font-size:14px; font-weight:700; color:#1a1a2e; margin:12px 0 6px; }
+        .md-body h2 { font-size:13px; font-weight:700; color:#1a1a2e; margin:10px 0 4px; }
+        .md-body h3 { font-size:12px; font-weight:600; color:#1a1a2e; margin:8px 0 3px; }
+        .md-body h4 { font-size:11px; font-weight:600; color:#1a1a2e; margin:6px 0 2px; }
+        .md-body p { margin:0 0 6px; }
+        .md-body ul, .md-body ol { padding-left:18px; margin:4px 0 8px; }
+        .md-body li { margin-bottom:2px; }
+        .md-body code { padding:1px 5px; border-radius:3px; font-size:10px; background:#f3f4f6; color:#dc2626; }
+        .md-body pre { margin:8px 0; padding:10px 12px; border-radius:6px; overflow-x:auto; font-size:10px; background:#f3f4f6; }
+        .md-body pre code { padding:0; background:none; color:inherit; font-size:inherit; }
+        .md-body table { width:100%; border-collapse:collapse; font-size:10px; margin:8px 0; }
+        .md-body th, .md-body td { border:1px solid #e5e7eb; padding:4px 8px; text-align:left; }
+        .md-body th { background:#f9fafb; font-weight:600; }
+        .md-body hr { margin:12px 0; border:none; border-top:1px solid #e5e7eb; }
+        .md-body blockquote { border-left:2px solid #e5e7eb; padding-left:10px; margin:8px 0; opacity:0.8; }
+        .md-body a { color:#3b82f6; }
+      `}</style>
+      <div
+        className="md-body"
+        style={{ fontSize: 11, color: '#374151', lineHeight: 1.65 }}
+        dangerouslySetInnerHTML={{ __html: marked.parse(cleaned, { async: false })! }}
+      />
     </div>
   );
 }

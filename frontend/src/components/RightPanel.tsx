@@ -18,12 +18,13 @@ interface Props {
   onActionConfirm: (instruction: string) => Promise<void>;
   onActionClose: () => void;
   onReplan?: () => void;
+  onCloseCode?: () => void;
 }
 
 export default function RightPanel({
   filePath, projectPath, scrollToLine,
   activeAction, actionNode, downstreamNodes, stream,
-  onActionConfirm, onActionClose, onReplan,
+  onActionConfirm, onActionClose, onReplan, onCloseCode,
 }: Props) {
   const [codeRatio, setCodeRatio] = useState(0.5); // 50% code, 50% action when both visible
   const dragging = useState(false);
@@ -80,11 +81,29 @@ export default function RightPanel({
   if (filePath && !showAction) {
     return (
       <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
-        <CodeViewer
-          filePath={filePath}
-          projectPath={projectPath}
-          scrollToLine={scrollToLine}
-        />
+        {/* Close bar */}
+        {onCloseCode && (
+          <div className="shrink-0 flex items-center justify-between px-3 py-1.5 border-b"
+            style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+            <span className="text-[10px] font-medium truncate mr-2" style={{ color: 'var(--color-text-muted)' }}>
+              {filePath.split(/[\\/]/).pop()}
+            </span>
+            <button onClick={onCloseCode}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/[0.06] transition-colors shrink-0"
+              style={{ color: 'var(--color-text-muted)' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden">
+          <CodeViewer
+            filePath={filePath}
+            projectPath={projectPath}
+            scrollToLine={scrollToLine}
+          />
+        </div>
       </div>
     );
   }
@@ -93,12 +112,29 @@ export default function RightPanel({
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
       {/* Code area */}
-      <div className="overflow-hidden min-h-0" style={{ height: `${codeRatio * 100}%` }}>
-        <CodeViewer
-          filePath={filePath}
-          projectPath={projectPath}
-          scrollToLine={scrollToLine}
-        />
+      <div className="flex flex-col overflow-hidden min-h-0" style={{ height: `${codeRatio * 100}%` }}>
+        {onCloseCode && (
+          <div className="shrink-0 flex items-center justify-between px-3 py-1 border-b"
+            style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+            <span className="text-[10px] font-medium truncate mr-2" style={{ color: 'var(--color-text-muted)' }}>
+              {filePath?.split(/[\\/]/).pop()}
+            </span>
+            <button onClick={onCloseCode}
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/[0.06] transition-colors shrink-0"
+              style={{ color: 'var(--color-text-muted)' }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        )}
+        <div className="flex-1 overflow-hidden">
+          <CodeViewer
+            filePath={filePath}
+            projectPath={projectPath}
+            scrollToLine={scrollToLine}
+          />
+        </div>
       </div>
 
       {/* Draggable divider */}

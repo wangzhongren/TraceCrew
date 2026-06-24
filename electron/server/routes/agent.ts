@@ -27,11 +27,11 @@ router.post('/chat/stream', async (req, res) => {
   try {
     for await (const ev of agentService.processStream(req.body)) {
       if (res.destroyed) break;
-      res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
+      res.write(JSON.stringify(ev) + '\n');
     }
   } catch (e: any) {
     if (!res.destroyed) {
-      res.write(`event: done\ndata: ${JSON.stringify({ message: e.message, operations: [] })}\n\n`);
+      res.write(JSON.stringify({ event: 'done', data: { message: e.message, operations: [] } }) + '\n');
     }
   }
   if (!res.destroyed) res.end();
@@ -62,11 +62,11 @@ router.post('/plan/stream', async (req, res) => {
       req.body.project_path || '',
     )) {
       if (res.destroyed) break;
-      res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
+      res.write(JSON.stringify(ev) + '\n');
     }
   } catch {
     if (!res.destroyed) {
-      res.write(`event: plan_error\ndata: ${JSON.stringify({ error: 'failed' })}\n\n`);
+      res.write(JSON.stringify({ event: 'plan_error', data: { error: 'failed' } }) + '\n');
     }
   }
   if (!res.destroyed) res.end();
@@ -86,11 +86,11 @@ router.post('/step/stream', async (req, res) => {
       req.body.step_id || 0,
     )) {
       if (res.destroyed) break;
-      res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
+      res.write(JSON.stringify(ev) + '\n');
     }
   } catch {
     if (!res.destroyed) {
-      res.write(`event: step_error\ndata: ${JSON.stringify({ error: 'failed' })}\n\n`);
+      res.write(JSON.stringify({ event: 'step_error', data: { error: 'failed' } }) + '\n');
     }
   }
   if (!res.destroyed) res.end();
@@ -119,11 +119,11 @@ router.post('/action/stream', async (req, res) => {
       plan_context: plan_context || null,
     })) {
       if (res.destroyed) break;
-      res.write(`event: ${ev.event}\ndata: ${ev.data}\n\n`);
+      res.write(JSON.stringify(ev) + '\n');
     }
   } catch (e: any) {
     if (!res.destroyed) {
-      res.write(`event: done\ndata: ${JSON.stringify({ success: false, message: e.message, review_passed: null })}\n\n`);
+      res.write(JSON.stringify({ event: 'done', data: { success: false, message: e.message, review_passed: null } }) + '\n');
     }
   }
   if (!res.destroyed) res.end();
