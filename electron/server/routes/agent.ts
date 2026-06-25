@@ -48,6 +48,15 @@ router.post('/classify-intent', async (req, res) => {
   }
 });
 
+router.post('/name-plan', async (req, res) => {
+  try {
+    const name = await agentService.generatePlanName(req.body.summary || '');
+    res.json({ name });
+  } catch (e: any) {
+    res.json({ name: (req.body.summary || 'plan').slice(0, 40).replace(/\s+/g, '-') });
+  }
+});
+
 /* ── Planner stream ── */
 
 router.post('/plan/stream', async (req, res) => {

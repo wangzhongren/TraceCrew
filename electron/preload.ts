@@ -29,6 +29,7 @@ const api = {
 search: (query: string, dirPath: string, options?: import('./fileManager').SearchOptions) => ipcRenderer.invoke('file:search', query, dirPath, options),
     restoreBackup: (backupId: string) => ipcRenderer.invoke('file:restoreBackup', backupId),
     getProjectPath: () => ipcRenderer.invoke('file:getProjectPath'),
+    openFile: (filePath: string) => ipcRenderer.invoke('shell:openFile', filePath),
     onProjectOpened: (cb: (path: string) => void) => {
       ipcRenderer.on('project:opened', (_e, p: string) => cb(p));
     },
@@ -57,6 +58,7 @@ search: (query: string, dirPath: string, options?: import('./fileManager').Searc
     close: () => ipcRenderer.invoke('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
     openTerminal: (projectPath?: string | null) => ipcRenderer.invoke('window:openTerminal', projectPath),
+    openPlan: (html: string) => ipcRenderer.invoke('window:openPlan', html),
   },
   getAppIcon: () => appIconDataUrl,
 };

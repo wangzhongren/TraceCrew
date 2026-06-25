@@ -63,6 +63,7 @@ export interface TraceCrewAPI {
     restoreBackup: (backupId: string) => Promise<EditResult>;
     getProjectPath: () => Promise<string>;
     onProjectOpened: (cb: (path: string) => void) => void;
+    openFile: (filePath: string) => Promise<string>;
   };
   window: {
     minimize: () => Promise<void>;
@@ -70,6 +71,7 @@ export interface TraceCrewAPI {
     close: () => Promise<void>;
     isMaximized: () => Promise<boolean>;
     openTerminal: (projectPath?: string | null) => Promise<void>;
+    openPlan: (html: string) => Promise<void>;
   };
   shell: {
     run: (command: string) => Promise<string>;

@@ -88,19 +88,14 @@ export default function App() {
   const graphRef = useRef(pipeline.graph);
   graphRef.current = pipeline.graph;
 
-  // Persist graph state to disk (debounced)
+  // Persist graph state to disk (on every change — small JSON, fast write)
   useEffect(() => {
     if (!pipeline.graph?.nodes?.length || !projectPath) return;
-    const timer = setTimeout(async () => {
-      try {
-        await window.tracecrew.file.writeFile('.tracecrew/STATE.json', JSON.stringify({
-          graph: pipeline.graph,
-          savedPlan: pipeline.savedPlan,
-          updatedAt: new Date().toISOString(),
-        }, null, 2));
-      } catch { /* best-effort */ }
-    }, 500);
-    return () => clearTimeout(timer);
+    window.tracecrew.file.writeFile('.tracecrew/STATE.json', JSON.stringify({
+      graph: pipeline.graph,
+      savedPlan: pipeline.savedPlan,
+      updatedAt: new Date().toISOString(),
+    }, null, 2)).catch(() => {});
   }, [pipeline.graph, pipeline.savedPlan, projectPath]);
 
   /** Compute downstream nodes for the selected node (used by refactor action) */
@@ -262,38 +257,89 @@ export default function App() {
       let buf = '';
       let result: any = null;
 
-      while (true) {
+      let chunkCount = 0;
+    while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        buf += dec.decode(value, { stream: true });
+        const chunk = dec.decode(value, { stream: true });
+        chunkCount++;
+        if (chunkCount <= 3) console.log('[runSingleAction chunk]', chunk.slice(0, 300));
+        buf += chunk;
         const parts = buf.split('\n');
         buf = parts.pop() || '';
         for (const line of parts) {
           if (!line.trim()) continue;
-          const { event, data } = JSON.parse(line);
-          if (!event) continue;
-          const d = typeof data === 'string' ? JSON.parse(data) : data;
-          if (event === 'token' || event === 'review_token') {
+          let event2: string, data2: any;
+          try { const p = JSON.parse(line); event2 = p.event; data2 = p.data; } catch (e: any) { console.error('[runSingleAction JSON.parse]', line.slice(0, 200), e.message); continue; }
+          if (!event2) continue;
+          const d = typeof data2 === 'string' ? (() => { try { return JSON.parse(data2); } catch { return data2; } })() : data2;
+          if (event2 === 'token' || event2 === 'review_token') {
             onEvent?.({ type: 'token', data: d });
-          } else if (event === 'phase') {
+          } else if (event2 === 'phase') {
             try { onEvent?.({ type: 'phase', data: d.phase }); } catch {}
-          } else if (event === 'tools') {
+          } else if (event2 === 'tools') {
             try { onEvent?.({ type: 'tools', data: `${d.ops?.length || 0} 个工具操作` }); } catch {}
-          } else if (event === 'done') {
+          } else if (event2 === 'done') {
+            console.log('[runSingleAction done]', JSON.stringify(d).slice(0, 500));
             result = d;
           }
         }
       }
-      return {
+      const ret = {
         passed: result?.review_passed ?? null,
         feedback: result?.review_feedback,
         issues: result?.review_issues,
         message: result?.message,
       };
-    } catch {
+      console.log('[runSingleAction return]', JSON.stringify(ret).slice(0, 300));
+      return ret;
+    } catch (e: any) {
+      console.error('[runSingleAction ERROR]', e.message || e, e.stack?.slice(0, 300));
       return { passed: null };
     }
   }, [locale]);
+
+  const handleExecuteNode = useCallback(async (nodeId: string, action: ActionType) => {
+    const graph = graphRef.current;
+    const node = graph?.nodes.find(n => n.id === nodeId);
+    if (!node || !projectPath) return;
+
+    setAutoExecProgress({ current: 0, total: 1, currentNodeId: nodeId });
+    setLiveOutput(prev => ({ ...prev, [nodeId]: '' }));
+
+    const result = await runSingleAction(node, action, projectPath, (ev) => {
+      if (ev.type === 'token') {
+        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + ev.data }));
+      } else if (ev.type === 'phase') {
+        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n\n[${ev.data}]\n` }));
+      } else if (ev.type === 'tools') {
+        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n🔧 ${ev.data}\n` }));
+      }
+    });
+
+    setExecRecords(prev => ({
+      ...prev,
+      [nodeId]: {
+        summary: result.message || '',
+        review_passed: result.passed,
+        review_feedback: result.feedback,
+        review_issues: result.issues,
+      },
+    }));
+
+    if (result.passed === true) {
+      const g = graphRef.current;
+      if (g) {
+        const updatedNodes = g.nodes.map(n =>
+          n.id === nodeId ? { ...n, status: 'done' as const } : n
+        );
+        graphRef.current = { nodes: updatedNodes, edges: g.edges };
+        setPipeline(prev => ({ ...prev, graph: { nodes: updatedNodes, edges: g.edges } }));
+      }
+    }
+
+    setAutoExecProgress(null);
+  }, [projectPath, runSingleAction]);
 
   // Auto-execute all pending tasks in dependency order
   const handleAutoExec = useCallback(async () => {
@@ -338,6 +384,7 @@ export default function App() {
         }
       });
 
+      console.log(`[autoExec result] node=${node.label} passed=${result.passed} feedback=`, (result.feedback || '').slice(0, 80));
       // Save exec record
       setExecRecords(prev => ({
         ...prev,
@@ -418,7 +465,7 @@ export default function App() {
           const { event, data } = JSON.parse(line);
           if (!event) continue;
 
-          const d = typeof data === 'string' ? JSON.parse(data) : data;
+          const d = typeof data === 'string' ? (() => { try { return JSON.parse(data); } catch { return data; } })() : data;
           try {
             setStream(prev => {
               switch (event) {
@@ -530,7 +577,8 @@ export default function App() {
             {/* Left: Chat Panel */}
             <aside className="shrink-0 border-r overflow-hidden"
               style={{ width: chatWidth, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
-              <ChatPanel key={projectPath} projectPath={projectPath} onPipelineChange={updatePipeline} />
+              <ChatPanel key={projectPath} projectPath={projectPath} onPipelineChange={updatePipeline}
+                savedPlan={pipeline.savedPlan} savedGraph={pipeline.graph} />
             </aside>
             <ResizeHandle direction="vertical" onResize={(d) => setChatWidth(w => Math.max(280, Math.min(600, w + d)))} />
             {/* Center: Call Graph */}
@@ -553,6 +601,7 @@ export default function App() {
                   autoExecProgress={autoExecProgress}
                   execRecords={execRecords}
                   liveOutput={liveOutput}
+                  onExecuteNode={handleExecuteNode}
                 />
               </div>
               {/* Right: Code Viewer + Action Panel */}

@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { existsSync } from 'fs';
-import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } from 'electron';
 import { dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -45,6 +45,25 @@ function registerIpcHandlers(): void {
   });
 ipcMain.handle('window:close', () => mainWindow?.close());
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false);
+
+  ipcMain.handle('window:openPlan', (_e, html: string) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const planWin = new BrowserWindow({
+      width: 700, height: 800, minWidth: 400, minHeight: 500,
+      title: 'Plan — TraceCrew', backgroundColor: '#ffffff',
+      parent: mainWindow,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: false },
+    });
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Plan — TraceCrew</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:760px;margin:32px auto;padding:0 24px;color:#374151;line-height:1.7;font-size:14px}
+.md-body h1{font-size:20px;color:#1a1a2e;margin:16px 0 8px}.md-body h2{font-size:16px;color:#1a1a2e;margin:14px 0 6px}.md-body h3{font-size:14px;color:#1a1a2e}.md-body p{margin:0 0 8px}
+.md-body code{background:#f3f4f6;padding:1px 5px;border-radius:3px;font-size:13px;color:#dc2626}
+.md-body pre{background:#f3f4f6;padding:12px 16px;border-radius:6px;overflow-x:auto;font-size:12px}
+.md-body table{width:100%;border-collapse:collapse;font-size:13px;margin:12px 0}.md-body th,.md-body td{border:1px solid #e5e7eb;padding:6px 10px;text-align:left}.md-body th{background:#f9fafb}
+.md-body ul,.md-body ol{padding-left:20px}.md-body hr{border:none;border-top:1px solid #e5e7eb;margin:16px 0}
+.md-body blockquote{border-left:3px solid #e5e7eb;padding-left:12px;margin:12px 0;color:#6b7280}.md-body a{color:#3b82f6}</style></head><body><div class="md-body">${html}</div></body></html>`;
+    planWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fullHtml)}`);
+  });
 
   ipcMain.handle('window:openTerminal', (_e, path?: string | null) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -151,6 +170,11 @@ ipcMain.handle('window:close', () => mainWindow?.close());
 
   ipcMain.handle('shell:readLog', (_e, logFile: string) => {
     return readLogFile(logFile);
+  });
+
+  ipcMain.handle('shell:openFile', async (_e, filePath: string) => {
+    const full = resolveProjectPath(filePath);
+    return shell.openPath(full);
   });
 }
 

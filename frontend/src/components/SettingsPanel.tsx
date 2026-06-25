@@ -63,23 +63,23 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     width: '100%',
     padding: '6px 10px',
     fontSize: '13px',
-    fontFamily: 'var(--ibm-font-mono)',
-    color: 'var(--ibm-text)',
-    background: 'var(--ibm-bg)',
+    fontFamily: 'ui-monospace, monospace',
+    color: 'var(--color-text-primary)',
+    background: 'var(--color-bg-primary)',
     border: '1px solid var(--color-border-default)',
-    borderRadius: 'var(--radius-sm)',
+    borderRadius: '6px',
     outline: 'none',
   };
 
   return (
     <div className="absolute right-0 top-8 w-80 rounded-lg border z-50 animate-fade-in-scale"
-      style={{ background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
+      style={{ background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
-        <span className="text-sm font-medium" style={{ color: 'var(--ibm-text)' }}>{t('settings.llm')}</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
+        <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{t('settings.llm')}</span>
         <button onClick={onClose}
           className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
-          style={{ color: 'var(--ibm-text-placeholder)' }}>
+          style={{ color: 'var(--color-text-muted)' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12"/>
           </svg>
@@ -89,10 +89,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       {/* Fields */}
       <div className="px-4 py-3 space-y-3">
         {loading && (
-          <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>{t('settings.loading')}</div>
+          <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{t('settings.loading')}</div>
         )}
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.apiKey')}</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.apiKey')}</span>
           <input
             type="password"
             value={settings.apiKey}
@@ -104,7 +104,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.baseUrl')}</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.baseUrl')}</span>
           <input
             type="text"
             value={settings.baseUrl}
@@ -116,7 +116,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{t('settings.model')}</span>
+          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.model')}</span>
           <input
             type="text"
             value={settings.model}
@@ -129,13 +129,13 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'var(--ibm-border-subtle)' }}>
+      <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'var(--color-border-subtle)' }}>
         <span className="text-xs" style={{ color: saved ? '#24a148' : 'transparent' }}>
           {t('settings.saved')}
         </span>
         <button onClick={handleSave}
           className="px-4 py-1.5 text-xs font-medium rounded transition-colors"
-          style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
+          style={{ background: '#2563eb', color: '#fff' }}>
           {t('settings.save')}
         </button>
       </div>

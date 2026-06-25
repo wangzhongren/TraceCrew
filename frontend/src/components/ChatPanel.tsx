@@ -10,7 +10,7 @@ import { useT, useLocale } from '../i18n';
 /* ── Types ── */
 
 type TimelineEntry =
-  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any }
+  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean }
   | { kind: 'tool'; agent: string; tool: string; file: string }
   | { kind: 'user'; text: string }
   | { kind: 'system'; text: string };
@@ -42,13 +42,47 @@ const TOOL_COLOR: Record<string, { bg: string; c: string }> = {
 
 /* ══════════════════════════════════════════════ */
 
-export default function ChatPanel({ projectPath, onPipelineChange }: {
+export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, savedGraph }: {
   projectPath: string | null;
   onPipelineChange: (s: Partial<PipelineState>) => void;
+  savedPlan?: { plan_summary: string; raw?: string; steps?: any[]; key_files?: string[] } | null;
+  savedGraph?: { nodes: any[]; edges: any[] } | null;
 }) {
   const t = useT();
   const { locale } = useLocale();
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const restoredRef = useRef(false);
+
+  // Inject restored plan + graph as initial chat message AND agent history
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (savedPlan || savedGraph) {
+      restoredRef.current = true;
+      const parts: string[] = [];
+      if (savedPlan?.plan_summary) {
+        parts.push(`## 📋 上次计划\n${savedPlan.plan_summary}`);
+      }
+      if (savedPlan?.steps?.length) {
+        parts.push(`### 步骤\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || ''}`).join('\n')}`);
+      }
+      if (savedGraph?.nodes?.length) {
+        const done = savedGraph.nodes.filter((n: any) => n.status === 'done' || n.status === 'existing').length;
+        const total = savedGraph.nodes.filter((n: any) => n.status !== 'existing').length;
+        parts.push(`### 任务进度\n已完成 ${done}/${total} 个任务`);
+        const pending = savedGraph.nodes.filter((n: any) => n.status !== 'done' && n.status !== 'existing');
+        if (pending.length > 0) {
+          parts.push(`**待完成**: ${pending.map((n: any) => n.label).join('、')}`);
+        }
+      }
+      const summary = parts.join('\n\n');
+      setTimeline([{ kind: 'agent', agent: 'planner', text: summary, result: { type: 'plan', plan: savedPlan || {} }, autoCollapse: true }]);
+      // Inject into agent history so subsequent conversations have context
+      historyRef.current = [
+        { role: 'user', content: savedPlan?.raw?.match(/## 需求\n([\s\S]*?)\n## /)?.[1]?.trim() || (savedPlan?.plan_summary || '') },
+        { role: 'assistant', content: `[上次计划]\n${summary}\n\n[项目进度] 已完成 ${savedGraph?.nodes?.filter((n: any) => n.status === 'done').length || 0} 个任务，待完成 ${savedGraph?.nodes?.filter((n: any) => n.status !== 'done' && n.status !== 'existing').length || 0} 个。` },
+      ];
+    }
+  }, [savedPlan, savedGraph]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -233,8 +267,55 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
 
       if (projectPath) {
         const stepsMd = (saved.steps || []).map((s: any, i: number) => `${i + 1}. ${s.description || s.desc || JSON.stringify(s)}`).join('\n');
-        const planMd = `# Planner Report\n\n## 需求\n${instruction}\n\n## 计划摘要\n${saved.plan_summary}\n\n## 步骤\n${stepsMd || '(无)'}\n\n## 关键文件\n${saved.key_files.join(', ') || '(无)'}\n\n## 原始分析\n${plannerText}\n`;
-        try { await window.tracecrew.file.writeFile('.tracecrew/PLAN.md', planMd); } catch {}
+        // Save plan to .tracecrew/plans/ with versioning
+        try {
+          const date = new Date().toISOString().slice(0, 10);
+          // Let AI generate a short filename
+          let slug = 'plan';
+          try {
+            const res = await fetch('/api/v1/agent/name-plan', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ summary: saved.plan_summary }),
+            });
+            const data = await res.json();
+            slug = data.name || slug;
+          } catch { /* fallback to 'plan' */ }
+          const planFile = `.tracecrew/plans/${date}-${slug}.md`;
+          const planMd = [
+            `# Planner Report — ${date}`,
+            '',
+            `## 需求`,
+            instruction,
+            '',
+            `## 计划摘要`,
+            saved.plan_summary,
+            '',
+            `## 步骤`,
+            stepsMd || '(无)',
+            '',
+            `## 关键文件`,
+            saved.key_files.join(', ') || '(无)',
+            '',
+            `## 原始分析`,
+            plannerText,
+          ].join('\n');
+          await window.tracecrew.file.writeFile(planFile, planMd);
+          // Update latest symlink
+          await window.tracecrew.file.writeFile('.tracecrew/plans/latest.md', planMd);
+          // Update README index
+          const entry = `| ${date} | [${saved.plan_summary.slice(0, 60)}](${planFile}) | ${saved.steps?.length || 0} 步骤 |`;
+          const readmeHeader = `# Plans\n\n| 日期 | 计划 | 步骤 |\n|------|------|------|`;
+          let existing = '';
+          try { const fc = await window.tracecrew.file.readFile('.tracecrew/plans/README.md'); if (fc?.content) existing = fc.content; } catch {}
+          if (!existing) {
+            await window.tracecrew.file.writeFile('.tracecrew/plans/README.md', `${readmeHeader}\n${entry}\n`);
+          } else if (!existing.includes(planFile)) {
+            const idx = existing.indexOf('\n', existing.indexOf('|---'));
+            const before = existing.slice(0, idx + 1);
+            const after = existing.slice(idx + 1);
+            await window.tracecrew.file.writeFile('.tracecrew/plans/README.md', `${before}\n${entry}${after}`);
+          }
+        } catch {}
       }
 
       await runMapper(instruction, plan, plannerText);
@@ -269,8 +350,11 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
       for (let i = u.length - 1; i >= 0; i--) {
         const e: any = u[i];
         if (e.kind === 'agent' && e.agent === 'mapper') {
-          u[i] = { ...e, result: { type: 'graph', nodes: graph?.nodes.length || 0, edges: graph?.edges.length || 0 } };
-          return u;
+          u[i] = { ...e, result: { type: 'graph', nodes: graph?.nodes.length || 0, edges: graph?.edges.length || 0 }, autoCollapse: true };
+        }
+        // Collapse reviewer when mapper completes
+        if (e.kind === 'agent' && e.agent === 'reviewer') {
+          u[i] = { ...e, autoCollapse: true };
         }
       }
       return u;
@@ -295,6 +379,95 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
     runPlanner(msg);
   };
 
+function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; steps?: any[]; key_files?: string[] } }) {
+  const raw = plan.raw || plan.plan_summary || '';
+  const [showHistory, setShowHistory] = useState(false);
+  const [planFiles, setPlanFiles] = useState<string[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const entries = await window.tracecrew?.file.listDirectory('.tracecrew/plans/');
+        const files = (entries || [])
+          .filter((e: any) => e.type === 'file' && e.name.endsWith('.md') && e.name !== 'README.md' && e.name !== 'latest.md')
+          .map((e: any) => e.name)
+          .sort()
+          .reverse();
+        setPlanFiles(files);
+      } catch {}
+    })();
+  }, [plan]);
+
+  const openPopup = (content: string) => {
+    const cleaned = content
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '\n')
+      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '\n')
+      .replace(/<done>[^<]*<\/done>/gi, '\n')
+      .replace(/<final\/>/gi, '\n')
+      .replace(/([^\n])(#{1,4}\s)/g, '$1\n$2');
+    const html = marked.parse(cleaned, { async: false }) as string;
+    window.tracecrew?.window.openPlan(html);
+  };
+
+  return (
+    <div className="shrink-0 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
+      <div className="flex items-center gap-1.5 px-4 py-1.5">
+        <span className="text-[9px] font-semibold uppercase tracking-wider shrink-0" style={{ color: '#2563eb' }}>📋 Plan</span>
+        <span className="text-[10px] truncate" style={{ color: 'var(--color-text-secondary)' }}>
+          {plan.plan_summary.slice(0, 60)}{plan.plan_summary.length > 60 ? '…' : ''}
+        </span>
+        <button onClick={() => openPopup(raw)}
+          className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-black/[0.04]"
+          style={{ color: '#2563eb' }} title="展开当前计划">
+          ↗
+        </button>
+        {/* History dropdown */}
+        <div className="relative">
+          <button onClick={() => setShowHistory(!showHistory)}
+            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-black/[0.04]"
+            style={{ color: 'var(--color-text-muted)' }} title="历史计划">
+            📂 {planFiles.length || ''}
+          </button>
+          {showHistory && (
+            <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border shadow-lg overflow-hidden"
+              style={{ width: 320, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)' }}
+              onMouseLeave={() => setShowHistory(false)}>
+              <div className="px-3 py-2 border-b text-[9px] font-semibold" style={{ borderColor: 'var(--color-border-subtle)', color: 'var(--color-text-muted)' }}>
+                历史计划 ({planFiles.length})
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {planFiles.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-[9px]" style={{ color: 'var(--color-text-muted)' }}>暂无历史</div>
+                ) : (
+                  planFiles.map(f => {
+                    // Parse date and name from filename: 2026-06-25-name.md
+                    const datePart = f.slice(0, 10);
+                    const namePart = f.slice(11).replace('.md', '').replace(/-/g, ' ');
+                    return (
+                      <button key={f} onClick={async () => {
+                        setShowHistory(false);
+                        try {
+                          const fc = await window.tracecrew?.file.readFile(`.tracecrew/plans/${f}`);
+                          if (fc?.content) openPopup(fc.content);
+                        } catch {}
+                      }}
+                        className="w-full text-left px-3 py-2 hover:bg-black/[0.03] transition-colors border-b last:border-b-0"
+                        style={{ borderColor: 'var(--color-border-subtle)' }}>
+                        <div className="text-[9px] font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>{namePart}</div>
+                        <div className="text-[8px]" style={{ color: 'var(--color-text-muted)' }}>{datePart}</div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
   /* ════ Render ════ */
 
   return (
@@ -315,6 +488,9 @@ export default function ChatPanel({ projectPath, onPipelineChange }: {
           <div className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.pipelineFlow')}</div>
         </div>
       </div>
+
+      {/* Pinned PlanCard */}
+      {savedPlan?.plan_summary && <PinnedPlanCard plan={savedPlan} />}
 
       {/* Timeline */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
@@ -455,6 +631,9 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
   const cfg = AG[entry.agent] || { name: entry.agent, color: '#6b7280' };
   const [expanded, setExpanded] = useState(true);
   const result = entry.result;
+
+  // Hide completely after Mapper completes
+  if (entry.autoCollapse) return null;
   const hasText = !!(entry.text || '').trim();
   const isThinking = !result && hasText;
 
@@ -510,13 +689,13 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
       {/* Body */}
       {expanded && (
         <div className="px-3.5 pb-3">
-          {/* Text content */}
-          {(entry.text || '').trim() && <Markdown text={entry.text} />}
-
-          {/* Reasoning — separate collapsible section */}
+          {/* Reasoning — above main text, collapsible */}
           {entry.reasoning && (
             <CollapsibleReasoning text={entry.reasoning} />
           )}
+
+          {/* Text content */}
+          {(entry.text || '').trim() && <Markdown text={entry.text} />}
 
           {/* Plan result */}
           {result?.type === 'plan' && (

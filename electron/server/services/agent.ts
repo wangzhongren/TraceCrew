@@ -158,13 +158,14 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 
 例如 label: "[前端] handleClose", "[后端] window:close handler", "[IPC] invoke window:close"
 
-【核心规则 3：标注问题位置 — status 字段】
-每个节点必须标注 status：
-- "existing"：正常代码，不需修改
-- "problem"：问题位置。detail 必须包含两部分：①现状（当前有什么问题）②修复（应该改成什么）。例如 detail="现状: 直接调用 app.quit() 跳过生命周期 → 修复: 改为 mainWindow.close() 走正常退出流程"
-- "planned_new"：需要新建的文件/函数。detail 描述要新建什么
+【核心规则 3：节点 detail 必须包含关键文件】
+每个节点的 detail 字段**必须列出该节点涉及的关键文件**，格式：先写任务描述，另起一行写「涉及文件:」后跟文件列表。
 
-**注意**：同一个位置有 bug 又要修改的，合并为一个 "problem" 节点，不要拆成两个。每个 Planner step 必须对应至少一个 "problem" 或 "planned_new" 节点。
+- "existing"：不需要列出
+- "problem"：detail 必须包含 ①现状 ②修复方案 ③涉及文件。例如 detail="现状: 直接调用 app.quit() 跳过生命周期\n修复: 改为 mainWindow.close() 走正常退出流程\n涉及文件: electron/main.ts"
+- "planned_new"：detail 必须包含 ①要做什么 ②涉及文件。例如 detail="创建 IPC 通信模块，注册主进程 handler\n涉及文件: src/main/ipc.ts"
+
+**此规则的目的**：下游 action agent 拿到节点就知道操作哪些文件，无需重新探索整个项目。
 
 【核心规则 4：定位行号】
 每个节点必须标注 line 字段，值为该函数/类/组件定义的第一行行号：
@@ -563,6 +564,23 @@ export class AgentService {
     }
   }
 
+  async generatePlanName(summary: string): Promise<string> {
+    try {
+      const response = await this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system', content: '你是一个文件命名助手。给出一段项目计划摘要，生成一个简短的文件名（纯英文或拼音，3-6个词，用连字符分隔）。只输出文件名，不要其他内容。' },
+          { role: 'user', content: summary.slice(0, 500) },
+        ],
+        temperature: 0.1,
+      });
+      const name = (response.choices[0].message.content || 'plan').trim().replace(/[\s]+/g, '-').replace(/[\/\\:*?"<>|]/g, '').slice(0, 50);
+      return name || 'plan';
+    } catch {
+      return 'plan';
+    }
+  }
+
   /* ── Non-streaming chat ── */
 
   async process(req: {
@@ -944,7 +962,7 @@ export class AgentService {
     // If no plan in memory, try reading saved plan from disk (.tracecrew/PLAN.md)
     if (!plan) {
       try {
-        const planFile = path.join(projectPath, '.tracecrew', 'PLAN.md');
+        const planFile = path.join(projectPath, '.tracecrew', 'plans', 'latest.md');
         if (existsSync(planFile)) {
           const raw = readFileSync(planFile, 'utf-8');
           return `【项目总体规划 — 来自已保存的计划】

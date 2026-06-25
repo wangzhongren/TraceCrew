@@ -28,6 +28,8 @@ interface Props {
   execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
   /** Live streaming output for currently executing node */
   liveOutput?: Record<string, string>;
+  /** Execute a single node directly (without opening right panel) */
+  onExecuteNode?: (nodeId: string, action: ActionType) => void;
 }
 
 /* ── Helpers ── */
@@ -42,7 +44,7 @@ function classifyNode(status: string, isActive: boolean): ColumnKey {
 
 /* ── KanbanBoard ── */
 
-function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput }: {
+function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
   graph: CallGraph;
   onSelect: (id: string) => void;
   selectedNode: string | null;
@@ -54,6 +56,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
   autoExecProgress?: { current: number; total: number; currentNodeId: string | null } | null;
   execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
   liveOutput?: Record<string, string>;
+  onExecuteNode?: (nodeId: string, action: ActionType) => void;
 }) {
   const t = useT();
   const [filter, setFilter] = useState<string>('all');
@@ -195,7 +198,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
             <div className="flex items-center gap-1 mt-2 pt-2 border-t" style={{ borderColor: 'var(--color-border-subtle)' }}>
               {node.file && (
                 <button
-                  onClick={(e) => { e.stopPropagation(); onSelect(node.id); }}
+                  onClick={(e) => { e.stopPropagation(); window.tracecrew?.file.openFile(node.file!); }}
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-medium transition-all duration-150 hover:scale-105"
                   style={{ background: '#eff6ff', color: '#3b82f6' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -204,12 +207,12 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
                   查看代码
                 </button>
               )}
-              {actions.length > 0 && !isActive && actions.map(action => {
+              {actions.length > 0 && !isActive && !blocked && actions.map(action => {
                 const cfg = ACTION_CONFIGS[action];
                 return (
                   <button
                     key={action}
-                    onClick={(e) => { e.stopPropagation(); onSelect(node.id); onRequestAction(action); }}
+                    onClick={(e) => { e.stopPropagation(); if (onExecuteNode) { onExecuteNode(node.id, action); } else { onSelect(node.id); onRequestAction(action); } }}
                     className="px-2 py-0.5 rounded text-[9px] font-medium transition-all duration-150 hover:scale-105 whitespace-nowrap"
                     style={{ background: c + '16', color: c }}
                   >
@@ -413,7 +416,7 @@ function EmptyState({ phase }: { phase: Props['phase'] }) {
 
 /* ── MapperView ── */
 
-export default function MapperView({ graph, phase, onSelectNode, selectedNode, activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput }: Props) {
+export default function MapperView({ graph, phase, onSelectNode, selectedNode, activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: Props) {
   if (!graph || graph.nodes.length === 0) {
     return <EmptyState phase={phase} />;
   }
@@ -431,6 +434,7 @@ export default function MapperView({ graph, phase, onSelectNode, selectedNode, a
       autoExecProgress={autoExecProgress}
       execRecords={execRecords}
       liveOutput={liveOutput}
+      onExecuteNode={onExecuteNode}
     />
   );
 }
