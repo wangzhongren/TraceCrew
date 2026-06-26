@@ -407,11 +407,12 @@ export class AgentService {
   }
 
   private tagText(text: string): string {
-    let t = text.trim();
+    // 仅处理 CDATA 包装，不对内容做任何修剪
+    let t = text;
     if (t.startsWith('<![CDATA[') && t.endsWith(']]>')) {
       t = t.slice(9, -3);
     }
-    return t.trim();
+    return t;
   }
 
   private operationFromTag(tag: string, attrs: Record<string, string>, content: string): Record<string, unknown> {
@@ -1556,13 +1557,13 @@ ${JSON.stringify(reviewIssues, null, 2)}
       } catch { /* ignore */ }
     }
 
-    // No reviewer needed (read-only or no changes)
+    // No reviewer needed (read-only or no changes) — treat as passed
     yield {
       event: 'done',
       data: JSON.stringify({
         success: true,
         message: finalMessage || '完成',
-        review_passed: null,
+        review_passed: true,
         call_graph: callGraph2,
       }),
     };

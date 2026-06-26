@@ -11,7 +11,7 @@ import type { ActionType } from './components/ActionDialog';
 import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel';
 
 export interface PipelineState {
-  phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
+  phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected';
   graph: CallGraph | null;
   savedPlan?: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null;
 }
@@ -63,6 +63,9 @@ export default function App() {
   const savedStreamsRef = useRef<Record<string, StreamState>>({});
   const streamRef = useRef(stream);
   streamRef.current = stream;
+
+  // AbortController for SSE fetch in handleActionConfirm
+  const actionAbortRef = useRef<AbortController | null>(null);
 
   // Saved plan ref for use in handleActionConfirm (avoids stale closure)
   const savedPlanRef = useRef(pipeline.savedPlan);
@@ -190,6 +193,11 @@ export default function App() {
   }, [activeAction]);
 
   const handleActionClose = useCallback(() => {
+    // Abort any in-flight SSE request
+    if (actionAbortRef.current) {
+      actionAbortRef.current.abort();
+      actionAbortRef.current = null;
+    }
     // Clear saved stream for this node when closing the action
     if (selectedNode) {
       delete savedStreamsRef.current[selectedNode];
@@ -207,14 +215,17 @@ export default function App() {
     setPipeline(prev => ({ ...prev, phase: 'idle' }));
   }, [handleActionClose]);
 
-  // Topological sort nodes by dependency edges
+  // Topological sort nodes by dependency edges.
+  // Only edges whose BOTH endpoints are in `nodes` count as dependencies.
   const topoSortNodes = useCallback((nodes: GraphNode[], edges: { from: string; to: string }[]): GraphNode[] => {
     const inDegree = new Map<string, number>();
     const adj = new Map<string, string[]>();
     for (const n of nodes) { inDegree.set(n.id, 0); adj.set(n.id, []); }
     for (const e of edges) {
-      if (inDegree.has(e.to)) inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
-      if (adj.has(e.from)) adj.get(e.from)!.push(e.to);
+      // Ignore edges where either endpoint is outside the current node set
+      if (!inDegree.has(e.from) || !inDegree.has(e.to)) continue;
+      inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
+      adj.get(e.from)!.push(e.to);
     }
     const queue = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
     const result: GraphNode[] = [];
@@ -327,7 +338,7 @@ export default function App() {
       },
     }));
 
-    if (result.passed === true) {
+    if (result.passed !== false) {
       const g = graphRef.current;
       if (g) {
         const updatedNodes = g.nodes.map(n =>
@@ -350,7 +361,18 @@ export default function App() {
       const pending = graph.nodes.filter(n =>
         n.status !== 'done' && n.status !== 'existing'
       );
-      if (pending.length === 0) return;
+      if (pending.length === 0) {
+        alert('所有任务已完成，没有待执行的任务。');
+        return;
+      }
+
+      // Reset any stale stream state so the button isn't disabled
+      setStream(INITIAL_STREAM_STATE);
+      // Abort any lingering SSE request from right panel
+      if (actionAbortRef.current) {
+        actionAbortRef.current.abort();
+        actionAbortRef.current = null;
+      }
 
       const sorted = topoSortNodes(pending, graph.edges);
       const total = sorted.length;
@@ -359,6 +381,7 @@ export default function App() {
       setAutoExecProgress({ current: 0, total, currentNodeId: null });
 
       let completed = 0;
+      let skipped = 0;
       for (const node of sorted) {
       if (autoExecStopRef.current) break;
 
@@ -368,7 +391,10 @@ export default function App() {
         const depGraph = graphRef.current?.nodes.find(n => n.id === e.from);
         return depGraph && depGraph.status !== 'done' && depGraph.status !== 'existing';
       });
-      if (unmetDeps.length > 0) continue; // skip, dependencies not met
+      if (unmetDeps.length > 0) {
+        skipped++;
+        continue; // skip, dependencies not met
+      }
 
       setAutoExecProgress({ current: completed, total, currentNodeId: node.id });
 
@@ -396,7 +422,7 @@ export default function App() {
         },
       }));
 
-      if (!autoExecStopRef.current && result.passed === true) {
+      if (!autoExecStopRef.current && result.passed !== false) {
         // Update node status — sync ref immediately so next iteration sees it
         const g = graphRef.current;
         if (g) {
@@ -411,6 +437,10 @@ export default function App() {
       completed++;
     }
 
+      // Warn if all nodes were skipped due to unmet dependencies
+      if (!autoExecStopRef.current && completed === 0 && skipped > 0) {
+        alert(`无法执行任何任务：${skipped} 个任务的前置依赖尚未完成。请先执行上游节点。`);
+      }
     } catch (e) {
       console.error('[autoExec] error:', e);
     }
@@ -427,6 +457,13 @@ export default function App() {
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
 
+    // Abort any previous in-flight request
+    if (actionAbortRef.current) {
+      actionAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    actionAbortRef.current = controller;
+
     setStream({ running: true, phase: 'action', timeline: [{ phase: 'action', output: '', tools: [] }], result: null, error: null });
 
     try {
@@ -442,6 +479,7 @@ export default function App() {
           locale,
           plan_context: savedPlanRef.current || null,
         }),
+        signal: controller.signal,
       });
 
       const reader = res.body?.getReader();
@@ -539,7 +577,13 @@ export default function App() {
         }
       }
     } catch (e: any) {
-      setStream(prev => ({ ...prev, running: false, error: e.message || t('app.networkError') }));
+      if (e?.name === 'AbortError') {
+        setStream(INITIAL_STREAM_STATE);
+      } else {
+        setStream(prev => ({ ...prev, running: false, error: e.message || t('app.networkError') }));
+      }
+    } finally {
+      actionAbortRef.current = null;
     }
   }, [activeAction, selectedNodeData, projectPath, downstreamNodes, handleGraphChange, t]);
 

@@ -161,6 +161,17 @@ export function writeFile(filePath: string, content: string): EditResult {
   }
 }
 
+/** Split content into lines, stripping leading/trailing empty strings that are
+ *  artifacts of XML tag formatting (e.g. ">\n" and "\n</tag>"). */
+function contentToLines(content: string): string[] {
+  const lines = content.split('\n');
+  // Strip leading empty lines (XML: content starts after ">\n")
+  while (lines.length > 0 && lines[0] === '') lines.shift();
+  // Strip trailing empty lines (XML: content ends before "\n</tag>")
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
 /** Stream lines from source to temp file, applying an edit operation.
  *  Only keeps one line in memory at a time — safe for 10MB+ files. */
 function streamEdit(
@@ -176,7 +187,7 @@ function streamEdit(
     const output = createWriteStream(tmpPath, { flags: 'w' });
     const rl = createInterface({ input, crlfDelay: Infinity });
 
-    const newChunk = content ? content.split('\n') : [];
+    const newChunk = content ? contentToLines(content) : [];
     let lineNum = 0;
     let skipping = false;
 
@@ -239,7 +250,7 @@ const r = await streamEdit(filePath, 'insert', afterLine, afterLine, content);
     }
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
-    newLines.splice(afterLine, 0, ...content.split('\n'));
+    newLines.splice(afterLine, 0, ...contentToLines(content));
     writeFileSync(filePath, newLines.join('\n'), 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {
@@ -259,7 +270,7 @@ export async function replaceLines(
     }
     const fc = readFile(filePath);
     const newLines = [...fc.lines];
-    newLines.splice(startLine - 1, endLine - startLine + 1, ...content.split('\n'));
+    newLines.splice(startLine - 1, endLine - startLine + 1, ...contentToLines(content));
     writeFileSync(filePath, newLines.join('\n'), 'utf-8');
     return { success: true, file: filePath, backupId };
   } catch (e: any) {

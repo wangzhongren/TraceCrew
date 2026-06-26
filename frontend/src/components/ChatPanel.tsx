@@ -76,10 +76,21 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       }
       const summary = parts.join('\n\n');
       setTimeline([{ kind: 'agent', agent: 'planner', text: summary, result: { type: 'plan', plan: savedPlan || {} }, autoCollapse: true }]);
-      // Inject into agent history so subsequent conversations have context
+
+      // Inject into agent history — preserve full context for subsequent conversations
+      const requirement = savedPlan?.raw?.match(/## 需求\n([\s\S]*?)\n## /)?.[1]?.trim()
+        || savedPlan?.plan_summary
+        || '';
+      const historyCtx: string[] = [
+        savedPlan?.plan_summary ? `[计划] ${savedPlan.plan_summary}` : '',
+        savedPlan?.steps?.length ? `[步骤]\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || JSON.stringify(s)}`).join('\n')}` : '',
+        savedPlan?.key_files?.length ? `[关键文件] ${savedPlan.key_files.join(', ')}` : '',
+        savedGraph?.nodes?.length ? `[任务节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✅' : '⬜'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
+        savedGraph?.edges?.length ? `[依赖关系] ${savedGraph.edges.map((e: any) => `${e.from}→${e.to}[${e.status}]`).join(', ')}` : '',
+      ];
       historyRef.current = [
-        { role: 'user', content: savedPlan?.raw?.match(/## 需求\n([\s\S]*?)\n## /)?.[1]?.trim() || (savedPlan?.plan_summary || '') },
-        { role: 'assistant', content: `[上次计划]\n${summary}\n\n[项目进度] 已完成 ${savedGraph?.nodes?.filter((n: any) => n.status === 'done').length || 0} 个任务，待完成 ${savedGraph?.nodes?.filter((n: any) => n.status !== 'done' && n.status !== 'existing').length || 0} 个。` },
+        { role: 'user', content: requirement },
+        { role: 'assistant', content: historyCtx.filter(Boolean).join('\n\n') },
       ];
     }
   }, [savedPlan, savedGraph]);
@@ -235,6 +246,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   };
 
   const runReviewPlan = async (instruction: string, plannerText: string, plan: any) => {
+    onPipelineChange({ phase: 'reviewing' });
     const { fullText } = await agentLoop('reviewer', '',
       `【需求】${instruction}\n【Planner输出】${plannerText}\n【关键文件】${(plan?.key_files || []).join(', ') || '无'}\n\n请验证 Planner 的分析是否基于实际代码，结论是否有证据支撑。`,
       [...historyRef.current]
@@ -263,7 +275,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
     if (review.passed) {
       const saved = { plan_summary: plan?.plan_summary || '', steps: plan?.steps || [], key_files: plan?.key_files || [], raw: plannerText };
-      onPipelineChange({ phase: 'done', savedPlan: saved });
+      onPipelineChange({ savedPlan: saved });
 
       if (projectPath) {
         const stepsMd = (saved.steps || []).map((s: any, i: number) => `${i + 1}. ${s.description || s.desc || JSON.stringify(s)}`).join('\n');
@@ -321,6 +333,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       await runMapper(instruction, plan, plannerText);
     } else {
       setTimeline(prev => [...prev, { kind: 'system', text: t('chat.reviewFailed') }]);
+      onPipelineChange({ phase: 'rejected' });
       setRunning(false);
       setTimeout(() => runPlanner(instruction), 500);
     }
@@ -359,6 +372,8 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       }
       return u;
     });
+
+    historyRef.current.push({ role: 'assistant', content: `[Mapper] ${graph ? `${graph.nodes?.length || 0} 个节点, ${graph.edges?.length || 0} 条边` : `未生成调用图: ${fullText.slice(0, 200)}`}` });
 
     if (graph) {
       if (!data?.call_graph) data = parseJson(fullText); // retry

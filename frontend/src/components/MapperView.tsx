@@ -8,7 +8,7 @@ import { useT } from '../i18n';
 
 interface Props {
   graph: CallGraph | null;
-  phase: 'idle' | 'planning' | 'executing' | 'reviewing' | 'done' | 'rejected';
+  phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected';
   onSelectNode: (id: string | null) => void;
   onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;
@@ -130,7 +130,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
             : isHovered
               ? '0 0 0 1px var(--color-border-subtle), 0 1px 2px rgba(0,0,0,0.04)'
               : '0 1px 2px rgba(0,0,0,0.04)',
-          opacity: blocked ? 0.55 : 1,
+          opacity: 1,
         }}
         onMouseEnter={() => setHoveredNode(node.id)}
         onMouseLeave={() => setHoveredNode(null)}
@@ -187,8 +187,8 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
               <span className="text-[9px] opacity-40" style={{ color: 'var(--color-text-muted)' }}>L{node.line}</span>
             )}
             {blocked && (
-              <span className="text-[9px] px-1 py-px rounded" style={{ background: '#fef2f2', color: '#dc2626' }}>
-                ⏳ 等待依赖
+              <span className="text-[9px] px-1 py-px rounded" style={{ background: '#fffbeb', color: '#b45309' }}>
+                ⚠ 依赖未完成
               </span>
             )}
           </div>
@@ -207,7 +207,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
                   查看代码
                 </button>
               )}
-              {actions.length > 0 && !isActive && !blocked && actions.map(action => {
+              {actions.length > 0 && !isActive && actions.map(action => {
                 const cfg = ACTION_CONFIGS[action];
                 return (
                   <button
@@ -241,26 +241,28 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
                 </div>
               )}
               {/* Execution record — show if exists */}
-              {execRecords?.[node.id] && (
+              {execRecords?.[node.id] && (() => {
+                  const rec = execRecords[node.id];
+                  const passed = rec.review_passed; // true | false | null
+                  const isGreen = passed !== false; // null = no review needed, treat as success
+                  return (
                 <>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[9px]" style={{
-                      color: execRecords[node.id].review_passed ? '#16a34a' : '#dc2626',
-                    }}>
-                      {execRecords[node.id].review_passed ? '✅ 通过' : '❌ 未通过'}
+                    <span className="text-[9px]" style={{ color: isGreen ? '#16a34a' : '#dc2626' }}>
+                      {passed === true ? '✅ 通过' : passed === false ? '❌ 未通过' : '✅ 完成'}
                     </span>
                   </div>
-                  {execRecords[node.id].review_feedback && (
+                  {rec.review_feedback && (
                     <div className="px-2 py-1 rounded text-[9px]" style={{
-                      background: execRecords[node.id].review_passed ? '#f0fdf4' : '#fef2f2',
-                      color: execRecords[node.id].review_passed ? '#16a34a' : '#dc2626',
+                      background: isGreen ? '#f0fdf4' : '#fef2f2',
+                      color: isGreen ? '#16a34a' : '#dc2626',
                     }}>
-                      {execRecords[node.id].review_feedback}
+                      {rec.review_feedback}
                     </div>
                   )}
-                  {(execRecords[node.id].review_issues?.length ?? 0) > 0 && (
+                  {(rec.review_issues?.length ?? 0) > 0 && (
                     <div className="space-y-0.5">
-                      {execRecords[node.id].review_issues!.map((issue: any, j: number) => (
+                      {rec.review_issues!.map((issue: any, j: number) => (
                         <div key={j} className="flex items-start gap-1 text-[8px]" style={{ color: '#dc2626' }}>
                           <span className="shrink-0 mt-0.5">⚠</span>
                           <span>[{issue.severity || '?'}] {issue.file || '?'}: {issue.claim || ''}</span>
@@ -269,7 +271,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
                     </div>
                   )}
                 </>
-              )}
+              );})()}
             </div>
           )}
 
@@ -397,7 +399,6 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
 function EmptyState({ phase }: { phase: Props['phase'] }) {
   const t = useT();
   const msg = phase === 'planning' ? t('graph.analyzing')
-    : phase === 'executing' ? t('graph.processing')
     : t('graph.emptyHint');
 
   return (
