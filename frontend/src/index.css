@@ -83,12 +83,12 @@
   --color-warning: #ca8a04;
   --color-error: #dc2626;
 
-  /* ── Semantic tokens: status colors ── */
-  --color-status-existing: #6b7280;
-  --color-status-problem: #dc2626;
-  --color-status-change: #d97706;
-  --color-status-new: #16a34a;
-  --color-status-done: #2563eb;
+  /* ── Semantic tokens: status colors (Material Design palette) ── */
+  --color-status-existing: #5f6368;
+  --color-status-problem: #ea4335;
+  --color-status-change: #f9ab00;
+  --color-status-new: #0f9d58;
+  --color-status-done: #1a73e8;
 
   /* ── Semantic tokens: spacing ── */
   --spacing-xs: 4px;

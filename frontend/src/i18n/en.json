@@ -9,7 +9,7 @@
   "app.settings": "Settings",
 
   "chat.pipeline": "Agent Pipeline",
-  "chat.pipelineFlow": "Planner → Reviewer → Mapper",
+  "chat.pipelineFlow": "PM → Planner → Reviewer → Mapper",
   "chat.describeTask": "Describe your task",
   "chat.pipelineHint": "The agent pipeline will plan, map, execute, and review",
   "chat.inputPlaceholder": "Describe what you want to build or fix...",
@@ -29,6 +29,11 @@
   "chat.thinking": "Thinking...",
   "chat.reviewResult": "Review Result",
   "chat.analysisReport": "Analysis Report",
+
+  "pm.clarifying": "🤝 Project Manager is confirming requirements...",
+  "pm.confirmed": "✅ Requirements confirmed, handing off to Architect...",
+  "pm.replyPlaceholder": "Reply to PM...",
+  "pm.skipToPlanner": "Skip confirmation, plan directly",
 
   "graph.nodes": "nodes",
   "graph.edges": "edges",

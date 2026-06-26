@@ -9,7 +9,7 @@
   "app.settings": "设置",
 
   "chat.pipeline": "Agent Pipeline",
-  "chat.pipelineFlow": "Planner → Reviewer → Mapper",
+  "chat.pipelineFlow": "PM → Planner → Reviewer → Mapper",
   "chat.describeTask": "描述你的任务",
   "chat.pipelineHint": "Agent 将规划、映射、执行并审核",
   "chat.inputPlaceholder": "描述你想构建或修复的内容...",
@@ -29,6 +29,11 @@
   "chat.thinking": "思考中...",
   "chat.reviewResult": "审核结果",
   "chat.analysisReport": "分析报告",
+
+  "pm.clarifying": "🤝 项目经理正在确认需求...",
+  "pm.confirmed": "✅ 需求已确认，正在转交给架构师...",
+  "pm.replyPlaceholder": "回复项目经理...",
+  "pm.skipToPlanner": "跳过确认，直接规划",
 
   "graph.nodes": "节点",
   "graph.edges": "边",

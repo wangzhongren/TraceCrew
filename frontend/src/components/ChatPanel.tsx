@@ -10,7 +10,7 @@ import { useT, useLocale } from '../i18n';
 /* ── Types ── */
 
 type TimelineEntry =
-  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean }
+  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean; tools?: Array<{ type: string; file: string }> }
   | { kind: 'tool'; agent: string; tool: string; file: string }
   | { kind: 'user'; text: string }
   | { kind: 'system'; text: string };
@@ -18,6 +18,7 @@ type TimelineEntry =
 /* ── Agent config ── */
 
 const AG: Record<string, { name: string; color: string }> = {
+  pm:       { name: 'PM',        color: '#059669' },
   planner:  { name: 'Planner',  color: '#2563eb' },
   mapper:   { name: 'Mapper',   color: '#7c3aed' },
   reviewer: { name: 'Reviewer', color: '#dc2626' },
@@ -56,7 +57,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   // Inject restored plan + graph as initial chat message AND agent history
   useEffect(() => {
     if (restoredRef.current) return;
-    if (savedPlan || savedGraph) {
+    if ((savedPlan || savedGraph) && timeline.length === 0) {
       restoredRef.current = true;
       const parts: string[] = [];
       if (savedPlan?.plan_summary) {
@@ -75,7 +76,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         }
       }
       const summary = parts.join('\n\n');
-      setTimeline([{ kind: 'agent', agent: 'planner', text: summary, result: { type: 'plan', plan: savedPlan || {} }, autoCollapse: true }]);
+      setTimeline([{ kind: 'agent', agent: 'planner', text: summary, result: { type: 'plan', plan: savedPlan || {} } }]);
 
       // Inject into agent history — preserve full context for subsequent conversations
       const requirement = savedPlan?.raw?.match(/## 需求\n([\s\S]*?)\n## /)?.[1]?.trim()
@@ -96,6 +97,8 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   }, [savedPlan, savedGraph]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
+  const [pmState, setPmState] = useState<{ active: boolean; originalInstruction: string }>({ active: false, originalInstruction: '' });
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyRef = useRef<Array<{ role: string; content: string }>>([]);
@@ -105,6 +108,15 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [timeline]);
+
+  // Auto-resize textarea height — driven by React state, not raw DOM mutation
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const newH = Math.min(el.scrollHeight, 120);
+    el.style.height = newH + 'px';
+  }, [input]);
 
   /* ── Helpers ── */
 
@@ -199,8 +211,24 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       },
       (ops) => {
         if (agent === 'planner') plannerUsedTools.current = true;
-        for (const op of ops) {
-          setTimeline(prev => [...prev, { kind: 'tool', agent, tool: op.type, file: op.file || '' }]);
+        console.log(`[onTools] agent=${agent} ops=`, ops.map((o: any) => `${o.type}:${o.file}`));
+
+        // All tool types → attach to current agent entry for in-card display
+        if (ops.length > 0) {
+          setTimeline(prev => {
+            const u = [...prev];
+            const idx = tidxRef.current;
+            if (idx >= 0 && u[idx]?.kind === 'agent') {
+              u[idx] = {
+                ...u[idx],
+                tools: [...(u[idx].tools || []), ...ops.map((op: any) => ({
+                  type: op.type,
+                  file: op.file || ''
+                }))]
+              };
+            }
+            return u;
+          });
         }
       }
     );
@@ -208,6 +236,77 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   };
 
   /* ════ Pipeline ════ */
+
+  /* ── PM stream helper ── */
+
+  const pmStream = async (messages: Array<{ role: string; content: string }>): Promise<string> => {
+    setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent: 'pm', text: '', reasoning: '', result: null }]; });
+    const fullText = await streamSSE(
+      { history: messages, mode: 'pm' },
+      (t) => {
+        setTimeline(prev => {
+          const u = [...prev], idx = tidxRef.current;
+          if (idx >= 0 && u[idx]?.kind === 'agent') u[idx] = { ...u[idx], text: u[idx].text + t };
+          return u;
+        });
+      }
+    );
+    return fullText;
+  };
+
+  /* ── PM: first contact ── */
+
+  const runProjectManager = async (instruction: string) => {
+    if (!projectPath) return;
+    setRunning(true);
+    abortRef.current = new AbortController();
+
+    onPipelineChange({ phase: 'clarifying' });
+
+    const fullText = await pmStream([...historyRef.current, { role: 'user', content: instruction }]);
+
+    // Check if PM is handing off to Planner
+    if (/<handoff-to-planner\/>/i.test(fullText)) {
+      const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
+      const confirmedReq = reqMatch ? reqMatch[1].trim() : instruction;
+      historyRef.current.push({ role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` });
+      setPmState({ active: false, originalInstruction: '' });
+      setRunning(false);
+      // Proceed to Planner with confirmed requirement
+      setTimeout(() => runPlanner(confirmedReq), 100);
+      return;
+    }
+
+    // PM is asking questions — wait for user reply
+    historyRef.current.push({ role: 'assistant', content: fullText });
+    setPmState({ active: true, originalInstruction: instruction });
+    setRunning(false);
+  };
+
+  /* ── PM: follow-up reply ── */
+
+  const runProjectManagerFollowUp = async (reply: string) => {
+    if (!projectPath || !pmState.active) return;
+    setRunning(true);
+    abortRef.current = new AbortController();
+
+    historyRef.current.push({ role: 'user', content: reply });
+    const fullText = await pmStream([...historyRef.current]);
+
+    if (/<handoff-to-planner\/>/i.test(fullText)) {
+      const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
+      const confirmedReq = reqMatch ? reqMatch[1].trim() : pmState.originalInstruction;
+      historyRef.current.push({ role: 'assistant', content: `[PM] 需求已确认` });
+      setPmState({ active: false, originalInstruction: '' });
+      setRunning(false);
+      setTimeout(() => runPlanner(confirmedReq), 100);
+      return;
+    }
+
+    // PM still clarifying
+    historyRef.current.push({ role: 'assistant', content: fullText });
+    setRunning(false);
+  };
 
   const runPlanner = async (instruction: string) => {
     if (!projectPath) return;
@@ -391,7 +490,11 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     const msg = input.trim();
     setInput('');
     setTimeline(prev => [...prev, { kind: 'user', text: msg }]);
-    runPlanner(msg);
+    if (pmState.active) {
+      runProjectManagerFollowUp(msg);
+    } else {
+      runProjectManager(msg);
+    }
   };
 
 function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; steps?: any[]; key_files?: string[] } }) {
@@ -532,11 +635,10 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
       <div className="shrink-0 px-3 py-2.5 border-t" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
         <div className="flex items-end gap-2 px-3 py-2 rounded-xl border transition-colors"
           style={{ background: 'var(--color-bg-primary)', borderColor: 'var(--color-border-default)' }}>
-          <textarea value={input} onChange={e => setInput(e.target.value)}
-            placeholder={t('chat.inputPlaceholder')} disabled={running} rows={1}
+          <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
+            placeholder={pmState.active ? t('pm.replyPlaceholder') : t('chat.inputPlaceholder')} disabled={running} rows={1}
             className="flex-1 text-[12px] bg-transparent outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 resize-none min-h-[24px] max-h-[120px] leading-relaxed"
             style={{ color: 'var(--color-text-primary)' }}
-            onInput={e => { e.currentTarget.style.height = 'auto'; e.currentTarget.style.height = Math.min(e.currentTarget.scrollHeight, 120) + 'px'; }}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
           />
           {running ? (
@@ -556,7 +658,20 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
           )}
         </div>
         <div className="flex justify-between mt-1.5 px-1">
-          <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
+          {pmState.active ? (
+            <button onClick={() => {
+              const orig = pmState.originalInstruction;
+              setPmState({ active: false, originalInstruction: '' });
+              setTimeline(prev => [...prev, { kind: 'system', text: t('pm.skipToPlanner') }]);
+              setTimeout(() => runPlanner(orig), 100);
+            }}
+              className="text-[9px] hover:underline"
+              style={{ color: 'var(--color-text-muted)' }}>
+              ⏭ {t('pm.skipToPlanner')}
+            </button>
+          ) : (
+            <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
+          )}
           <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.charCount', { count: input.length })}</span>
         </div>
       </div>
@@ -575,9 +690,8 @@ function TimelineView({ timeline, t }: { timeline: TimelineEntry[]; t: any }) {
         if (entry.kind === 'system') return <SystemMsg key={i} text={entry.text} />;
         if (entry.kind === 'user') return <UserMsg key={i} text={entry.text} />;
         if (entry.kind === 'tool') {
-          const next = timeline[i + 1];
-          const isLast = !next || next.kind !== 'tool';
-          return <ToolRow key={i} entry={entry} isLast={isLast} />;
+          // All tool calls are now embedded inside AgentCard — skip standalone ToolRow
+          return null;
         }
         if (entry.kind === 'agent') return <AgentCard key={i} entry={entry} t={t} />;
         return null;
@@ -609,19 +723,6 @@ function UserMsg({ text }: { text: string }) {
   );
 }
 
-function ToolRow({ entry, isLast }: { entry: TimelineEntry & { kind: 'tool' }; isLast?: boolean }) {
-  const tc = TOOL_COLOR[entry.tool] || { bg: '#f3f4f6', c: '#6b7280' };
-  return (
-    <div className="flex items-center gap-2 py-0.5 pl-1" style={{ marginBottom: isLast ? 8 : 0 }}>
-      <span className="text-[9px] font-mono font-medium rounded px-1.5 py-0.5 shrink-0"
-        style={{ background: tc.bg, color: tc.c }}>
-        {TOOL_LABEL[entry.tool] || entry.tool}
-      </span>
-      <span className="text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>{entry.file}</span>
-    </div>
-  );
-}
-
 function CollapsibleReasoning({ text }: { text: string }) {
   const [open, setOpen] = useState(true);
   return (
@@ -634,6 +735,39 @@ function CollapsibleReasoning({ text }: { text: string }) {
       {open && (
         <div className="opacity-60" onClick={() => setOpen(false)}>
           <Markdown text={text} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CollapsibleTools({ tools }: { tools: Array<{ type: string; file: string }> }) {
+  const [open, setOpen] = useState(false);
+  if (!tools || tools.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <div onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-[9px] cursor-pointer select-none py-0.5"
+        style={{ color: 'var(--color-text-muted)' }}>
+        <span>{open ? '▾' : '▸'}</span> 📄 工具调用 ({tools.length})
+      </div>
+      {open && (
+        <div className="mt-1 space-y-0.5">
+          {tools.map((tool, i) => {
+            const tc = TOOL_COLOR[tool.type] || { bg: '#f3f4f6', c: '#6b7280' };
+            return (
+              <div key={i} className="flex items-center gap-2 py-0.5 pl-1">
+                <span className="text-[9px] font-mono font-medium rounded px-1.5 py-0.5 shrink-0"
+                  style={{ background: tc.bg, color: tc.c }}>
+                  {TOOL_LABEL[tool.type] || tool.type}
+                </span>
+                <span className="text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>
+                  {tool.file}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -707,6 +841,11 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
           {/* Reasoning — above main text, collapsible */}
           {entry.reasoning && (
             <CollapsibleReasoning text={entry.reasoning} />
+          )}
+
+          {/* Tools — collapsible file list (read_file) */}
+          {entry.tools && entry.tools.length > 0 && (
+            <CollapsibleTools tools={entry.tools} />
           )}
 
           {/* Text content */}

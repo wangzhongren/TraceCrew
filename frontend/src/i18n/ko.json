@@ -9,7 +9,7 @@
   "app.settings": "설정",
 
   "chat.pipeline": "Agent 파이프라인",
-  "chat.pipelineFlow": "Planner → Reviewer → Mapper",
+  "chat.pipelineFlow": "PM → Planner → Reviewer → Mapper",
   "chat.describeTask": "작업을 설명해 주세요",
   "chat.pipelineHint": "에이전트가 계획, 매핑, 실행, 검토를 수행합니다",
   "chat.inputPlaceholder": "구축하거나 수정할 내용을 설명하세요...",
@@ -29,6 +29,11 @@
   "chat.thinking": "생각 중...",
   "chat.reviewResult": "검토 결과",
   "chat.analysisReport": "분석 보고서",
+
+  "pm.clarifying": "🤝 PM이 요구사항을 확인 중...",
+  "pm.confirmed": "✅ 요구사항 확인 완료, 아키텍트에게 전달 중...",
+  "pm.replyPlaceholder": "PM에게 답장...",
+  "pm.skipToPlanner": "확인 건너뛰고 바로 계획",
 
   "graph.nodes": "노드",
   "graph.edges": "엣지",

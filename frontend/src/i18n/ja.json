@@ -9,7 +9,7 @@
   "app.settings": "設定",
 
   "chat.pipeline": "Agent パイプライン",
-  "chat.pipelineFlow": "Planner → Reviewer → Mapper",
+  "chat.pipelineFlow": "PM → Planner → Reviewer → Mapper",
   "chat.describeTask": "タスクを記述してください",
   "chat.pipelineHint": "エージェントが計画・マッピング・実行・レビューを行います",
   "chat.inputPlaceholder": "構築または修正したい内容を記述...",
@@ -29,6 +29,11 @@
   "chat.thinking": "思考中...",
   "chat.reviewResult": "レビュー結果",
   "chat.analysisReport": "分析レポート",
+
+  "pm.clarifying": "🤝 PMが要件を確認中...",
+  "pm.confirmed": "✅ 要件確認完了、アーキテクトに引継ぎ中...",
+  "pm.replyPlaceholder": "PMに返信...",
+  "pm.skipToPlanner": "確認をスキップして直接計画",
 
   "graph.nodes": "ノード",
   "graph.edges": "エッジ",

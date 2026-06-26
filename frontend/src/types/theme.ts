@@ -17,11 +17,11 @@ export interface StatusColor {
 }
 
 export const STATUS_COLORS: Record<NodeStatus, StatusColor> = {
-  existing:       { fill: '#ffffff', stroke: 'var(--color-status-existing)', badge: '#6b7280', text: '#374151', icon: '◈' },
-  problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#dc2626', text: '#991b1b', icon: '✕' },
-  planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#d97706', text: '#92400e', icon: '✎' },
-  planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#16a34a', text: '#166534', icon: '+' },
-  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#2563eb', text: '#1e40af', icon: '✓' },
+  existing:       { fill: '#ffffff', stroke: 'var(--color-status-existing)', badge: '#5f6368', text: '#374151', icon: '◈' },
+  problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#ea4335', text: '#c5221f', icon: '✕' },
+  planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#f9ab00', text: '#b06000', icon: '✎' },
+  planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#0f9d58', text: '#0d652d', icon: '+' },
+  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#1a73e8', text: '#1557b0', icon: '✓' },
 };
 
 export const STATUS_COLOR_DIM: StatusColor = {
@@ -61,7 +61,7 @@ export function getStatusLabels(t: (key: string) => string): Record<string, stri
 /* ── Edge colors ── */
 
 export const EDGE_COLORS: Record<string, string> = {
-  existing: '#9ca3af',
+  existing: '#b0b7c3',
   new: 'var(--color-status-new)',
   removed: 'var(--color-status-problem)',
   error: 'var(--color-status-problem)',

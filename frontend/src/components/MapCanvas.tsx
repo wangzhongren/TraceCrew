@@ -230,8 +230,8 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
       {/* Background dot grid */}
       <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%">
         <defs>
-          <pattern id="dotGrid" width="32" height="32" patternUnits="userSpaceOnUse">
-            <circle cx="16" cy="16" r="0.8" fill="#000000" opacity="0.04"/>
+          <pattern id="dotGrid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="12" cy="12" r="0.8" fill="#000000" opacity="0.05"/>
           </pattern>
         </defs>
         <rect width="100%" height="100%" fill="url(#dotGrid)"/>
@@ -241,33 +241,74 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
       {(!graph || graph.nodes.length === 0) && (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'transparent', zIndex: 10 }}>
           <div className="text-center space-y-5 max-w-xs">
-            {/* Graph network illustration */}
-            <svg width="120" height="90" viewBox="0 0 120 90" fill="none" className="mx-auto" style={{ opacity: 0.18 }}>
-              {/* Nodes */}
-              <rect x="40" y="2" width="40" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
-              <rect x="4" y="36" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
-              <rect x="52" y="36" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
-              <rect x="22" y="70" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
-              <rect x="72" y="70" width="36" height="18" rx="4" stroke="var(--color-text-muted)" strokeWidth="1.5" fill="none"/>
-              {/* Edges */}
-              <path d="M50 20 L22 36" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
-              <path d="M70 20 L70 36" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
-              <path d="M22 54 L40 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
-              <path d="M70 54 L70 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
-              <path d="M70 54 L90 70" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3,2"/>
-              {/* Node accent bars */}
-              <rect x="40" y="2" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
-              <rect x="4" y="36" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
-              <rect x="52" y="36" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
-              <rect x="22" y="70" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
-              <rect x="72" y="70" width="3" height="18" rx="1.5" fill="var(--color-text-muted)"/>
-              {/* Dot labels inside nodes */}
-              <line x1="48" y1="8" x2="72" y2="8" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
-              <line x1="48" y1="13" x2="66" y2="13" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
-              <line x1="12" y1="42" x2="32" y2="42" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
-              <line x1="12" y1="47" x2="28" y2="47" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
-              <line x1="60" y1="42" x2="80" y2="42" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.5"/>
-              <line x1="60" y1="47" x2="76" y2="47" stroke="var(--color-text-muted)" strokeWidth="2" strokeLinecap="round" opacity="0.3"/>
+            {/* Graph network illustration — Material Design styled */}
+            <svg width="200" height="140" viewBox="0 0 200 140" fill="none" className="mx-auto" style={{ opacity: 0.30 }}>
+              {/* Filters + patterns */}
+              <defs>
+                <filter id="empty-card-shadow" x="-8%" y="-8%" width="116%" height="130%">
+                  <feDropShadow dx="0" dy="1.5" stdDeviation="3" floodColor="#000" floodOpacity="0.08"/>
+                </filter>
+                <pattern id="dot-grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <circle cx="10" cy="10" r="1" fill="var(--color-text-muted)" opacity="0.15"/>
+                </pattern>
+              </defs>
+              <rect x="0" y="0" width="200" height="140" fill="url(#dot-grid)" rx="12"/>
+
+              {/* Edges — curved bezier connections */}
+              <path d="M100,28 C100,50 46,45 46,65" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" opacity="0.4"/>
+              <path d="M100,28 C100,50 154,45 154,65" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round" opacity="0.4"/>
+              <path d="M46,83 C46,100 30,100 30,112" stroke="var(--color-text-muted)" strokeWidth="1.2" strokeLinecap="round" opacity="0.3"/>
+              <path d="M46,83 C46,100 62,100 62,112" stroke="var(--color-text-muted)" strokeWidth="1.2" strokeLinecap="round" opacity="0.3"/>
+              <path d="M154,83 C154,100 138,100 138,112" stroke="var(--color-text-muted)" strokeWidth="1.2" strokeLinecap="round" opacity="0.3"/>
+              <path d="M154,83 C154,100 170,100 170,112" stroke="var(--color-text-muted)" strokeWidth="1.2" strokeLinecap="round" opacity="0.3"/>
+
+              {/* Level 1 — Root node (center top) */}
+              <g filter="url(#empty-card-shadow)">
+                <rect x="70" y="12" width="60" height="28" rx="8" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="1" opacity="0.6"/>
+                <rect x="72" y="12" width="3" height="28" rx="1.5" fill="var(--color-status-done)" opacity="0.7"/>
+                <rect x="80" y="22" width="12" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.3"/>
+                <rect x="96" y="22" width="22" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.15"/>
+              </g>
+
+              {/* Level 2 — Two child nodes */}
+              <g filter="url(#empty-card-shadow)">
+                <rect x="18" y="58" width="56" height="28" rx="8" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="1" opacity="0.6"/>
+                <rect x="20" y="58" width="3" height="28" rx="1.5" fill="var(--color-status-problem)" opacity="0.7"/>
+                <rect x="28" y="68" width="10" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.3"/>
+                <rect x="42" y="68" width="20" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.15"/>
+              </g>
+              <g filter="url(#empty-card-shadow)">
+                <rect x="126" y="58" width="56" height="28" rx="8" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="1" opacity="0.6"/>
+                <rect x="128" y="58" width="3" height="28" rx="1.5" fill="var(--color-status-new)" opacity="0.7"/>
+                <rect x="136" y="68" width="10" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.3"/>
+                <rect x="150" y="68" width="20" height="3" rx="1.5" fill="var(--color-text-muted)" opacity="0.15"/>
+              </g>
+
+              {/* Level 3 — Leaf nodes */}
+              <g filter="url(#empty-card-shadow)">
+                <rect x="4" y="106" width="44" height="24" rx="7" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="0.8" opacity="0.5"/>
+                <rect x="6" y="106" width="2.5" height="24" rx="1.5" fill="var(--color-status-existing)" opacity="0.6"/>
+                <rect x="14" y="116" width="8" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.25"/>
+                <rect x="26" y="116" width="16" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.12"/>
+              </g>
+              <g filter="url(#empty-card-shadow)">
+                <rect x="52" y="106" width="44" height="24" rx="7" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="0.8" opacity="0.5"/>
+                <rect x="54" y="106" width="2.5" height="24" rx="1.5" fill="var(--color-status-existing)" opacity="0.6"/>
+                <rect x="62" y="116" width="8" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.25"/>
+                <rect x="74" y="116" width="16" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.12"/>
+              </g>
+              <g filter="url(#empty-card-shadow)">
+                <rect x="112" y="106" width="44" height="24" rx="7" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="0.8" opacity="0.5"/>
+                <rect x="114" y="106" width="2.5" height="24" rx="1.5" fill="var(--color-status-existing)" opacity="0.6"/>
+                <rect x="122" y="116" width="8" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.25"/>
+                <rect x="134" y="116" width="16" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.12"/>
+              </g>
+              <g filter="url(#empty-card-shadow)">
+                <rect x="160" y="106" width="36" height="24" rx="7" fill="var(--color-bg-primary)" stroke="var(--color-text-muted)" strokeWidth="0.8" opacity="0.5"/>
+                <rect x="162" y="106" width="2.5" height="24" rx="1.5" fill="var(--color-status-existing)" opacity="0.6"/>
+                <rect x="170" y="116" width="6" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.25"/>
+                <rect x="180" y="116" width="10" height="2.5" rx="1.5" fill="var(--color-text-muted)" opacity="0.12"/>
+              </g>
             </svg>
 
             {/* Title */}
@@ -321,6 +362,16 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}>
 
+        {/* SVG filters for Material Design card shadows */}
+        <defs>
+          <filter id="card-shadow" x="-8%" y="-4%" width="116%" height="116%">
+            <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.12" />
+          </filter>
+          <filter id="card-shadow-hover" x="-8%" y="-4%" width="116%" height="116%">
+            <feDropShadow dx="0" dy="3" stdDeviation="10" floodColor="#000" floodOpacity="0.18" />
+          </filter>
+        </defs>
+
         <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
           {/* Edges */}
           {layouted.edges.map((edge: any, i: number) => {
@@ -365,24 +416,28 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
             const y1 = from.y + from.h;
             const x2 = to.x + NODE_W / 2;
             const y2 = to.y;
+            // Spread overlapping edge labels: deterministic per-edge y-offset based on endpoints
+            const labelOffsetY = ((from.x * 7 + to.x * 13) % 15) - 7;
 
             return (
               <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.12 : 1, transition: 'opacity 0.3s' }}>
                 {(isError || isNew) && (
                   <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
-                    fill="none" stroke={ec} strokeWidth={4} opacity={0.25} />
+                    fill="none" stroke={ec} strokeWidth={2.5} opacity={0.10}
+                    strokeLinejoin="round" />
                 )}
                 <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
                   fill="none" stroke={ec}
-                  strokeWidth={isError || isNew ? 2 : 1.2}
+                  strokeWidth={isError || isNew ? 1.6 : 1.2}
+                  strokeLinejoin="round"
                   strokeDasharray={edge.status === 'removed' ? '6,4' : undefined}
-                  opacity={edge.status === 'removed' ? 0.5 : 0.85} />
+                  opacity={edge.status === 'removed' ? 0.5 : 0.55} />
                 <polygon
-                  points={`${x2-5},${y2-10} ${x2+5},${y2-10} ${x2},${y2-3}`}
-                  fill={ec} opacity={0.85} />
+                  points={`${x2-5},${y2-9} ${x2+5},${y2-9} ${x2},${y2-3}`}
+                  fill={ec} opacity={0.65} />
                 {edge.label && (
-                  <text x={(x1+x2)/2} y={(y1+y2)/2 - 6} textAnchor="middle"
-                    fill="#6b7280" fontSize="9" fontFamily="var(--font-family-ui)">
+                  <text x={(x1+x2)/2} y={(y1+y2)/2 - 6 + labelOffsetY} textAnchor="middle"
+                    fill="var(--color-text-muted)" fontSize="9" fontFamily="var(--font-family-ui)">
                     {edge.label}
                   </text>
                 )}
@@ -412,10 +467,10 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
 
             return (
               <g key={node.id}
+                filter={isHovered ? 'url(#card-shadow-hover)' : 'url(#card-shadow)'}
                 style={{
-                  cursor: 'pointer', transition: 'opacity 0.2s, filter 0.2s',
+                  cursor: 'pointer', transition: 'opacity 0.2s',
                   opacity: dimmed ? 0.25 : 1,
-                  filter: isHovered ? 'drop-shadow(0 0 8px rgba(0,0,0,0.08))' : 'none',
                 }}
                 onClick={() => onSelectNode(isSelected ? null : node.id)}
                 onContextMenu={(e) => { e.preventDefault(); onContextMenu?.({ node, x: e.clientX, y: e.clientY }); }}
@@ -424,16 +479,20 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
 
                 {/* Problem glow */}
                 {isProblem && (
-                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={10}
+                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={14}
                     fill="none" stroke={c.stroke} strokeWidth={2} opacity={0.2 + (isHovered ? 0.15 : 0)}
                     style={{ transition: 'opacity 0.3s' }} />
                 )}
 
                 {/* Card background */}
-                <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={8}
+                <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={12}
                   fill={c.fill} stroke={isHovered || isSelected ? c.stroke : c.badge}
-                  strokeWidth={isSelected ? 2.5 : isHovered ? 1.8 : 1}
-                  strokeOpacity={isHovered || isSelected ? 1 : 0.5} />
+                  strokeWidth={isSelected ? 2 : isHovered ? 1.8 : 1}
+                  strokeOpacity={isHovered || isSelected ? 1 : 0.25} />
+
+                {/* Top status accent bar */}
+                <rect x={node.x + 4} y={node.y} width={NODE_W - 8} height={4} rx={2}
+                  fill={c.badge} opacity={0.8} />
 
                 {/* Start marker — top-right corner + badge */}
                 {isStart && (
@@ -464,7 +523,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                 )}
 
                 {/* Left accent bar */}
-                <rect x={node.x} y={node.y + 8} width={3} height={node.h - 16} rx={1.5}
+                <rect x={node.x} y={node.y + 8} width={4} height={node.h - 16} rx={2}
                   fill={c.badge} opacity={0.8} />
 
                 {/* Status icon */}
@@ -576,7 +635,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
             { key: 'new', label: t('graph.new'), color: EDGE_COLORS.new },
           ].map(({ key, label, color }) => (
             <div key={`e-${key}`} className="flex items-center gap-1.5">
-              <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth={key === 'error' ? 2 : 1.2} strokeDasharray={key === 'removed' ? '4,3' : undefined}/><polygon points="14,2 18,5 14,8" fill={color}/></svg>
+              <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth={key === 'error' ? 2 : 1.5} strokeDasharray={key === 'removed' ? '4,3' : undefined} strokeLinecap="round"/><polygon points="14,2 18,5 14,8" fill={color}/></svg>
               <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
             </div>
           ))}

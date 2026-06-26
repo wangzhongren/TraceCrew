@@ -217,6 +217,10 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '..', 'dist', 'index.html'));
   }
 
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.maximize();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

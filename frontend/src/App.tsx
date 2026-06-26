@@ -11,7 +11,7 @@ import type { ActionType } from './components/ActionDialog';
 import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel';
 
 export interface PipelineState {
-  phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected';
+  phase: 'idle' | 'clarifying' | 'planning' | 'reviewing' | 'done' | 'rejected';
   graph: CallGraph | null;
   savedPlan?: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null;
 }
