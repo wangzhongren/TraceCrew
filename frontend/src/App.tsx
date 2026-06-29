@@ -127,6 +127,7 @@ export default function App() {
   }, [pipeline.graph, selectedNode]);
 
   const handleOpenProject = useCallback((p: string) => {
+    setPipeline({ phase: 'idle', graph: null, savedPlan: null });
     setProjectPath(p);
     setSelectedNode(null);
     setActiveAction(null);

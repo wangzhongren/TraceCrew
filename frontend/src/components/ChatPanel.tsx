@@ -52,13 +52,10 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const t = useT();
   const { locale } = useLocale();
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
-  const restoredRef = useRef(false);
 
   // Inject restored plan + graph as initial chat message AND agent history
   useEffect(() => {
-    if (restoredRef.current) return;
     if ((savedPlan || savedGraph) && timeline.length === 0) {
-      restoredRef.current = true;
       const parts: string[] = [];
       if (savedPlan?.plan_summary) {
         parts.push(`## 📋 上次计划\n${savedPlan.plan_summary}`);

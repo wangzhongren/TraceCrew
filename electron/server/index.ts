@@ -8,6 +8,8 @@ import agentRoutes from './routes/agent';
 import featuresRoutes from './routes/features';
 import changesRoutes from './routes/changes';
 import topologyRoutes from './routes/topology';
+import { agentService } from './services/agent';
+import { updateEnvFile } from '../settingsStore';
 
 const PORT = 19850;
 
@@ -43,10 +45,12 @@ export function createServer(frontendDistDir: string): Server {
     if (apiKey) process.env.TRACECREW_LLM_API_KEY = apiKey;
     if (baseUrl) process.env.TRACECREW_LLM_BASE_URL = baseUrl;
     if (model) process.env.TRACECREW_LLM_MODEL = model;
-    try {
-      const { agentService } = require('./services/agent');
-      agentService.reload();
-    } catch {}
+    updateEnvFile({
+      TRACECREW_LLM_API_KEY: process.env.TRACECREW_LLM_API_KEY || '',
+      TRACECREW_LLM_BASE_URL: process.env.TRACECREW_LLM_BASE_URL || '',
+      TRACECREW_LLM_MODEL: process.env.TRACECREW_LLM_MODEL || '',
+    });
+    agentService.reload();
     res.json({ status: 'ok' });
   });
 
