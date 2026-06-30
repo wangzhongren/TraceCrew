@@ -137,6 +137,11 @@
   "settings.model": "Model",
   "settings.saved": "✓ Saved",
   "settings.save": "Save",
+  "settings.agentPm": "PM · Requirements",
+  "settings.agentPlanner": "Planner · Architecture",
+  "settings.agentReviewer": "Reviewer · Inspection",
+  "settings.agentMapper": "Mapper · Code Mapping",
+  "settings.agentExecutor": "Executor · Execution",
 
   "status.existing": "Existing",
   "status.problem": "Problem",

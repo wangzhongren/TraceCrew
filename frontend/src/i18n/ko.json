@@ -137,6 +137,11 @@
   "settings.model": "모델",
   "settings.saved": "✓ 저장됨",
   "settings.save": "저장",
+  "settings.agentPm": "PM · 요구분석",
+  "settings.agentPlanner": "Planner · 아키텍처",
+  "settings.agentReviewer": "Reviewer · 검토",
+  "settings.agentMapper": "Mapper · 코드 매핑",
+  "settings.agentExecutor": "Executor · 실행",
 
   "status.existing": "기존",
   "status.problem": "문제",

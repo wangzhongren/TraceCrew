@@ -102,7 +102,7 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
 【你的职责】
 - 分析用户的原始需求描述，识别模糊点、矛盾点、遗漏点、可能的错别字
 - 以友好的方式向用户提问，帮助用户澄清意图
-- 不要做技术分析，不要读代码，不要出方案——你只负责沟通和需求确认
+- 你可以读取项目代码来理解上下文，但不要做技术分析，不要出方案——你只负责沟通和需求确认
 - 你的目标是产出一份「已确认需求」——清晰、结构化、可供架构师直接使用
 
 【工作流程】
@@ -138,7 +138,11 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
 - 如果需求太模糊（如"帮我做个系统"），引导用户提供更多上下文
 - 不要一次问太多问题（不超过 3 个核心问题），避免让用户感到压力
 - 使用用户的语言回复
-- 不要在回复中包含任何操作标签（如 read-file、search 等），你只做纯文本对话`;
+- 沟通提问优先于工具使用
+- 沟通和需求澄清是你的首要职责，提问优先于使用工具，只在用户提到具体代码/文件或需要了解项目结构时才使用工具查看
+- 当你需要查看代码时，使用只读操作标签（list-dir、read-file、search）
+
+${PROTOCOL_READONLY}`;
 
 const PLANNER_SYSTEM_PROMPT = `你是 TraceCrew 的首席架构师。你有极强的代码理解能力和系统设计能力。
 
@@ -392,29 +396,52 @@ const OPERATION_TAGS = Object.keys(TAG_TO_OPERATION).join('|');
 /* ── Agent Service ── */
 
 export class AgentService {
-  private _client: OpenAI | null = null;
-  private _model: string | null = null;
-  /** Reset cached client so next request picks up new env vars */
+  private _clients: Map<string, OpenAI> = new Map();
+  private _models: Map<string, string> = new Map();
+
+  /** Reset all cached clients so next request picks up new env vars */
   reload(): void {
-    this._client = null;
-    this._model = null;
+    this._clients.clear();
+    this._models.clear();
   }
 
-  private get client(): OpenAI {
-    if (!this._client) {
-      this._client = new OpenAI({
-        apiKey: process.env.TRACECREW_LLM_API_KEY,
-        baseURL: process.env.TRACECREW_LLM_BASE_URL,
-      });
-    }
-    return this._client;
+  /** Map a mode/agent name to the canonical agent key (PM, PLANNER, REVIEWER, MAPPER, EXECUTOR) */
+  private resolveAgent(mode: string): string {
+    const m = mode.toLowerCase();
+    if (m === 'pm') return 'PM';
+    if (m === 'planner') return 'PLANNER';
+    if (m === 'reviewer' || m === 'reviewer_exec') return 'REVIEWER';
+    if (m === 'mapper') return 'MAPPER';
+    if (m === 'executor') return 'EXECUTOR';
+    // Default fallback
+    return 'EXECUTOR';
   }
 
-  private get model(): string {
-    if (!this._model) {
-      this._model = process.env.TRACECREW_LLM_MODEL || '';
+  /** Read per-agent config from process.env, with fallback to legacy global keys */
+  private getAgentConfig(agent: string): { apiKey: string; baseURL: string; model: string } {
+    const prefix = `TRACECREW_LLM_${agent}_`;
+    const apiKey = process.env[`${prefix}API_KEY`] || process.env.TRACECREW_LLM_API_KEY || '';
+    const baseURL = process.env[`${prefix}BASE_URL`] || process.env.TRACECREW_LLM_BASE_URL || '';
+    const model = process.env[`${prefix}MODEL`] || process.env.TRACECREW_LLM_MODEL || '';
+    console.log(`[AgentConfig] agent=${agent} model=${model} baseURL=${baseURL} apiKey=${apiKey ? '***' + apiKey.slice(-4) : '(empty)'}`);
+    return { apiKey, baseURL, model };
+  }
+
+  private getClient(agent: string): OpenAI {
+    const resolved = this.resolveAgent(agent);
+    if (!this._clients.has(resolved)) {
+      const cfg = this.getAgentConfig(resolved);
+      this._clients.set(resolved, new OpenAI({ apiKey: cfg.apiKey, baseURL: cfg.baseURL }));
     }
-    return this._model;
+    return this._clients.get(resolved)!;
+  }
+
+  private getModel(agent: string): string {
+    const resolved = this.resolveAgent(agent);
+    if (!this._models.has(resolved)) {
+      this._models.set(resolved, this.getAgentConfig(resolved).model);
+    }
+    return this._models.get(resolved)!;
   }
 
   /* ── Helpers ── */
@@ -592,8 +619,8 @@ export class AgentService {
 
   async classifyIntent(instruction: string): Promise<string> {
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.model,
+      const response = await this.getClient('planner').chat.completions.create({
+        model: this.getModel('planner'),
         messages: [
           { role: 'system', content: this.INTENT_CLASSIFY_PROMPT },
           { role: 'user', content: instruction.slice(0, 500) },
@@ -610,8 +637,8 @@ export class AgentService {
 
   async generatePlanName(summary: string): Promise<string> {
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.model,
+      const response = await this.getClient('planner').chat.completions.create({
+        model: this.getModel('planner'),
         messages: [
           { role: 'system', content: '你是一个文件命名助手。给出一段项目计划摘要，生成一个简短的文件名（纯英文或拼音，3-6个词，用连字符分隔）。只输出文件名，不要其他内容。' },
           { role: 'user', content: summary.slice(0, 500) },
@@ -633,8 +660,8 @@ export class AgentService {
     const messages = this.buildMessages(req.history);
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: this.model,
+      const response = await this.getClient('executor').chat.completions.create({
+        model: this.getModel('executor'),
         messages,
         temperature: 0.0,
       });
@@ -696,8 +723,8 @@ export class AgentService {
       let fullText = '';
 
       try {
-        const stream = await this.client.chat.completions.create({
-          model: this.model,
+        const stream = await this.getClient(mode).chat.completions.create({
+          model: this.getModel(mode),
           messages,
           temperature: 0.0,
           stream: true,
@@ -735,6 +762,10 @@ export class AgentService {
         console.log(`[processStream] Turn ${turn} parsed: ${operations.length} ops [${operations.map(o => o.type).join(', ')}], message: ${agentMessage.length} chars`);
       } catch (e: any) {
         console.log(`[processStream] Turn ${turn} NO XML ops found: ${e.message?.slice(0, 100)}`);
+      }
+
+      if (mode === 'pm' && process.env.NODE_ENV !== 'production') {
+        console.log('[PM Agent] 工具调用:', JSON.stringify(operations.map((o: any) => ({ type: o.type, file: o.file, path: o.path }))));
       }
 
       // Save assistant response to conversation
@@ -908,8 +939,8 @@ export class AgentService {
     let fullText = '';
 
     try {
-      const stream = await this.client.chat.completions.create({
-        model: this.model,
+      const stream = await this.getClient('planner').chat.completions.create({
+        model: this.getModel('planner'),
         messages: [
           { role: 'system', content: PLANNER_SYSTEM_PROMPT },
           { role: 'user', content: userMsg },
@@ -974,8 +1005,8 @@ export class AgentService {
   async *runSubAgent(task: string, stepId: number): AsyncGenerator<{ event: string; data: string; step_id?: number }> {
     let fullText = '';
     try {
-      const stream = await this.client.chat.completions.create({
-        model: this.model,
+      const stream = await this.getClient('executor').chat.completions.create({
+        model: this.getModel('executor'),
         messages: [
           { role: 'system', content: WORKER_SYSTEM_PROMPT },
           { role: 'user', content: `【任务 ${stepId}】\n${task}` },
@@ -1194,8 +1225,8 @@ ${taskLog}
 
       let fullText = '';
       try {
-        const stream = await this.client.chat.completions.create({
-          model: this.model,
+        const stream = await this.getClient('executor').chat.completions.create({
+          model: this.getModel('executor'),
           messages,
           temperature: 0.0,
           stream: true,
@@ -1343,8 +1374,8 @@ ${JSON.stringify(reviewIssues)}
           let reviewFullText = '';
 
           try {
-            const reviewStream = await this.client.chat.completions.create({
-              model: this.model,
+            const reviewStream = await this.getClient('reviewer').chat.completions.create({
+              model: this.getModel('reviewer'),
               messages: reviewMessages,
               temperature: 0.0,
               stream: true,
@@ -1521,8 +1552,8 @@ ${JSON.stringify(reviewIssues, null, 2)}
 
           let fixFullText = '';
           try {
-            const fixStream = await this.client.chat.completions.create({
-              model: this.model,
+            const fixStream = await this.getClient('executor').chat.completions.create({
+              model: this.getModel('executor'),
               messages,
               temperature: 0.0,
               stream: true,

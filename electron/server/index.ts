@@ -32,24 +32,44 @@ export function createServer(frontendDistDir: string): Server {
   app.use('/api/v1/topology', topologyRoutes);
 
   // ── Settings ──
+
+  const AGENTS = ['pm', 'planner', 'reviewer', 'mapper', 'executor'] as const;
+  const LEGACY_KEYS = {
+    apiKey: 'TRACECREW_LLM_API_KEY',
+    baseUrl: 'TRACECREW_LLM_BASE_URL',
+    model: 'TRACECREW_LLM_MODEL',
+  };
+
+  function readAgentConfig(agent: string): { apiKey: string; baseUrl: string; model: string } {
+    const prefix = `TRACECREW_LLM_${agent.toUpperCase()}_`;
+    return {
+      apiKey: process.env[`${prefix}API_KEY`] || process.env[LEGACY_KEYS.apiKey] || '',
+      baseUrl: process.env[`${prefix}BASE_URL`] || process.env[LEGACY_KEYS.baseUrl] || '',
+      model: process.env[`${prefix}MODEL`] || process.env[LEGACY_KEYS.model] || '',
+    };
+  }
+
   app.get('/api/v1/settings', (_req, res) => {
-    res.json({
-      apiKey: process.env.TRACECREW_LLM_API_KEY || '',
-      baseUrl: process.env.TRACECREW_LLM_BASE_URL || '',
-      model: process.env.TRACECREW_LLM_MODEL || '',
-    });
+    const result: Record<string, { apiKey: string; baseUrl: string; model: string }> = {};
+    for (const a of AGENTS) {
+      result[a] = readAgentConfig(a);
+    }
+    res.json(result);
   });
 
   app.post('/api/v1/settings', (req, res) => {
-    const { apiKey, baseUrl, model } = req.body || {};
-    if (apiKey) process.env.TRACECREW_LLM_API_KEY = apiKey;
-    if (baseUrl) process.env.TRACECREW_LLM_BASE_URL = baseUrl;
-    if (model) process.env.TRACECREW_LLM_MODEL = model;
-    updateEnvFile({
-      TRACECREW_LLM_API_KEY: process.env.TRACECREW_LLM_API_KEY || '',
-      TRACECREW_LLM_BASE_URL: process.env.TRACECREW_LLM_BASE_URL || '',
-      TRACECREW_LLM_MODEL: process.env.TRACECREW_LLM_MODEL || '',
-    });
+    const data = req.body || {};
+    const updates: Record<string, string> = {};
+
+    for (const a of AGENTS) {
+      const cfg = data[a] || {};
+      const prefix = `TRACECREW_LLM_${a.toUpperCase()}_`;
+      if (cfg.apiKey !== undefined) { process.env[`${prefix}API_KEY`] = cfg.apiKey; updates[`${prefix}API_KEY`] = cfg.apiKey; }
+      if (cfg.baseUrl !== undefined) { process.env[`${prefix}BASE_URL`] = cfg.baseUrl; updates[`${prefix}BASE_URL`] = cfg.baseUrl; }
+      if (cfg.model !== undefined)   { process.env[`${prefix}MODEL`]   = cfg.model;   updates[`${prefix}MODEL`]   = cfg.model; }
+    }
+
+    updateEnvFile(updates);
     agentService.reload();
     res.json({ status: 'ok' });
   });

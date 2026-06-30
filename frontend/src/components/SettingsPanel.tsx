@@ -1,31 +1,91 @@
 import { useState, useEffect } from 'react';
 import { useT } from '../i18n';
 
-interface LLMSettings {
+interface AgentLLMSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
 }
 
-const STORAGE_KEY = 'tracecrew-llm-settings';
+interface AllLLMSettings {
+  pm: AgentLLMSettings;
+  planner: AgentLLMSettings;
+  reviewer: AgentLLMSettings;
+  mapper: AgentLLMSettings;
+  executor: AgentLLMSettings;
+}
 
-function loadLocal(): LLMSettings | null {
+const STORAGE_KEY = 'tracecrew-llm-settings-v2';
+const OLD_STORAGE_KEY = 'tracecrew-llm-settings';
+
+const AGENT_KEYS = ['pm', 'planner', 'reviewer', 'mapper', 'executor'] as const;
+
+const AGENT_LABELS: Record<string, string> = {
+  pm: 'settings.agentPm',
+  planner: 'settings.agentPlanner',
+  reviewer: 'settings.agentReviewer',
+  mapper: 'settings.agentMapper',
+  executor: 'settings.agentExecutor',
+};
+
+function defaultAgentSettings(): AgentLLMSettings {
+  return { apiKey: '', baseUrl: '', model: '' };
+}
+
+function defaultAllSettings(): AllLLMSettings {
+  return {
+    pm: defaultAgentSettings(),
+    planner: defaultAgentSettings(),
+    reviewer: defaultAgentSettings(),
+    mapper: defaultAgentSettings(),
+    executor: defaultAgentSettings(),
+  };
+}
+
+/** Migrate from old single-LLM format to new per-agent format */
+function migrateOldFormat(old: { apiKey?: string; baseUrl?: string; model?: string }): AllLLMSettings {
+  const shared: AgentLLMSettings = {
+    apiKey: old.apiKey || '',
+    baseUrl: old.baseUrl || '',
+    model: old.model || '',
+  };
+  return {
+    pm: { ...shared },
+    planner: { ...shared },
+    reviewer: { ...shared },
+    mapper: { ...shared },
+    executor: { ...shared },
+  };
+}
+
+function loadLocal(): AllLLMSettings | null {
   try {
+    // Try new format first
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
+    // Try old format and migrate
+    const oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldRaw) {
+      const old = JSON.parse(oldRaw);
+      const migrated = migrateOldFormat(old);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
+      localStorage.removeItem(OLD_STORAGE_KEY);
+      return migrated;
+    }
   } catch {}
   return null;
 }
 
-function save(s: LLMSettings) {
+function saveLocal(s: AllLLMSettings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
 }
 
 export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const t = useT();
-  const [settings, setSettings] = useState<LLMSettings>(() => loadLocal() || { apiKey: '', baseUrl: '', model: '' });
+  const [settings, setSettings] = useState<AllLLMSettings>(() => loadLocal() || defaultAllSettings());
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   // On mount: if no localStorage, fetch from backend (reads .env)
   useEffect(() => {
@@ -33,7 +93,10 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     fetch('/api/v1/settings')
       .then((r) => r.json())
       .then((d) => {
-        setSettings({ apiKey: d.apiKey || '', baseUrl: d.baseUrl || '', model: d.model || '' });
+        // Backend returns { pm: {...}, planner: {...}, ... }
+        if (d.pm) {
+          setSettings(d as AllLLMSettings);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -46,8 +109,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const handleSave = async () => {
-    save(settings);
-    // Tell the backend to reload settings
+    saveLocal(settings);
     try {
       await fetch('/api/v1/settings', {
         method: 'POST',
@@ -57,6 +119,17 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     } catch {}
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const updateAgent = (agent: string, field: string, value: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      [agent]: { ...prev[agent as keyof AllLLMSettings], [field]: value },
+    }));
+  };
+
+  const toggleExpand = (agent: string) => {
+    setExpanded((prev) => (prev === agent ? null : agent));
   };
 
   const fieldStyle: React.CSSProperties = {
@@ -71,8 +144,85 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     outline: 'none',
   };
 
+  const renderAgentSection = (agent: string) => {
+    const cfg = settings[agent as keyof AllLLMSettings];
+    const isExpanded = expanded === agent;
+    const labelKey = AGENT_LABELS[agent] || agent;
+
+    return (
+      <div key={agent} className="border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
+        {/* Section header */}
+        <button
+          onClick={() => toggleExpand(agent)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-black/[0.02] transition-colors"
+        >
+          <span className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>
+            {t(labelKey)}
+          </span>
+          <svg
+            width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            style={{
+              color: 'var(--color-text-muted)',
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.15s',
+            }}
+          >
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+
+        {/* Collapsible fields */}
+        {isExpanded && (
+          <div className="px-4 pb-3 space-y-2.5">
+            <label className="block">
+              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                {t('settings.apiKey')}
+              </span>
+              <input
+                type="password"
+                value={cfg.apiKey}
+                onChange={(e) => updateAgent(agent, 'apiKey', e.target.value)}
+                placeholder="sk-..."
+                style={fieldStyle}
+                className="mt-0.5"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                {t('settings.baseUrl')}
+              </span>
+              <input
+                type="text"
+                value={cfg.baseUrl}
+                onChange={(e) => updateAgent(agent, 'baseUrl', e.target.value)}
+                placeholder="https://api.openai.com/v1"
+                style={fieldStyle}
+                className="mt-0.5"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                {t('settings.model')}
+              </span>
+              <input
+                type="text"
+                value={cfg.model}
+                onChange={(e) => updateAgent(agent, 'model', e.target.value)}
+                placeholder="gpt-4o"
+                style={fieldStyle}
+                className="mt-0.5"
+              />
+            </label>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="absolute right-0 top-8 w-80 rounded-lg border z-50 animate-fade-in-scale"
+    <div className="absolute right-0 top-8 w-96 rounded-lg border z-50 animate-fade-in-scale"
       style={{ background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
@@ -86,46 +236,14 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* Fields */}
-      <div className="px-4 py-3 space-y-3">
+      {/* Agent sections */}
+      <div className="max-h-[480px] overflow-y-auto">
         {loading && (
-          <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{t('settings.loading')}</div>
+          <div className="px-4 py-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            {t('settings.loading')}
+          </div>
         )}
-        <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.apiKey')}</span>
-          <input
-            type="password"
-            value={settings.apiKey}
-            onChange={(e) => setSettings((s) => ({ ...s, apiKey: e.target.value }))}
-            placeholder="sk-..."
-            style={fieldStyle}
-            className="mt-1"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.baseUrl')}</span>
-          <input
-            type="text"
-            value={settings.baseUrl}
-            onChange={(e) => setSettings((s) => ({ ...s, baseUrl: e.target.value }))}
-            placeholder="https://api.openai.com/v1"
-            style={fieldStyle}
-            className="mt-1"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('settings.model')}</span>
-          <input
-            type="text"
-            value={settings.model}
-            onChange={(e) => setSettings((s) => ({ ...s, model: e.target.value }))}
-            placeholder="gpt-4o"
-            style={fieldStyle}
-            className="mt-1"
-          />
-        </label>
+        {AGENT_KEYS.map(renderAgentSection)}
       </div>
 
       {/* Footer */}

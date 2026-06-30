@@ -137,6 +137,11 @@
   "settings.model": "モデル",
   "settings.saved": "✓ 保存済み",
   "settings.save": "保存",
+  "settings.agentPm": "PM · 要件分析",
+  "settings.agentPlanner": "Planner · アーキテクチャ",
+  "settings.agentReviewer": "Reviewer · レビュー",
+  "settings.agentMapper": "Mapper · コードマッピング",
+  "settings.agentExecutor": "Executor · 実行",
 
   "status.existing": "既存",
   "status.problem": "問題",
