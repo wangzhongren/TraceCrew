@@ -107,9 +107,10 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
 
 【工作流程】
 1. 分析用户输入，找出所有需要澄清的地方
-2. 逐条列出你的疑问，请用户确认或补充
-3. 用户回复后，更新你的理解，继续追问（如有必要）
+2. 逐条列出你的疑问，请用户确认或补充，结束时追加 <done/>
+3. 用户回复后，更新你的理解，继续追问（如有必要），每次回复用户时追加 <done/>
 4. 当你认为需求已足够清晰时，输出最终的需求确认摘要：
+
    <confirmed-requirement>
 
 ## 需求确认
@@ -130,8 +131,8 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
 ### 验收标准
    ...（如何判断需求已完成）
    </confirmed-requirement>
-   然后等待用户回复"确认"或继续修改。
-5. 用户回复"确认"后，输出 <handoff-to-planner/> 表示需求已锁定，系统将自动转交给架构师。
+
+   然后追加 <handoff-to-planner/>，系统将自动转交给架构师。
 
 【交流原则】
 - 如果用户输入有错别字，温和地确认："您说的是 XXX 吗？"
@@ -771,18 +772,25 @@ export class AgentService {
       // Save assistant response to conversation
       messages.push({ role: 'assistant', content: fullText });
 
+      // PM: handoff marker → done regardless of tool calls
+      if (mode === 'pm' && /<handoff-to-planner\/>/i.test(fullText)) {
+        const clean = fullText.replace(/<handoff-to-planner\/>/gi, '').trim();
+        yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
+        return;
+      }
+
+      // Universal done marker: <final/> or <done/> → end conversation regardless of tool calls
+      if (/<final\/>|<done\/>/i.test(fullText)) {
+        const clean = fullText.replace(/<final\/>|<done\/>/gi, '').trim();
+        yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
+        return;
+      }
+
       if (operations.length === 0) {
-        // PM mode: single-turn response, return immediately
+        // PM mode: no tools + no marker → prompt to add explicit marker
         if (mode === 'pm') {
-          const clean = fullText.replace(/<handoff-to-planner\/>/gi, '').trim();
-          yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
-          return;
-        }
-        // Explicit done marker
-        if (/<final\/>/i.test(fullText)) {
-          const clean = fullText.replace(/<final\/>/gi, '').trim();
-          yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
-          return;
+          messages.push({ role: 'user', content: '请使用 <done/> 结束本轮（或 <handoff-to-planner/> 转交架构师）。' });
+          continue;
         }
         if (fullText.trim().length < 5) {
           emptyCount++;
@@ -794,8 +802,8 @@ export class AgentService {
           continue;
         }
         emptyCount = 0;
-        // No tools + no <final/> → might be incomplete, prompt continuation
-        messages.push({ role: 'user', content: '请继续（若已完成请追加 <final/>）。' });
+        // No tools + no done marker → might be incomplete, prompt continuation
+        messages.push({ role: 'user', content: '请继续（若已完成请追加 <final/> 或 <done/>）。' });
         continue;
       }
       emptyCount = 0;
