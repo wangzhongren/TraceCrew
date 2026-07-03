@@ -9,57 +9,62 @@ A single large model juggling architecture analysis, code search, editing, and v
 ```
 Single Agent:                           TraceCrew Crew:
 
-One brain does everything               Planner   — architecture analysis
-  ├── understand project structure      Reviewer  — evidence verification
-  ├── search codebase                   Mapper    — task planning & dependency ordering
-  ├── plan changes                      Executor  — execute operations (ultra-narrow context)
-  ├── write code
-  └── verify correctness               Each agent is small, focused, and auditable
-                                        Checks & balances between stages catch errors early
-Token cost: $$$$                        Token cost: $
-No oversight, role confusion            Clear division of labor, structured validation
+One brain does everything               PM         — requirements clarification
+  ├── understand project structure      Architect  — IoC framework design
+  ├── search codebase                   Planner    — architecture analysis & planning
+  ├── plan changes                      Reviewer   — evidence verification
+  ├── write code                        Mapper     — task graph & sequence diagram
+  └── verify correctness               Executor   — execute operations (ultra-narrow context)
+
+Token cost: $$$$                        Each agent is small, focused, and auditable
+No oversight, role confusion            Checks & balances between stages catch errors early
+                                        Token cost: $
+                                        Clear division of labor, structured validation
 ```
 
-**Flow:** `User Input → Planner → Reviewer → Mapper → Dependency Graph → Auto-exec or Manual`
+**Flow:** `PM → Architect → Planner → Reviewer → Mapper → Dependency Graph → Auto-exec or Manual`
 
 ## Interface
 
 ```
-┌─────────────────────┬──────────────────────────────────────────┐
-│                     │                                          │
-│    Chat Panel       │         Dependency Graph                 │
-│                     │                                          │
-│  Planner            │  ┌──────────────────────────────┐        │
-│    ↓                │  │  ○ ───→ ○ ───→ ○            │        │
-│  Reviewer           │  │   │       │                   │        │
-│    ↓ (pass/reject)  │  │   ○ ──→── ○ ───→ ○ ──→ ○    │        │
-│  Mapper             │  │   │               │           │        │
-│                     │  │   ○ ───→── ○ ───→── ○        │        │
-│  ↻ retry on fail   │  └──────────────────────────────┘        │
-│                     │                                          │
-│  PlanCard           │  ┌──── 待改列表 ──────────────────┐      │
-│  ReviewCard         │  │ [▶ 一键执行]  3               │      │
-│  Tool calls inline  │  │                                │      │
-│                     │  │ ┌ [前端] 通知弹窗组件 ────────┐ │      │
-│  [input] [Send]     │  │ │ Planner: 需要新增...       │ │      │
-│                     │  │ │ [修复] [测试] [解释]       │ │      │
-│                     │  │ └────────────────────────────┘ │      │
-│                     │  │ ┌ [后端] IPC handler ─────────┐ │      │
-│                     │  │ │ ...                         │ │      │
-│                     │  │ └────────────────────────────┘ │      │
-│                     │  └────────────────────────────────┘      │
-└─────────────────────┴──────────────────────────────────────────┘
+┌─────────────────────┬──────────────────────────────────────────────┐
+│                     │                                              │
+│    Chat Panel       │           Graph View                         │
+│                     │                                              │
+│  PM (需求澄清)      │  ┌ 🔗调用图 │ 🔀任务依赖 │ ⏱️时序图 ────┐  │
+│    ↓                │  │                                      │  │
+│  Architect (框架)   │  │  ○ ───→ ○ ───→ ○                    │  │
+│    ↓                │  │   │       │                           │  │
+│  Planner (方案)     │  │   ○ ──→── ○ ───→ ○ ──→ ○            │  │
+│    ↓                │  │   │               │                   │  │
+│  Reviewer (审查)    │  │   ○ ───→── ○ ───→── ○                │  │
+│    ↓ (pass/reject)  │  └──────────────────────────────────────┘  │
+│  Mapper (画图)      │                                              │
+│                     │  ┌──── 待改列表 ──────────────────────┐      │
+│  ↻ retry on fail   │  │ [▶ 一键执行]  3                   │      │
+│                     │  │                                    │      │
+│  PlanCard           │  │ ┌ [前端] 通知弹窗组件 ────────────┐ │      │
+│  ReviewCard         │  │ │ Planner: 需要新增...           │ │      │
+│  ArchitectCard      │  │ │ [修复] [测试] [解释]           │ │      │
+│  Tool calls inline  │  │ └────────────────────────────────┘ │      │
+│                     │  │ ┌ [后端] IPC handler ─────────────┐ │      │
+│  [input] [Send]     │  │ │ ...                             │ │      │
+│                     │  │ └────────────────────────────────┘ │      │
+│                     │  └────────────────────────────────────┘      │
+└─────────────────────┴──────────────────────────────────────────────┘
 ```
 
 ## Agent Crew
 
 | Agent | Role | Responsibility |
 |-------|------|----------------|
-| **Planner** | Architect | Analyzes requirements, explores codebase, identifies affected files, outputs structured execution plan |
+| **PM** | Project Manager | Clarifies requirements with the user, asks targeted questions, produces confirmed requirement document |
+| **Architect** | Framework Designer | Designs IoC-driven architecture: module boundaries, interface contracts, dependency rules, directory skeleton. Saves to `.tracecrew/ARCHITECTURE.md`. Skips when existing architecture is sufficient |
+| **Planner** | Technical Planner | Analyzes requirements against architecture, explores codebase, identifies affected files, outputs structured execution plan |
 | **Reviewer** | Inspector | Verifies Planner's analysis against real code evidence — each claim must cite a file:line. Pass or send back with feedback |
-| **Mapper** | Cartographer | Converts approved plan into task nodes with dependency edges, producing a call graph for visualization and execution |
+| **Mapper** | Cartographer | Converts approved plan into three views: call graph, task dependency graph, and sequence diagram |
 
-**Retry loop:** If the Reviewer rejects, the Planner revises and resubmits. Only after Reviewer approval does the Mapper produce the dependency graph.
+**Pipeline:** PM clarifies → Architect designs IoC framework → Planner creates execution plan → Reviewer verifies → Mapper draws graphs. If Reviewer rejects, Planner revises. Architect is skipped when existing architecture covers the new requirement.
 
 ### Task Node States
 
@@ -76,8 +81,10 @@ Each node card shows: label, status badge, Planner analysis detail, file path, a
 ## Features
 
 ### Core
-- **Multi-Agent Pipeline** — Planner → Reviewer → Mapper with automatic retry on rejection
-- **Dependency Graph** — SVG node-link diagram (dagre layout) with Material Design styling, zoom/pan, and node selection
+- **Multi-Agent Pipeline** — PM → Architect → Planner → Reviewer → Mapper with automatic retry on rejection
+- **IoC Architecture Design** — Architect agent designs interface contracts, module boundaries, and dependency rules. Persisted as `.tracecrew/ARCHITECTURE.md`, auto-skipped when unchanged
+- **Three Graph Views** — Call graph (TB), task dependency graph (LR), and sequence diagram — switchable via tabs
+- **Bug Impact Analysis** — `impact_scope` highlights trigger paths (red) and affected nodes (orange dashed) on the graph
 - **One-Click Auto-Exec** — Topological sort → execute all pending tasks in dependency order → auto-advance on completion, stop anytime
 - **Single-Node Execute** — Click any pending card's action button (fix/test/explain) to execute just that node
 - **Plan Versioning** — Multiple Planner revisions shown in popup viewer with diff comparison
@@ -192,6 +199,7 @@ TraceCrew/
 
 | Path | Purpose |
 |------|---------|
+| `.tracecrew/ARCHITECTURE.md` | Architect's IoC framework design (modules, interfaces, dependency rules) |
 | `.tracecrew/tracecrew.db` | SQLite database (file summaries, change queue) |
 | `.tracecrew/TASKLOG.md` | Append-only task completion log for context passing |
 | `.tracecrew/PLAN.md` | Approved Planner report, survives restarts |
