@@ -97,6 +97,7 @@ export default function App() {
     if (!pipeline.graph?.nodes?.length || !projectPath) return;
     window.tracecrew.file.writeFile('.tracecrew/STATE.json', JSON.stringify({
       graph: pipeline.graph,
+      sequenceGraph: pipeline.sequenceGraph,
       savedPlan: pipeline.savedPlan,
       updatedAt: new Date().toISOString(),
     }, null, 2)).catch(() => {});
@@ -128,7 +129,7 @@ export default function App() {
   }, [pipeline.graph, selectedNode]);
 
   const handleOpenProject = useCallback((p: string) => {
-    setPipeline({ phase: 'idle', graph: null, savedPlan: null });
+    setPipeline({ phase: 'idle', graph: null, sequenceGraph: null, savedPlan: null });
     setProjectPath(p);
     setSelectedNode(null);
     setActiveAction(null);
@@ -141,7 +142,7 @@ export default function App() {
         if (fc?.content) {
           const state = JSON.parse(fc.content);
           if (state.graph?.nodes?.length > 0) {
-            setPipeline({ phase: 'done', graph: state.graph, savedPlan: state.savedPlan });
+            setPipeline({ phase: 'done', graph: state.graph, sequenceGraph: state.sequenceGraph || null, savedPlan: state.savedPlan });
             return;
           }
         }

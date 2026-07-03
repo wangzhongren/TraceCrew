@@ -32,7 +32,7 @@ export interface EditResult {
 const IGNORE_PATTERNS = [
   'node_modules', '.git', '__pycache__', '.venv', 'venv',
   'dist', '.next', '.nuxt', 'coverage', '.cache',
-  '.tracecrew',
+  '.tracecrew', '.codeatlas',
   '*.pyc', '*.pyo', '*.exe', '*.dll', '*.so', '*.dylib',
   '.DS_Store', 'Thumbs.db',
 ];

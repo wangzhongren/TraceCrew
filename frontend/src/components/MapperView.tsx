@@ -47,9 +47,10 @@ function classifyNode(status: string, isActive: boolean, isAffectedExisting?: bo
 
 /* ── PendingList (refactored: left MapCanvas + right pending list) ── */
 
-function KanbanBoard({ graph, displayGraph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
+function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
   graph: CallGraph;
   displayGraph?: CallGraph;
+  layoutDirection?: 'TB' | 'LR';
   onSelect: (id: string | null) => void;
   selectedNode: string | null;
   onRequestAction: (action: ActionType) => void;
@@ -314,6 +315,7 @@ function KanbanBoard({ graph, displayGraph, onSelect, selectedNode: sel, onReque
       <div className="flex-1 overflow-hidden" style={{ minWidth: 0 }}>
         <MapCanvas
           graph={displayGraph || graph}
+          layoutDirection={layoutDirection}
           phase="done"
           selectedNode={null}
           onSelectNode={onSelect}
@@ -396,7 +398,7 @@ function EmptyState({ phase }: { phase: Props['phase'] }) {
 /* ── MapperView ── */
 
 export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, selectedNode, activeAction: _activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: Props) {
-  const [tab, setTab] = useState<'call' | 'sequence'>('call');
+  const [tab, setTab] = useState<'call' | 'dependency' | 'sequence'>('call');
   const hasSequence = sequenceGraph && sequenceGraph.nodes.length > 0;
 
   if (!graph || graph.nodes.length === 0) {
@@ -404,6 +406,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
   }
 
   const activeGraph = tab === 'sequence' && hasSequence ? sequenceGraph! : graph;
+  const activeLayout = tab === 'dependency' ? 'LR' as const : 'TB' as const;
 
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
@@ -420,6 +423,17 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
             }}
           >
             🔗 调用图
+          </button>
+          <button
+            onClick={() => setTab('dependency')}
+            className="px-3 py-1.5 text-[11px] font-semibold transition-colors rounded-t-md"
+            style={{
+              color: tab === 'dependency' ? 'var(--color-text-link)' : 'var(--color-text-muted)',
+              borderBottom: tab === 'dependency' ? '2px solid var(--color-text-link)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
+          >
+            🔀 任务依赖
           </button>
           <button
             onClick={() => setTab('sequence')}
@@ -439,6 +453,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
         <KanbanBoard
           graph={graph}
           displayGraph={activeGraph !== graph ? activeGraph : undefined}
+          layoutDirection={activeLayout}
           onSelect={onSelectNode}
           selectedNode={selectedNode}
           onRequestAction={onRequestAction}

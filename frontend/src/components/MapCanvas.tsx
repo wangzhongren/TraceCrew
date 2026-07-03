@@ -50,6 +50,8 @@ interface Props {
   selectedNode: string | null;
   onSelectNode: (id: string | null) => void;
   onContextMenu?: (action: ContextMenuAction) => void;
+  /** Layout direction: 'TB' (top→bottom) or 'LR' (left→right) */
+  layoutDirection?: 'TB' | 'LR';
 }
 
 /* ── Dagre layered layout ── */
@@ -91,12 +93,12 @@ function calcNodeHeight(n: GraphNode): number {
 
 const VIRTUAL_ROOT = '__vr__';
 
-function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge & { back?: boolean })[] } {
+function layoutGraph(graph: CallGraph, rankdir: 'TB' | 'LR' = 'TB'): { nodes: LayoutNode[]; edges: (GraphEdge & { back?: boolean })[] } {
   const { nodes, edges } = graph;
   if (nodes.length === 0) return { nodes: [], edges };
 
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'TB', nodesep: X_GAP, ranksep: Y_GAP });
+  g.setGraph({ rankdir, nodesep: X_GAP, ranksep: Y_GAP });
   g.setDefaultEdgeLabel(() => ({}));
 
   // Add nodes with dimensions
@@ -148,7 +150,7 @@ function layoutGraph(graph: CallGraph): { nodes: LayoutNode[]; edges: (GraphEdge
 
 /* ══════════════════════════════════════════════════ */
 
-function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: Props) {
+function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, layoutDirection = 'TB' }: Props) {
   const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -175,9 +177,9 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
   }, [graph]);
 
   const layouted = useMemo(
-    () => graph ? layoutGraph(graph) : { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] },
+    () => graph ? layoutGraph(graph, layoutDirection) : { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layoutFingerprint]
+    [layoutFingerprint, layoutDirection]
   );
 
   // Auto-fit on new graph — only reset view when the graph is genuinely different
