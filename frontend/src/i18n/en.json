@@ -140,6 +140,7 @@
   "settings.saved": "✓ Saved",
   "settings.save": "Save",
   "settings.agentPm": "PM · Requirements",
+  "settings.agentArchitect": "Architect · Framework",
   "settings.agentPlanner": "Planner · Architecture",
   "settings.agentReviewer": "Reviewer · Inspection",
   "settings.agentMapper": "Mapper · Code Mapping",

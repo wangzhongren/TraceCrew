@@ -9,6 +9,7 @@ interface AgentLLMSettings {
 
 interface AllLLMSettings {
   pm: AgentLLMSettings;
+  architect: AgentLLMSettings;
   planner: AgentLLMSettings;
   reviewer: AgentLLMSettings;
   mapper: AgentLLMSettings;
@@ -18,10 +19,11 @@ interface AllLLMSettings {
 const STORAGE_KEY = 'tracecrew-llm-settings-v2';
 const OLD_STORAGE_KEY = 'tracecrew-llm-settings';
 
-const AGENT_KEYS = ['pm', 'planner', 'reviewer', 'mapper', 'executor'] as const;
+const AGENT_KEYS = ['pm', 'architect', 'planner', 'reviewer', 'mapper', 'executor'] as const;
 
 const AGENT_LABELS: Record<string, string> = {
   pm: 'settings.agentPm',
+  architect: 'settings.agentArchitect',
   planner: 'settings.agentPlanner',
   reviewer: 'settings.agentReviewer',
   mapper: 'settings.agentMapper',
@@ -35,6 +37,7 @@ function defaultAgentSettings(): AgentLLMSettings {
 function defaultAllSettings(): AllLLMSettings {
   return {
     pm: defaultAgentSettings(),
+    architect: defaultAgentSettings(),
     planner: defaultAgentSettings(),
     reviewer: defaultAgentSettings(),
     mapper: defaultAgentSettings(),
@@ -51,6 +54,7 @@ function migrateOldFormat(old: { apiKey?: string; baseUrl?: string; model?: stri
   };
   return {
     pm: { ...shared },
+    architect: { ...shared },
     planner: { ...shared },
     reviewer: { ...shared },
     mapper: { ...shared },
@@ -62,7 +66,16 @@ function loadLocal(): AllLLMSettings | null {
   try {
     // Try new format first
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const loaded = JSON.parse(raw);
+      // Merge with defaults to fill any missing agent keys (e.g. newly added Architect)
+      const defaults = defaultAllSettings();
+      const merged: any = { ...loaded };
+      for (const key of Object.keys(defaults)) {
+        if (!merged[key]) merged[key] = defaults[key as keyof AllLLMSettings];
+      }
+      return merged as AllLLMSettings;
+    }
     // Try old format and migrate
     const oldRaw = localStorage.getItem(OLD_STORAGE_KEY);
     if (oldRaw) {

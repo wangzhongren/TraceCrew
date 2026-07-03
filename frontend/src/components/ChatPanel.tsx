@@ -124,7 +124,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     if (!text) return null;
     const m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
     if (m) { try { return JSON.parse(m[1]); } catch {} }
-    for (const key of ['"call_graph"', '"plan_summary"', '"passed"']) {
+    for (const key of ['"architecture"', '"call_graph"', '"plan_summary"', '"passed"']) {
       const idx = text.indexOf(key);
       if (idx !== -1) {
         const start = text.lastIndexOf('{', idx);
@@ -272,9 +272,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     if (/<handoff-to-planner\/>/i.test(fullText)) {
       const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
       const confirmedReq = reqMatch ? reqMatch[1].trim() : instruction;
-      // Bridge: start a clean pipeline cycle — saved context + current PM summary only.
-      // Old Planner/Reviewer/Mapper outputs are NOT carried over between cycles.
-      historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
+      // Bridge: start a clean pipeline cycle — PM summary only.
+      // Planner/Architect explore the project via tools, they don't need old history.
+      historyRef.current = [{ role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
       // Proceed to Architect → Planner pipeline
@@ -302,9 +302,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     if (/<handoff-to-planner\/>/i.test(fullText)) {
       const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
       const confirmedReq = reqMatch ? reqMatch[1].trim() : pmState.originalInstruction;
-      // Bridge: start a clean pipeline cycle — saved context + current PM summary only.
-      // Old Planner/Reviewer/Mapper outputs are NOT carried over between cycles.
-      historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
+      // Bridge: start a clean pipeline cycle — PM summary only.
+      // Planner/Architect explore the project via tools, they don't need old history.
+      historyRef.current = [{ role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
       setTimeout(() => runArchitect(confirmedReq), 100);
@@ -330,8 +330,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         savedMd = fc.content;
         // Try to extract architecture JSON from saved markdown
         savedArchitecture = parseJson(savedMd)?.architecture || null;
+        console.log('[Architect] 已加载 ARCHITECTURE.md, parseJson→architecture:', !!savedArchitecture, '| md长度:', savedMd.length);
       }
-    } catch { /* no saved architecture */ }
+    } catch { console.log('[Architect] 无 ARCHITECTURE.md'); }
 
     setRunning(true);
     abortRef.current = new AbortController();
@@ -341,36 +342,62 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     // Build context: if saved architecture exists, let LLM decide whether to skip
     let ctx = instruction;
     if (savedMd) {
+      console.log('[Architect] 已有架构，发送给 LLM 判断是否跳过');
       setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在判断是否需要修改架构...' }]);
       ctx = `【已有架构】\n${savedMd}\n\n【新需求】\n${instruction}\n\n请判断：已有架构是否可以直接支撑新需求？如果不需要修改，只输出 <skip-architect/> 即可停止。如果需要修改，请输出完整的架构设计（Markdown + JSON）。`;
     } else {
+      console.log('[Architect] 新项目，开始设计架构');
       setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在分析架构...' }]);
     }
 
-    const hist = [...historyRef.current, { role: 'user', content: ctx }];
-    const { fullText } = await agentLoop('architect', '', '', hist);
+    // Retry loop: Architect must output valid JSON
+    let fullText = '';
+    let data: any = null;
+    const MAX_RETRIES = 2;
+    let retryCtx = ctx;
 
-    // Check for skip signal
-    if (/<skip-architect\/>/i.test(fullText) && savedArchitecture) {
-      historyRef.current.push({ role: 'assistant', content: `[Architect] 架构无需修改，复用已有设计` });
-      setTimeline(prev => [...prev, { kind: 'system', text: '📐 架构无需修改，复用已有设计' }]);
-      setRunning(false);
-      setTimeout(() => runPlanner(instruction, savedArchitecture), 100);
-      return;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      console.log(`[Architect] 第${attempt + 1}次调用 agentLoop, ctx长度:`, retryCtx.length);
+      const result = await agentLoop('architect', '', '', [...historyRef.current, { role: 'user', content: retryCtx }]);
+      fullText = result.fullText;
+      console.log(`[Architect] fullText 长度: ${fullText.length}, 末尾200字:`, fullText.slice(-200));
+      console.log(`[Architect] 含 <skip-architect/>:`, /<skip-architect\/>/i.test(fullText));
+      console.log(`[Architect] 含 \`\`\`json:`, /```json/.test(fullText));
+      console.log(`[Architect] 含 "architecture":`, /"architecture"/.test(fullText));
+
+      // Check for skip signal
+      if (/<skip-architect\/>/i.test(fullText) && savedArchitecture) {
+        console.log('[Architect] → 跳过，复用已有架构');
+        historyRef.current.push({ role: 'assistant', content: `[Architect] 架构无需修改，复用已有设计` });
+        setTimeline(prev => [...prev, { kind: 'system', text: '📐 架构无需修改，复用已有设计' }]);
+        setRunning(false);
+        setTimeout(() => runPlanner(instruction, savedArchitecture), 100);
+        return;
+      }
+
+      data = parseJson(fullText);
+      console.log('[Architect] parseJson 结果 keys:', data ? Object.keys(data).join(', ') : 'null');
+      if (data?.architecture) {
+        console.log('[Architect] → 解析成功, modules:', data.architecture.modules?.length, 'interfaces:', data.architecture.interfaces?.length);
+        break;
+      }
+
+      console.log(`[Architect] → JSON解析失败，准备重试...`);
+      // JSON parse failed — retry with format guidance
+      retryCtx = `${ctx}\n\n⚠️ 上一次输出格式无法解析。请确保:\n1. 使用 \`\`\`json 代码块包含 architecture 对象\n2. architecture 必须包含 principle, modules, interfaces, dependency_rules, directory_skeleton\n\n请重新输出完整的架构设计。`;
+      setTimeline(prev => [...prev, { kind: 'system', text: `🔄 架构 JSON 解析失败，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
     }
 
-    const data = parseJson(fullText);
     const architecture = data?.architecture || null;
 
     if (architecture) {
-      // Persist full markdown output to ARCHITECTURE.md
       window.tracecrew.file.writeFile('.tracecrew/ARCHITECTURE.md', fullText).catch(() => {});
 
       historyRef.current.push({ role: 'assistant', content: `[Architect] ${architecture.principle || '架构设计完成'} — ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` });
       setTimeline(prev => [...prev, { kind: 'system', text: `✅ 架构设计${savedMd ? '更新' : ''}完成: ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` }]);
     } else {
-      historyRef.current.push({ role: 'assistant', content: `[Architect] ${fullText.slice(0, 200)}` });
-      setTimeline(prev => [...prev, { kind: 'system', text: '⚠️ 架构设计 JSON 解析失败，将直接进入 Planner' }]);
+      historyRef.current.push({ role: 'assistant', content: `[Architect] JSON 解析失败（已重试 ${MAX_RETRIES} 次）: ${fullText.slice(0, 200)}` });
+      setTimeline(prev => [...prev, { kind: 'system', text: `⚠️ 架构 JSON 解析失败（已重试 ${MAX_RETRIES} 次），将直接进入 Planner` }]);
     }
 
     setRunning(false);
@@ -385,11 +412,12 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     plannerUsedTools.current = false;
     abortRef.current = new AbortController();
 
-    // Build Planner context: include architecture if available
+    // Build Planner context: include full architecture JSON
     const archCtx = architecture
-      ? `\n\n【架构设计】\n原则: ${architecture.principle || ''}\n模块: ${(architecture.modules || []).map((m: any) => `${m.name}(${m.directory})`).join(', ')}\n接口: ${(architecture.interfaces || []).map((i: any) => i.name).join(', ')}\n依赖规则: ${(architecture.dependency_rules || []).join('; ')}\n目录骨架: ${(architecture.directory_skeleton || []).join(', ')}`
+      ? `\n\n【架构设计 — 由框架设计师产出，你的计划必须遵守此架构中的接口契约和依赖规则】\n\`\`\`json\n${JSON.stringify({ architecture }, null, 2)}\n\`\`\`\n\n请基于以上架构设计，将需求拆分为具体实现步骤。每个步骤必须说明归属哪个模块、实现哪个接口。`
       : '';
     const hist = [...historyRef.current, { role: 'user', content: instruction + archCtx }];
+    console.log('[Planner] 收到架构:', !!architecture, '| archCtx长度:', archCtx.length);
 
     onPipelineChange({ phase: 'planning' });
     const { fullText } = await agentLoop('planner', '', '', hist);

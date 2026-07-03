@@ -140,6 +140,7 @@
   "settings.saved": "✓ 已保存",
   "settings.save": "保存",
   "settings.agentPm": "PM · 需求分析",
+  "settings.agentArchitect": "Architect · 框架设计",
   "settings.agentPlanner": "Planner · 架构规划",
   "settings.agentReviewer": "Reviewer · 审查检查",
   "settings.agentMapper": "Mapper · 代码映射",

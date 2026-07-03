@@ -140,6 +140,7 @@
   "settings.saved": "✓ 저장됨",
   "settings.save": "저장",
   "settings.agentPm": "PM · 요구분석",
+  "settings.agentArchitect": "Architect · 프레임워크",
   "settings.agentPlanner": "Planner · 아키텍처",
   "settings.agentReviewer": "Reviewer · 검토",
   "settings.agentMapper": "Mapper · 코드 매핑",
