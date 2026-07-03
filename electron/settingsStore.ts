@@ -6,7 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // server/ → electron/ → CodeAtlas/.env
 const ENV_PATH = join(__dirname, '..', '..', '.env');
 
-const AGENTS = ['PM', 'PLANNER', 'REVIEWER', 'MAPPER', 'EXECUTOR'] as const;
+const AGENTS = ['PM', 'ARCHITECT', 'PLANNER', 'REVIEWER', 'MAPPER', 'EXECUTOR'] as const;
 const FIELDS = ['API_KEY', 'BASE_URL', 'MODEL'] as const;
 
 const KEYS = AGENTS.flatMap(a => FIELDS.map(f => `TRACECREW_LLM_${a}_${f}`));

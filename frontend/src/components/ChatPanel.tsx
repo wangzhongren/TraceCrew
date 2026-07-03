@@ -102,6 +102,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const historyRef = useRef<Array<{ role: string; content: string }>>([]);        // Planner / Reviewer / Mapper context
   const pmHistoryRef = useRef<Array<{ role: string; content: string }>>([]);       // PM-only conversation (isolated)
   const savedContextRef = useRef<Array<{ role: string; content: string }>>([]);    // saved project context (never pruned)
+  const architectureRef = useRef<any>(null);                                        // latest architecture for Mapper
   const plannerUsedTools = useRef(false);
   const tidxRef = useRef(-1);
 
@@ -368,6 +369,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       // Check for skip signal
       if (/<skip-architect\/>/i.test(fullText) && savedArchitecture) {
         console.log('[Architect] → 跳过，复用已有架构');
+        architectureRef.current = savedArchitecture;
         historyRef.current.push({ role: 'assistant', content: `[Architect] 架构无需修改，复用已有设计` });
         setTimeline(prev => [...prev, { kind: 'system', text: '📐 架构无需修改，复用已有设计' }]);
         setRunning(false);
@@ -391,6 +393,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     const architecture = data?.architecture || null;
 
     if (architecture) {
+      architectureRef.current = architecture;
       window.tracecrew.file.writeFile('.tracecrew/ARCHITECTURE.md', fullText).catch(() => {});
 
       historyRef.current.push({ role: 'assistant', content: `[Architect] ${architecture.principle || '架构设计完成'} — ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` });
@@ -533,7 +536,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         } catch {}
       }
 
-      await runMapper(instruction, plan, plannerText);
+      await runMapper(instruction, plan, plannerText, architectureRef.current);
     } else {
       setTimeline(prev => [...prev, { kind: 'system', text: t('chat.reviewFailed') }]);
       onPipelineChange({ phase: 'rejected' });
@@ -542,10 +545,13 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     }
   };
 
-  const runMapper = async (instruction: string, plan: any, plannerText?: string) => {
+  const runMapper = async (instruction: string, plan: any, plannerText?: string, architecture?: any) => {
+    const archCtx = architecture
+      ? `\n【架构设计】\n模块: ${(architecture.modules || []).map((m: any) => `${m.name}(${m.directory})`).join(', ')}\n目录骨架: ${(architecture.directory_skeleton || []).join(', ')}\n依赖规则: ${(architecture.dependency_rules || []).join('; ')}`
+      : '';
     const planCtx = plan?.plan_summary
-      ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
-      : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
+      ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}${archCtx}`
+      : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}${archCtx}`;
 
     const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
       existing: 'existing', new: 'new', removed: 'removed', error: 'error',

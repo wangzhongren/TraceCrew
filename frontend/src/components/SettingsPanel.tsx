@@ -124,12 +124,16 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
   const handleSave = async () => {
     saveLocal(settings);
     try {
-      await fetch('/api/v1/settings', {
+      const res = await fetch('/api/v1/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
-    } catch {}
+      const result = await res.json().catch(() => ({}));
+      console.log('[Settings] 保存结果:', result, '| architect:', settings.architect?.apiKey ? '***' + settings.architect.apiKey.slice(-4) : '(empty)');
+    } catch (e) {
+      console.error('[Settings] 保存失败:', e);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

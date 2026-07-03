@@ -535,12 +535,19 @@ export class AgentService {
     return 'EXECUTOR';
   }
 
-  /** Read per-agent config from process.env, with fallback to legacy global keys */
+  /** Read per-agent config from process.env, with fallback to legacy global keys.
+   *  Architect falls back to Planner config if its own is empty. */
   private getAgentConfig(agent: string): { apiKey: string; baseURL: string; model: string } {
     const prefix = `TRACECREW_LLM_${agent}_`;
-    const apiKey = process.env[`${prefix}API_KEY`] || process.env.TRACECREW_LLM_API_KEY || '';
-    const baseURL = process.env[`${prefix}BASE_URL`] || process.env.TRACECREW_LLM_BASE_URL || '';
-    const model = process.env[`${prefix}MODEL`] || process.env.TRACECREW_LLM_MODEL || '';
+    let apiKey = process.env[`${prefix}API_KEY`] || process.env.TRACECREW_LLM_API_KEY || '';
+    let baseURL = process.env[`${prefix}BASE_URL`] || process.env.TRACECREW_LLM_BASE_URL || '';
+    let model = process.env[`${prefix}MODEL`] || process.env.TRACECREW_LLM_MODEL || '';
+    // Architect fallback: use Planner config if empty
+    if (agent === 'ARCHITECT' && !apiKey) {
+      apiKey = process.env.TRACECREW_LLM_PLANNER_API_KEY || '';
+      baseURL = baseURL || process.env.TRACECREW_LLM_PLANNER_BASE_URL || '';
+      model = model || process.env.TRACECREW_LLM_PLANNER_MODEL || '';
+    }
     console.log(`[AgentConfig] agent=${agent} model=${model} baseURL=${baseURL} apiKey=${apiKey ? '***' + apiKey.slice(-4) : '(empty)'}`);
     return { apiKey, baseURL, model };
   }
