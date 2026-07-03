@@ -158,6 +158,43 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [groupFilter, setGroupFilter] = useState<string>('all');
+
+  // Entry-point groups + active members (must be before layout)
+  const entryGroups = useMemo(() => {
+    if (!graph || graph.nodes.length === 0) return [] as Array<{ id: string; label: string; members: Set<string> }>;
+    const hasIncoming = new Set(graph.edges.map(e => e.to));
+    const entryPoints = graph.nodes.filter(n => !hasIncoming.has(n.id));
+    if (entryPoints.length <= 1) return [];
+
+    const nodeMap = new Map(graph.nodes.map(n => [n.id, n]));
+    const result: Array<{ id: string; label: string; members: Set<string> }> = [];
+    for (const ep of entryPoints) {
+      const members = new Set<string>();
+      const queue = [ep.id];
+      const visited = new Set<string>();
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        if (visited.has(id)) continue;
+        visited.add(id);
+        members.add(id);
+        for (const e of graph.edges) {
+          if (e.from === id) queue.push(e.to);
+        }
+      }
+      result.push({
+        id: ep.id,
+        label: (nodeMap.get(ep.id) || ep).label.replace(/^\[.*?\]\s*/, ''),
+        members,
+      });
+    }
+    return result;
+  }, [graph]);
+
+  const activeMembers = useMemo(() => {
+    if (!graph || groupFilter === 'all' || entryGroups.length === 0) return null;
+    return entryGroups.find(g => g.id === groupFilter)?.members || null;
+  }, [graph, groupFilter, entryGroups]);
 
   // Content fingerprint — only properties that affect Dagre layout (node labels/detail
   // lengths determine node height; edge from/to/status affect edge rendering paths).
@@ -165,22 +202,30 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
   // graph object has identical content (e.g. after a no-op merge in MapperView).
   const layoutFingerprint = useMemo(() => {
     if (!graph) return '';
-    const nodeKeys = graph.nodes.map(n =>
+    // Include groupFilter so layout recomputes when group changes
+    const inputGraph = activeMembers
+      ? { nodes: graph.nodes.filter(n => activeMembers.has(n.id)), edges: graph.edges.filter(e => activeMembers.has(e.from) && activeMembers.has(e.to)) }
+      : graph;
+    const nodeKeys = inputGraph.nodes.map(n =>
       `${n.id}|${n.status}|${n.label.length}|${(n.detail || '').length}|${n.kind || ''}|${n.file || ''}|` +
       `${(n.impact_scope?.affected_nodes || []).join(',')}|${(n.sub_components || []).map(c => c.id).join(',')}|` +
       `${n.lane || ''}|${n.step || ''}`
     ).sort().join(',');
-    const edgeKeys = graph.edges.map(e =>
+    const edgeKeys = inputGraph.edges.map(e =>
       `${e.from}->${e.to}|${e.status}`
     ).sort().join(',');
-    return `${nodeKeys}::${edgeKeys}`;
-  }, [graph]);
+    return `${groupFilter}|${nodeKeys}::${edgeKeys}`;
+  }, [graph, groupFilter, activeMembers]);
 
-  const layouted = useMemo(
-    () => graph ? layoutGraph(graph, layoutDirection) : { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] },
+  const layouted = useMemo(() => {
+    if (!graph) return { nodes: [] as LayoutNode[], edges: [] as GraphEdge[] };
+    // Use filtered graph when a group is selected
+    const inputGraph = activeMembers
+      ? { nodes: graph.nodes.filter(n => activeMembers.has(n.id)), edges: graph.edges.filter(e => activeMembers.has(e.from) && activeMembers.has(e.to)) }
+      : graph;
+    return layoutGraph(inputGraph, layoutDirection);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [layoutFingerprint, layoutDirection]
-  );
+  }, [layoutFingerprint, layoutDirection]);
 
   // Auto-fit on new graph — only reset view when the graph is genuinely different
   // (no node ID overlap with previous graph), not on incremental updates like fix/refactor.
@@ -412,6 +457,8 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
             const from = layouted.nodes.find((n) => n.id === edge.from);
             const to = layouted.nodes.find((n) => n.id === edge.to);
             if (!from || !to) return null;
+            const edgeInGroup = !activeMembers || (activeMembers.has(edge.from) && activeMembers.has(edge.to));
+            if (!edgeInGroup) return null; // hide edges outside selected group
             const edgeConnected = selectedNode
               ? new Set([selectedNode, ...layouted.edges.filter((e: any) => e.from === selectedNode || e.to === selectedNode).flatMap((e: any) => [e.from, e.to])])
               : null;
@@ -492,6 +539,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
             const isProblem = node.status === 'problem';
             const isAffected = impactView.affectedNodes.has(node.id);
             const isTriggerNode = impactView.triggerPathNodes.has(node.id);
+            const isInGroup = !activeMembers || activeMembers.has(node.id);
             // Start/end detection
             const hasIncoming = layouted.edges.some((e: any) => e.to === node.id);
             const hasOutgoing = layouted.edges.some((e: any) => e.from === node.id);
@@ -507,7 +555,8 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
                 filter={isHovered ? 'url(#card-shadow-hover)' : 'url(#card-shadow)'}
                 style={{
                   cursor: 'pointer', transition: 'opacity 0.2s',
-                  opacity: dimmed ? 0.25 : 1,
+                  opacity: (!isInGroup) ? 0 : (dimmed ? 0.25 : 1),
+                  display: (!isInGroup) ? 'none' : undefined,
                 }}
                 onClick={() => onSelectNode(isSelected ? null : node.id)}
                 onContextMenu={(e) => { e.preventDefault(); onContextMenu?.({ node, x: e.clientX, y: e.clientY }); }}
@@ -649,6 +698,32 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
           })}
         </g>
       </svg>
+
+      {/* Group filter dropdown — top right (only when multiple entry points) */}
+      {entryGroups.length > 1 && (
+        <div className="absolute top-3 right-3 z-10">
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium outline-none appearance-none cursor-pointer"
+            style={{
+              background: '#ffffffdd', backdropFilter: 'blur(8px)',
+              border: '1px solid var(--color-border-default)',
+              color: 'var(--color-text-secondary)',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+              paddingRight: 28,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 8px center',
+            }}
+          >
+            <option value="all">全部 ({graph?.nodes.length || 0})</option>
+            {entryGroups.map(g => (
+              <option key={g.id} value={g.id}>{g.label} ({g.members.size})</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Legend — bottom left */}
       {graph && graph.nodes.length > 0 && (
