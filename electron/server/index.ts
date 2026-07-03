@@ -33,7 +33,7 @@ export function createServer(frontendDistDir: string): Server {
 
   // ── Settings ──
 
-  const AGENTS = ['pm', 'planner', 'reviewer', 'mapper', 'executor'] as const;
+  const AGENTS = ['pm', 'architect', 'planner', 'reviewer', 'mapper', 'executor'] as const;
   const LEGACY_KEYS = {
     apiKey: 'TRACECREW_LLM_API_KEY',
     baseUrl: 'TRACECREW_LLM_BASE_URL',

@@ -277,8 +277,8 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
-      // Proceed to Planner with confirmed requirement
-      setTimeout(() => runPlanner(confirmedReq), 100);
+      // Proceed to Architect → Planner pipeline
+      setTimeout(() => runArchitect(confirmedReq), 100);
       return;
     }
 
@@ -307,7 +307,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
-      setTimeout(() => runPlanner(confirmedReq), 100);
+      setTimeout(() => runArchitect(confirmedReq), 100);
       return;
     }
 
@@ -316,12 +316,80 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     setRunning(false);
   };
 
-  const runPlanner = async (instruction: string) => {
+  /* ── Architect: IoC framework design ── */
+
+  const runArchitect = async (instruction: string) => {
+    if (!projectPath) return;
+
+    // Load saved architecture (.md format)
+    let savedMd: string | null = null;
+    let savedArchitecture: any = null;
+    try {
+      const fc = await window.tracecrew.file.readFile('.tracecrew/ARCHITECTURE.md');
+      if (fc?.content) {
+        savedMd = fc.content;
+        // Try to extract architecture JSON from saved markdown
+        savedArchitecture = parseJson(savedMd)?.architecture || null;
+      }
+    } catch { /* no saved architecture */ }
+
+    setRunning(true);
+    abortRef.current = new AbortController();
+
+    onPipelineChange({ phase: 'planning' });
+
+    // Build context: if saved architecture exists, let LLM decide whether to skip
+    let ctx = instruction;
+    if (savedMd) {
+      setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在判断是否需要修改架构...' }]);
+      ctx = `【已有架构】\n${savedMd}\n\n【新需求】\n${instruction}\n\n请判断：已有架构是否可以直接支撑新需求？如果不需要修改，只输出 <skip-architect/> 即可停止。如果需要修改，请输出完整的架构设计（Markdown + JSON）。`;
+    } else {
+      setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在分析架构...' }]);
+    }
+
+    const hist = [...historyRef.current, { role: 'user', content: ctx }];
+    const { fullText } = await agentLoop('architect', '', '', hist);
+
+    // Check for skip signal
+    if (/<skip-architect\/>/i.test(fullText) && savedArchitecture) {
+      historyRef.current.push({ role: 'assistant', content: `[Architect] 架构无需修改，复用已有设计` });
+      setTimeline(prev => [...prev, { kind: 'system', text: '📐 架构无需修改，复用已有设计' }]);
+      setRunning(false);
+      setTimeout(() => runPlanner(instruction, savedArchitecture), 100);
+      return;
+    }
+
+    const data = parseJson(fullText);
+    const architecture = data?.architecture || null;
+
+    if (architecture) {
+      // Persist full markdown output to ARCHITECTURE.md
+      window.tracecrew.file.writeFile('.tracecrew/ARCHITECTURE.md', fullText).catch(() => {});
+
+      historyRef.current.push({ role: 'assistant', content: `[Architect] ${architecture.principle || '架构设计完成'} — ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` });
+      setTimeline(prev => [...prev, { kind: 'system', text: `✅ 架构设计${savedMd ? '更新' : ''}完成: ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` }]);
+    } else {
+      historyRef.current.push({ role: 'assistant', content: `[Architect] ${fullText.slice(0, 200)}` });
+      setTimeline(prev => [...prev, { kind: 'system', text: '⚠️ 架构设计 JSON 解析失败，将直接进入 Planner' }]);
+    }
+
+    setRunning(false);
+    setTimeout(() => runPlanner(instruction, architecture), 100);
+  };
+
+  /* ── Planner ── */
+
+  const runPlanner = async (instruction: string, architecture?: any) => {
     if (!projectPath) return;
     setRunning(true);
     plannerUsedTools.current = false;
     abortRef.current = new AbortController();
-    const hist = [...historyRef.current, { role: 'user', content: instruction }];
+
+    // Build Planner context: include architecture if available
+    const archCtx = architecture
+      ? `\n\n【架构设计】\n原则: ${architecture.principle || ''}\n模块: ${(architecture.modules || []).map((m: any) => `${m.name}(${m.directory})`).join(', ')}\n接口: ${(architecture.interfaces || []).map((i: any) => i.name).join(', ')}\n依赖规则: ${(architecture.dependency_rules || []).join('; ')}\n目录骨架: ${(architecture.directory_skeleton || []).join(', ')}`
+      : '';
+    const hist = [...historyRef.current, { role: 'user', content: instruction + archCtx }];
 
     onPipelineChange({ phase: 'planning' });
     const { fullText } = await agentLoop('planner', '', '', hist);
