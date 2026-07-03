@@ -196,6 +196,93 @@ export default function ActionPanel({
               )}
             </div>
 
+            {/* Bug impact scope — for problem nodes */}
+            {node.impact_scope && (() => {
+              const is = node.impact_scope;
+              return (
+                <div className="rounded-lg p-3 space-y-2" style={{ background: '#fff8e1', border: '1px solid #f9ab00' }}>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs">🐛</span>
+                    <span className="text-[10px] font-bold" style={{ color: '#b45309' }}>Bug 影响范围</span>
+                  </div>
+                  {is.root_cause && (
+                    <div className="text-[10px] leading-relaxed" style={{ color: '#92400e' }}>
+                      <span className="font-semibold">根因：</span>{is.root_cause}
+                    </div>
+                  )}
+                  {is.trigger_path?.length > 0 && (
+                    <div className="flex items-start gap-1">
+                      <span className="text-[10px] font-semibold shrink-0" style={{ color: '#b45309' }}>触发路径：</span>
+                      <div className="flex flex-wrap items-center gap-0.5">
+                        {is.trigger_path.map((nid, i) => (
+                          <span key={nid} className="flex items-center gap-0.5">
+                            {i > 0 && <span className="text-[9px]" style={{ color: '#d97706' }}>→</span>}
+                            <code className="text-[9px] px-1 py-px rounded" style={{ background: '#fef3c7', color: '#b45309' }}>{nid}</code>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {is.affected_nodes?.length > 0 && (
+                    <div className="flex items-start gap-1">
+                      <span className="text-[10px] font-semibold shrink-0" style={{ color: '#b45309' }}>影响节点：</span>
+                      <div className="flex flex-wrap gap-1">
+                        {is.affected_nodes.map(nid => (
+                          <code key={nid} className="text-[9px] px-1 py-px rounded" style={{ background: '#fef3c7', color: '#d97706' }}>{nid}</code>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {is.fix_files?.length > 0 && (
+                    <div className="flex items-start gap-1">
+                      <span className="text-[10px] font-semibold shrink-0" style={{ color: '#b45309' }}>修复文件：</span>
+                      <div className="flex flex-wrap gap-1">
+                        {is.fix_files.map(f => (
+                          <code key={f} className="text-[9px] px-1 py-px rounded" style={{ background: '#fce8e6', color: '#c5221f' }}>{f}</code>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {is.verification && (
+                    <div className="text-[10px] leading-relaxed" style={{ color: '#92400e' }}>
+                      <span className="font-semibold">验证：</span>{is.verification}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Sub-components — for planned_new nodes */}
+            {node.sub_components && node.sub_components.length > 0 && (
+              <div className="rounded-lg p-3 space-y-1.5" style={{ background: '#f0fdf4', border: '1px solid #86efac' }}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs">🧩</span>
+                  <span className="text-[10px] font-bold" style={{ color: '#166534' }}>组件清单</span>
+                  <span className="text-[9px]" style={{ color: '#15803d' }}>({node.sub_components.length})</span>
+                </div>
+                {node.sub_components.map((sc: any) => {
+                  const catLabels: Record<string, string> = { widget: '控件', service: '服务', model: '模型', hook: 'Hook', util: '工具', layout: '布局' };
+                  const catColors: Record<string, string> = { widget: '#3b82f6', service: '#16a34a', model: '#a371f7', hook: '#f97316', util: '#6b7280', layout: '#e11d48' };
+                  const cc = catColors[sc.category] || '#6b7280';
+                  return (
+                    <div key={sc.id} className="flex items-center gap-2 text-[10px]" style={{ color: '#166534' }}>
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: cc }} />
+                      <span className="font-medium">{sc.label}</span>
+                      <span className="px-1 py-px rounded text-[8px] font-bold tracking-wider" style={{ background: cc + '18', color: cc }}>
+                        {catLabels[sc.category] || sc.category}
+                      </span>
+                      {sc.widget_type && (
+                        <code className="text-[9px] px-1 py-px rounded" style={{ background: '#dbeafe', color: '#1e40af' }}>{sc.widget_type}</code>
+                      )}
+                      {sc.props && (
+                        <span className="text-[9px] opacity-50 truncate">{sc.props}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* Context info — varies by action */}
             <ActionContext action={action} node={node} config={config} downstreamNodes={downstreamNodes} downstreamCount={downstreamCount} t={t} />
 

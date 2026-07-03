@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import dagre from 'dagre';
-import { STATUS_COLORS, EDGE_COLORS, STATUS_LABELS } from '../types/theme';
-import type { NodeStatus } from '../types/theme';
+import { STATUS_COLORS, EDGE_COLORS, STATUS_LABELS, BUG_IMPACT_COLORS } from '../types/theme';
+import type { NodeStatus, SubComponent, ImpactScope } from '../types/theme';
 import { useT } from '../i18n';
 
 /* ═══════════════════════════════════════════════════════════
@@ -16,6 +16,14 @@ export interface GraphNode {
   detail: string;
   file?: string;
   line?: number;
+  /** Widget/service composition for planned_new nodes */
+  sub_components?: SubComponent[];
+  /** Bug impact analysis for problem nodes */
+  impact_scope?: ImpactScope;
+  /** Sequence diagram: swimlane name */
+  lane?: string;
+  /** Sequence diagram: position in timeline (1-based) */
+  step?: number;
 }
 
 export interface GraphEdge {
@@ -156,7 +164,9 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
   const layoutFingerprint = useMemo(() => {
     if (!graph) return '';
     const nodeKeys = graph.nodes.map(n =>
-      `${n.id}|${n.status}|${n.label.length}|${(n.detail || '').length}|${n.kind || ''}|${n.file || ''}`
+      `${n.id}|${n.status}|${n.label.length}|${(n.detail || '').length}|${n.kind || ''}|${n.file || ''}|` +
+      `${(n.impact_scope?.affected_nodes || []).join(',')}|${(n.sub_components || []).map(c => c.id).join(',')}|` +
+      `${n.lane || ''}|${n.step || ''}`
     ).sort().join(',');
     const edgeKeys = graph.edges.map(e =>
       `${e.from}->${e.to}|${e.status}`
@@ -223,6 +233,28 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
     const counts: Record<string, number> = {};
     for (const n of graph.nodes) counts[n.status] = (counts[n.status] || 0) + 1;
     return counts;
+  }, [graph]);
+
+  // Bug impact view: compute trigger edges + affected nodes from impact_scope
+  const impactView = useMemo(() => {
+    const triggerEdges = new Set<string>();
+    const affectedNodes = new Set<string>();
+    const triggerPathNodes = new Set<string>();
+    if (!graph) return { triggerEdges, affectedNodes, triggerPathNodes };
+    for (const node of graph.nodes) {
+      if (node.impact_scope) {
+        const path = node.impact_scope.trigger_path;
+        for (let i = 0; i < path.length - 1; i++) {
+          triggerEdges.add(`${path[i]}->${path[i + 1]}`);
+          triggerPathNodes.add(path[i]);
+          triggerPathNodes.add(path[i + 1]);
+        }
+        for (const nid of node.impact_scope.affected_nodes) {
+          affectedNodes.add(nid);
+        }
+      }
+    }
+    return { triggerEdges, affectedNodes, triggerPathNodes };
   }, [graph]);
 
   return (
@@ -386,6 +418,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
             const ec = EDGE_COLORS[edge.status] || EDGE_COLORS.existing;
             const isError = edge.status === 'error';
             const isNew = edge.status === 'new';
+            const isTriggerEdge = impactView.triggerEdges.has(`${edge.from}->${edge.to}`);
             const isBack = edge.back;
 
             if (isBack) {
@@ -427,14 +460,14 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
                     strokeLinejoin="round" />
                 )}
                 <path d={`M${x1},${y1} L${x1},${(y1+y2)/2} L${x2},${(y1+y2)/2} L${x2},${y2-8}`}
-                  fill="none" stroke={ec}
-                  strokeWidth={isError || isNew ? 1.6 : 1.2}
+                  fill="none" stroke={isTriggerEdge ? BUG_IMPACT_COLORS.triggerEdge : ec}
+                  strokeWidth={isTriggerEdge ? BUG_IMPACT_COLORS.triggerEdgeWidth : (isError || isNew ? 1.6 : 1.2)}
                   strokeLinejoin="round"
                   strokeDasharray={edge.status === 'removed' ? '6,4' : undefined}
-                  opacity={edge.status === 'removed' ? 0.5 : 0.55} />
+                  opacity={isTriggerEdge ? 0.8 : (edge.status === 'removed' ? 0.5 : 0.55)} />
                 <polygon
                   points={`${x2-5},${y2-9} ${x2+5},${y2-9} ${x2},${y2-3}`}
-                  fill={ec} opacity={0.65} />
+                  fill={isTriggerEdge ? BUG_IMPACT_COLORS.triggerEdge : ec} opacity={isTriggerEdge ? 0.85 : 0.65} />
                 {edge.label && (
                   <text x={(x1+x2)/2} y={(y1+y2)/2 - 6 + labelOffsetY} textAnchor="middle"
                     fill="var(--color-text-muted)" fontSize="9" fontFamily="var(--font-family-ui)">
@@ -455,6 +488,8 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
               : null;
             const dimmed = connected ? !connected.has(node.id) : false;
             const isProblem = node.status === 'problem';
+            const isAffected = impactView.affectedNodes.has(node.id);
+            const isTriggerNode = impactView.triggerPathNodes.has(node.id);
             // Start/end detection
             const hasIncoming = layouted.edges.some((e: any) => e.to === node.id);
             const hasOutgoing = layouted.edges.some((e: any) => e.from === node.id);
@@ -486,9 +521,24 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
 
                 {/* Card background */}
                 <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={12}
-                  fill={c.fill} stroke={isHovered || isSelected ? c.stroke : c.badge}
+                  fill={isAffected ? BUG_IMPACT_COLORS.affectedBg : c.fill}
+                  stroke={isHovered || isSelected ? c.stroke : c.badge}
                   strokeWidth={isSelected ? 2 : isHovered ? 1.8 : 1}
                   strokeOpacity={isHovered || isSelected ? 1 : 0.25} />
+
+                {/* Affected node: orange dashed border */}
+                {isAffected && !isProblem && (
+                  <rect x={node.x - 3} y={node.y - 3} width={NODE_W + 6} height={node.h + 6} rx={14}
+                    fill="none" stroke={BUG_IMPACT_COLORS.affectedBorder}
+                    strokeWidth={1.8} strokeDasharray={BUG_IMPACT_COLORS.affectedDash}
+                    opacity={0.7} />
+                )}
+
+                {/* Trigger path node: small indicator dot */}
+                {isTriggerNode && !isProblem && (
+                  <circle cx={node.x + NODE_W - 8} cy={node.y + 8} r={4}
+                    fill={BUG_IMPACT_COLORS.triggerEdge} opacity={0.8} />
+                )}
 
                 {/* Top status accent bar */}
                 <rect x={node.x + 4} y={node.y} width={NODE_W - 8} height={4} rx={2}
@@ -639,6 +689,20 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu }: 
               <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
             </div>
           ))}
+          {/* Bug impact legend */}
+          {(impactView.triggerEdges.size > 0 || impactView.affectedNodes.size > 0) && (
+            <>
+              <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }} />
+              <div className="flex items-center gap-1.5">
+                <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={BUG_IMPACT_COLORS.triggerEdge} strokeWidth={BUG_IMPACT_COLORS.triggerEdgeWidth} strokeLinecap="round"/><polygon points="14,2 18,5 14,8" fill={BUG_IMPACT_COLORS.triggerEdge}/></svg>
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('graph.triggerPath')}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm border-dashed" style={{ border: `1.5px dashed ${BUG_IMPACT_COLORS.affectedBorder}`, background: BUG_IMPACT_COLORS.affectedBg }} />
+                <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('graph.affectedNode')}</span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

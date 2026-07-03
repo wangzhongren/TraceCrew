@@ -86,10 +86,11 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         savedGraph?.nodes?.length ? `[任务节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✅' : '⬜'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
         savedGraph?.edges?.length ? `[依赖关系] ${savedGraph.edges.map((e: any) => `${e.from}→${e.to}[${e.status}]`).join(', ')}` : '',
       ];
-      historyRef.current = [
+      savedContextRef.current = [
         { role: 'user', content: requirement },
         { role: 'assistant', content: historyCtx.filter(Boolean).join('\n\n') },
       ];
+      historyRef.current = [...savedContextRef.current];
     }
   }, [savedPlan, savedGraph]);
   const [input, setInput] = useState('');
@@ -98,7 +99,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const historyRef = useRef<Array<{ role: string; content: string }>>([]);
+  const historyRef = useRef<Array<{ role: string; content: string }>>([]);        // Planner / Reviewer / Mapper context
+  const pmHistoryRef = useRef<Array<{ role: string; content: string }>>([]);       // PM-only conversation (isolated)
+  const savedContextRef = useRef<Array<{ role: string; content: string }>>([]);    // saved project context (never pruned)
   const plannerUsedTools = useRef(false);
   const tidxRef = useRef(-1);
 
@@ -260,13 +263,18 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
     onPipelineChange({ phase: 'clarifying' });
 
-    const fullText = await pmStream([...historyRef.current, { role: 'user', content: instruction }]);
+    // PM uses its own isolated history — never polluted by Planner/Reviewer/Mapper context.
+    // Each new task starts with a clean PM conversation.
+    pmHistoryRef.current = [{ role: 'user', content: instruction }];
+    const fullText = await pmStream([...pmHistoryRef.current]);
 
     // Check if PM is handing off to Planner
     if (/<handoff-to-planner\/>/i.test(fullText)) {
       const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
       const confirmedReq = reqMatch ? reqMatch[1].trim() : instruction;
-      historyRef.current.push({ role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` });
+      // Bridge: start a clean pipeline cycle — saved context + current PM summary only.
+      // Old Planner/Reviewer/Mapper outputs are NOT carried over between cycles.
+      historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
       // Proceed to Planner with confirmed requirement
@@ -274,8 +282,8 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       return;
     }
 
-    // PM is asking questions — wait for user reply
-    historyRef.current.push({ role: 'assistant', content: fullText });
+    // PM is asking questions — record in PM history, wait for user reply
+    pmHistoryRef.current.push({ role: 'assistant', content: fullText });
     setPmState({ active: true, originalInstruction: instruction });
     setRunning(false);
   };
@@ -287,21 +295,24 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     setRunning(true);
     abortRef.current = new AbortController();
 
-    historyRef.current.push({ role: 'user', content: reply });
-    const fullText = await pmStream([...historyRef.current]);
+    // PM conversation stays in its own isolated history
+    pmHistoryRef.current.push({ role: 'user', content: reply });
+    const fullText = await pmStream([...pmHistoryRef.current]);
 
     if (/<handoff-to-planner\/>/i.test(fullText)) {
       const reqMatch = fullText.match(/<confirmed-requirement>([\s\S]*?)<\/confirmed-requirement>/i);
       const confirmedReq = reqMatch ? reqMatch[1].trim() : pmState.originalInstruction;
-      historyRef.current.push({ role: 'assistant', content: `[PM] 需求已确认` });
+      // Bridge: start a clean pipeline cycle — saved context + current PM summary only.
+      // Old Planner/Reviewer/Mapper outputs are NOT carried over between cycles.
+      historyRef.current = [...savedContextRef.current, { role: 'assistant', content: `[PM] ${confirmedReq.slice(0, 200)}` }];
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
       setTimeout(() => runPlanner(confirmedReq), 100);
       return;
     }
 
-    // PM still clarifying
-    historyRef.current.push({ role: 'assistant', content: fullText });
+    // PM still clarifying — record in PM history only
+    pmHistoryRef.current.push({ role: 'assistant', content: fullText });
     setRunning(false);
   };
 
@@ -439,19 +450,39 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     const planCtx = plan?.plan_summary
       ? `【计划】${plan.plan_summary}\n【关键文件】${(plan.key_files || []).join(', ')}\n【备注】${plan.notes || ''}`
       : `【Planner 分析】(未输出JSON,以下为原始分析)\n${(plannerText || '').slice(-2000)}`;
-    const { fullText } = await agentLoop('mapper', '', `【需求】${instruction}\n${planCtx}`, [...historyRef.current]);
 
-    let data = parseJson(fullText);
-
-    // Attach mapper result
+    const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
+      existing: 'existing', new: 'new', removed: 'removed', error: 'error',
+      planned_new: 'new', planned_change: 'existing',
+    };
+    let fullText = '';
+    let data: any = null;
     let graph: CallGraph | null = null;
-    if (data?.call_graph?.nodes?.length > 0) {
-      const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
-        existing: 'existing', new: 'new', removed: 'removed', error: 'error',
-        planned_new: 'new', planned_change: 'existing',
-      };
-      const edges = (data.call_graph.edges || []).map((e: any) => ({ ...e, status: EDGE_STATUS_MAP[e.status] || 'new' }));
-      graph = { nodes: data.call_graph.nodes, edges };
+    const MAX_RETRIES = 2;
+    let history = [...historyRef.current];
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const ctx = attempt === 0
+        ? `【需求】${instruction}\n${planCtx}`
+        : `【需求】${instruction}\n${planCtx}\n\n⚠️ 上一次你的输出格式不正确，无法解析为有效的 JSON。请确保：\n1. 输出包含 \`\`\`json 代码块，其中同时包含 "call_graph" 和 "sequence_graph"\n2. call_graph 和 sequence_graph 各自包含 nodes 和 edges 数组\n3. sequence_graph 的每个 node 必须有 lane 和 step 字段\n\n请重新生成。`;
+
+      const result = await agentLoop('mapper', '', ctx, history);
+      fullText = result.fullText;
+      data = parseJson(fullText);
+
+      if (data?.call_graph?.nodes?.length > 0) {
+        const edges = (data.call_graph.edges || []).map((e: any) => ({ ...e, status: EDGE_STATUS_MAP[e.status] || 'new' }));
+        graph = { nodes: data.call_graph.nodes, edges };
+        history.push({ role: 'assistant', content: `[Mapper] ${graph.nodes?.length || 0} 个节点, ${graph.edges?.length || 0} 条边` });
+        break;
+      }
+
+      // Parse failed — record the failed attempt and retry
+      const errPreview = fullText.slice(0, 300).replace(/\n/g, ' ');
+      history.push({ role: 'assistant', content: `[Mapper] JSON 解析失败 (第${attempt + 1}次): ${errPreview}` });
+      history.push({ role: 'user', content: `你的输出无法解析为有效的 call_graph JSON。请严格按照格式重新输出。` });
+
+      setTimeline(prev => [...prev, { kind: 'system', text: `🔄 Mapper 输出格式错误，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
     }
 
     setTimeline(prev => {
@@ -469,13 +500,22 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       return u;
     });
 
-    historyRef.current.push({ role: 'assistant', content: `[Mapper] ${graph ? `${graph.nodes?.length || 0} 个节点, ${graph.edges?.length || 0} 条边` : `未生成调用图: ${fullText.slice(0, 200)}`}` });
+    historyRef.current = history;
+
+    // Parse sequence graph if present
+    let sequenceGraph: CallGraph | null = null;
+    if (data?.sequence_graph?.nodes?.length > 0) {
+      const seqEdges = (data.sequence_graph.edges || []).map((e: any) => ({
+        ...e,
+        status: (EDGE_STATUS_MAP[e.status] || 'existing') as 'existing' | 'new' | 'removed' | 'error',
+      }));
+      sequenceGraph = { nodes: data.sequence_graph.nodes, edges: seqEdges };
+    }
 
     if (graph) {
-      if (!data?.call_graph) data = parseJson(fullText); // retry
-      flushSync(() => onPipelineChange({ phase: 'done', graph }));
+      flushSync(() => onPipelineChange({ phase: 'done', graph, sequenceGraph }));
     } else {
-      setTimeline(prev => [...prev, { kind: 'system', text: t('chat.mapperNoGraph') }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: `❌ ${t('chat.mapperNoGraph')}（已重试 ${MAX_RETRIES} 次）` }]);
       onPipelineChange({ phase: 'done' });
     }
 

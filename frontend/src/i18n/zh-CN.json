@@ -47,6 +47,8 @@
   "graph.call": "调用",
   "graph.error": "异常",
   "graph.feedback": "反馈",
+  "graph.triggerPath": "触发路径",
+  "graph.affectedNode": "受影响节点",
   "graph.emptyHint": "在右侧聊天面板描述任务，Agent 将自动生成任务看板",
   "graph.analyzing": "Planner 正在规划任务，即将生成任务看板...",
   "graph.processing": "Agent 正在处理中，任务看板即将生成...",

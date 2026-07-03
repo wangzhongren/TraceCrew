@@ -47,6 +47,8 @@
   "graph.call": "呼び出し",
   "graph.error": "エラー",
   "graph.feedback": "フィードバック",
+  "graph.triggerPath": "トリガーパス",
+  "graph.affectedNode": "影響ノード",
   "graph.emptyHint": "チャットパネルでタスクを記述すると、タスクボードが生成されます",
   "graph.analyzing": "Planner が計画中 — タスクボード生成が続きます...",
   "graph.processing": "エージェントが処理中 — タスクボードがまもなく表示されます...",

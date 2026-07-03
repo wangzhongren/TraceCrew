@@ -6,6 +6,27 @@
 
 export type NodeStatus = 'existing' | 'problem' | 'planned_change' | 'planned_new' | 'done'; // planned_change kept for backward compat, prefer problem
 
+/* ── Sub-component (for planned_new nodes: composition of widgets/services) ── */
+
+export interface SubComponent {
+  id: string;
+  label: string;
+  category: 'widget' | 'service' | 'model' | 'hook' | 'util' | 'layout';
+  widget_type?: string;   // e.g. "Button", "Form", "Table" when category='widget'
+  props?: string;         // key props/params hint
+  status?: NodeStatus;    // defaults to parent status
+}
+
+/* ── Impact scope (for problem nodes: what's affected by the bug) ── */
+
+export interface ImpactScope {
+  root_cause: string;           // which logic/line caused the bug
+  trigger_path: string[];       // node IDs on the trigger path (upstream → bug node)
+  affected_nodes: string[];     // downstream node IDs affected by the bug
+  fix_files: string[];          // all files that need modification
+  verification?: string;        // how to verify the fix
+}
+
 /* ── Multi-property status colors (for SVG rendering, MapCanvas) ── */
 
 export interface StatusColor {
@@ -90,7 +111,16 @@ export const TOPOLOGY_EDGE_COLORS: Record<string, string> = {
   depend: '#3b82f6',
 };
 
-/* ── Feature panel colors ── */
+/* ── Bug impact zone colors (for MapCanvas rendering) ── */
+
+export const BUG_IMPACT_COLORS = {
+  triggerEdge: '#ea4335',        // red — trigger path edge
+  triggerEdgeWidth: 2.5,         // thicker than default
+  affectedBorder: '#f9ab00',     // orange — affected node border
+  affectedDash: '6 3',           // dashed for affected nodes
+  affectedBg: '#fff8e1',         // warm-yellow bg tint for affected nodes
+  rootCauseBadge: '#ea4335',     // red badge for root cause
+} as const;
 
 export const FEATURE_PANEL_COLORS = {
   surface: '#ffffff',

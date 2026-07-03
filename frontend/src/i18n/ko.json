@@ -47,6 +47,8 @@
   "graph.call": "호출",
   "graph.error": "오류",
   "graph.feedback": "피드백",
+  "graph.triggerPath": "트리거 경로",
+  "graph.affectedNode": "영향 노드",
   "graph.emptyHint": "채팅 패널에서 작업을 설명하면 작업 보드가 생성됩니다",
   "graph.analyzing": "Planner가 계획 중 — 작업 보드 생성이 시작됩니다...",
   "graph.processing": "에이전트가 처리 중 — 작업 보드가 곧 표시됩니다...",

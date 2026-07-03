@@ -8,6 +8,7 @@ import { useT } from '../i18n';
 
 interface Props {
   graph: CallGraph | null;
+  sequenceGraph: CallGraph | null;
   phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected';
   onSelectNode: (id: string | null) => void;
   onGraphChange?: (graph: CallGraph) => void;
@@ -36,16 +37,19 @@ interface Props {
 
 type ColumnKey = 'pending' | 'active' | 'done';
 
-function classifyNode(status: string, isActive: boolean): ColumnKey {
+function classifyNode(status: string, isActive: boolean, isAffectedExisting?: boolean): ColumnKey {
   if (isActive) return 'active';
-  if (status === 'done' || status === 'existing') return 'done';
+  if (status === 'done') return 'done';
+  // existing nodes that are affected by a bug → treat as pending
+  if (status === 'existing' && !isAffectedExisting) return 'done';
   return 'pending';
 }
 
 /* ── PendingList (refactored: left MapCanvas + right pending list) ── */
 
-function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
+function KanbanBoard({ graph, displayGraph, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
   graph: CallGraph;
+  displayGraph?: CallGraph;
   onSelect: (id: string | null) => void;
   selectedNode: string | null;
   onRequestAction: (action: ActionType) => void;
@@ -79,17 +83,33 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
   const activeNodeId = autoExecProgress?.currentNodeId
     || (streamRunning ? sel : null);
 
+  // Collect existing nodes that are affected by a bug (impact_scope.affected_nodes)
+  const affectedExistingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of graph.nodes) {
+      if (node.impact_scope?.affected_nodes) {
+        for (const nid of node.impact_scope.affected_nodes) {
+          const target = graph.nodes.find(n => n.id === nid);
+          if (target && target.status === 'existing') {
+            ids.add(nid);
+          }
+        }
+      }
+    }
+    return ids;
+  }, [graph]);
+
   // Only pending + active nodes (right-side list) — active nodes stay visible for live output
   const pendingNodes = useMemo(() =>
     graph.nodes.filter(n => {
-      const c = classifyNode(n.status, n.id === activeNodeId);
+      const c = classifyNode(n.status, n.id === activeNodeId, affectedExistingIds.has(n.id));
       return c === 'pending' || c === 'active';
     }),
-    [graph, activeNodeId]
+    [graph, activeNodeId, affectedExistingIds]
   );
 
   // Unfiltered pending count for button disabled logic (ignores activeNodeId)
-  const unfilteredPending = graph.nodes.filter(n => classifyNode(n.status, false) === 'pending').length;
+  const unfilteredPending = graph.nodes.filter(n => classifyNode(n.status, false, affectedExistingIds.has(n.id)) === 'pending').length;
 
   const renderCard = (node: typeof graph.nodes[0]) => {
     const c = STATUS_COLORS_SIMPLE[node.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
@@ -142,6 +162,12 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
               <span className="text-[10px] px-1.5 py-px rounded-full font-medium shrink-0"
                 style={{ background: c + '18', color: c }}>
                 {STATUS_LABELS[node.status as NodeStatus]}
+              </span>
+            )}
+            {node.status === 'existing' && affectedExistingIds.has(node.id) && (
+              <span className="text-[10px] px-1.5 py-px rounded-full font-medium shrink-0"
+                style={{ background: '#fff8e1', color: '#b45309' }}>
+                ⚡ 受影响
               </span>
             )}
             {isActive && (
@@ -287,7 +313,7 @@ function KanbanBoard({ graph, onSelect, selectedNode: sel, onRequestAction, stre
       {/* Left: MapCanvas — fills remaining space */}
       <div className="flex-1 overflow-hidden" style={{ minWidth: 0 }}>
         <MapCanvas
-          graph={graph}
+          graph={displayGraph || graph}
           phase="done"
           selectedNode={null}
           onSelectNode={onSelect}
@@ -369,25 +395,63 @@ function EmptyState({ phase }: { phase: Props['phase'] }) {
 
 /* ── MapperView ── */
 
-export default function MapperView({ graph, phase, onSelectNode, selectedNode, activeAction: _activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: Props) {
+export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, selectedNode, activeAction: _activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: Props) {
+  const [tab, setTab] = useState<'call' | 'sequence'>('call');
+  const hasSequence = sequenceGraph && sequenceGraph.nodes.length > 0;
+
   if (!graph || graph.nodes.length === 0) {
     return <EmptyState phase={phase} />;
   }
 
+  const activeGraph = tab === 'sequence' && hasSequence ? sequenceGraph! : graph;
+
   return (
-    <KanbanBoard
-      graph={graph}
-      onSelect={onSelectNode}
-      selectedNode={selectedNode}
-      onRequestAction={onRequestAction}
-      streamRunning={streamRunning}
-      onAutoExec={onAutoExec}
-      onStopAutoExec={onStopAutoExec}
-      autoExecRunning={autoExecRunning}
-      autoExecProgress={autoExecProgress}
-      execRecords={execRecords}
-      liveOutput={liveOutput}
-      onExecuteNode={onExecuteNode}
-    />
+    <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-primary)' }}>
+      {/* Tab bar — only show when sequence graph exists */}
+      {hasSequence && (
+        <div className="shrink-0 flex items-center border-b px-2" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+          <button
+            onClick={() => setTab('call')}
+            className="px-3 py-1.5 text-[11px] font-semibold transition-colors rounded-t-md"
+            style={{
+              color: tab === 'call' ? 'var(--color-text-link)' : 'var(--color-text-muted)',
+              borderBottom: tab === 'call' ? '2px solid var(--color-text-link)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
+          >
+            🔗 调用图
+          </button>
+          <button
+            onClick={() => setTab('sequence')}
+            className="px-3 py-1.5 text-[11px] font-semibold transition-colors rounded-t-md"
+            style={{
+              color: tab === 'sequence' ? 'var(--color-text-link)' : 'var(--color-text-muted)',
+              borderBottom: tab === 'sequence' ? '2px solid var(--color-text-link)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
+          >
+            ⏱️ 时序图
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 min-h-0">
+        <KanbanBoard
+          graph={graph}
+          displayGraph={activeGraph !== graph ? activeGraph : undefined}
+          onSelect={onSelectNode}
+          selectedNode={selectedNode}
+          onRequestAction={onRequestAction}
+          streamRunning={streamRunning}
+          onAutoExec={onAutoExec}
+          onStopAutoExec={onStopAutoExec}
+          autoExecRunning={autoExecRunning}
+          autoExecProgress={autoExecProgress}
+          execRecords={execRecords}
+          liveOutput={liveOutput}
+          onExecuteNode={onExecuteNode}
+        />
+      </div>
+    </div>
   );
 }

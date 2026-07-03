@@ -47,6 +47,8 @@
   "graph.call": "Call",
   "graph.error": "Error",
   "graph.feedback": "feedback",
+  "graph.triggerPath": "Trigger Path",
+  "graph.affectedNode": "Affected Node",
   "graph.emptyHint": "Describe a task in the chat panel to generate a task board",
   "graph.analyzing": "Planner is working — task board coming next...",
   "graph.processing": "Agent is processing — task board will appear shortly...",

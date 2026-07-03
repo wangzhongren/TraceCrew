@@ -13,6 +13,7 @@ import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel
 export interface PipelineState {
   phase: 'idle' | 'clarifying' | 'planning' | 'reviewing' | 'done' | 'rejected';
   graph: CallGraph | null;
+  sequenceGraph: CallGraph | null;
   savedPlan?: { plan_summary: string; steps: any[]; key_files: string[]; raw: string } | null;
 }
 
@@ -20,7 +21,7 @@ export default function App() {
   const t = useT();
   const { locale } = useLocale();
   const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null });
+  const [pipeline, setPipeline] = useState<PipelineState>({ phase: 'idle', graph: null, sequenceGraph: null });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [chatWidth, setChatWidth] = useState(420);
   const [codeWidth, setCodeWidth] = useState(480);
@@ -359,8 +360,21 @@ export default function App() {
       const graph = graphRef.current;
       if (!graph || !projectPath) return;
 
+      // Collect existing nodes that are affected by a bug → should be executed too
+      const affectedExistingIds = new Set<string>();
+      for (const node of graph.nodes) {
+        if (node.impact_scope?.affected_nodes) {
+          for (const nid of node.impact_scope.affected_nodes) {
+            const target = graph.nodes.find(n => n.id === nid);
+            if (target && target.status === 'existing') {
+              affectedExistingIds.add(nid);
+            }
+          }
+        }
+      }
+
       const pending = graph.nodes.filter(n =>
-        n.status !== 'done' && n.status !== 'existing'
+        n.status !== 'done' && (n.status !== 'existing' || affectedExistingIds.has(n.id))
       );
       if (pending.length === 0) {
         alert('所有任务已完成，没有待执行的任务。');
@@ -401,7 +415,9 @@ export default function App() {
 
       // Run the action with live output
       setLiveOutput(prev => ({ ...prev, [node.id]: '' }));
-      const result = await runSingleAction(node, 'develop', projectPath, (ev) => {
+      // affected existing nodes → fix; planned_new / problem / planned_change → develop
+      const action = (node.status === 'existing' && affectedExistingIds.has(node.id)) ? 'fix' : 'develop';
+      const result = await runSingleAction(node, action, projectPath, (ev) => {
         if (ev.type === 'token') {
           setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + ev.data }));
         } else if (ev.type === 'phase') {
@@ -632,6 +648,7 @@ export default function App() {
                 <MapperView
                   key={projectPath}
                   graph={pipeline.graph}
+                  sequenceGraph={pipeline.sequenceGraph}
                   phase={pipeline.phase}
                   selectedNode={selectedNode}
                   onSelectNode={handleSelectNode}
