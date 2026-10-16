@@ -20,6 +20,9 @@ section1:
       path: README.md
       purpose: 项目说明与使用示意（随产品形态同步维护）
     - type: Owned directory
+      path: docs/images/
+      purpose: README 配图资产（应用截图等），随文档同步维护
+    - type: Owned directory
       path: frontend/test/project-management/
       purpose: 共享基础代码（i18n）的单元与契约测试；不放置生产代码
     - type: Single file
