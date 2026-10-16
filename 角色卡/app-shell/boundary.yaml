@@ -69,7 +69,7 @@ section1:
       purpose: Windows 启动脚本
     - type: Single file
       path: .gitignore
-      purpose: 补充新建锁文件的忽略行（当前限 .tracecrew.lock；.codeatlas 条目与数据处置仍等客户单独指示）
+      purpose: 补充忽略行：锁文件与生成物构建缓存（.tracecrew.lock、*.tsbuildinfo）；.codeatlas 条目与数据处置仍等客户单独指示
     - type: Single file
       path: frontend/public/icon.png
       purpose: 应用图标资源

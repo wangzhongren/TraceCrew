@@ -28,7 +28,7 @@
 | Single file | `frontend/postcss.config.js` | PostCSS 配置 |
 | Single file | `start.sh` | macOS/Linux 启动脚本（清理、加锁、启动与健康检查） |
 | Single file | `start.bat` | Windows 启动脚本 |
-| Single file | `.gitignore` | 补充新建锁文件的忽略行（当前限 `.tracecrew.lock`；`.codeatlas` 条目与数据处置仍等客户单独指示） |
+| Single file | `.gitignore` | 补充忽略行：锁文件与生成物构建缓存（`.tracecrew.lock`、`*.tsbuildinfo`）；`.codeatlas` 条目与数据处置仍等客户单独指示 |
 | Single file | `frontend/public/icon.png` | 应用图标资源 |
 | Owned directory | `frontend/test/app-shell/` | 本角色单元测试的归属目录；不放置生产代码 |
 | Single file | `角色卡/app-shell/memo.md` | 本角色的简短事实与续接线索 |
