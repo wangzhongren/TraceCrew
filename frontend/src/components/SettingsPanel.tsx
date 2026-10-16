@@ -160,7 +160,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
     fontSize: '13px',
     fontFamily: 'ui-monospace, monospace',
     color: 'var(--color-text-primary)',
-    background: 'var(--color-bg-primary)',
+    background: 'var(--color-bg-surface)',
     border: '1px solid var(--color-border-default)',
     borderRadius: '6px',
     outline: 'none',
@@ -176,7 +176,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         {/* Section header */}
         <button
           onClick={() => toggleExpand(agent)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-black/[0.02] transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-[rgba(27,42,68,.03)] transition-colors"
         >
           <span className="text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>
             {t(labelKey)}
@@ -245,12 +245,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="absolute right-0 top-8 w-96 rounded-lg border z-50 animate-fade-in-scale"
-      style={{ background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
+      style={{ background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', boxShadow: '0 10px 28px rgba(27,42,68,.14)' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
         <span className="text-sm font-medium" style={{ color: 'var(--color-text-primary)' }}>{t('settings.llm')}</span>
         <button onClick={onClose}
-          className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
+          className="w-6 h-6 flex items-center justify-center rounded transition-colors hover:bg-[rgba(27,42,68,.03)]"
           style={{ color: 'var(--color-text-muted)' }}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -270,12 +270,12 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
 
       {/* Footer */}
       <div className="flex items-center justify-between px-4 py-3 border-t" style={{ borderColor: 'var(--color-border-subtle)' }}>
-        <span className="text-xs" style={{ color: saved ? '#24a148' : 'transparent' }}>
+        <span className="text-xs" style={{ color: saved ? 'var(--ibm-success)' : 'transparent' }}>
           {t('settings.saved')}
         </span>
         <button onClick={handleSave}
           className="px-4 py-1.5 text-xs font-medium rounded transition-colors"
-          style={{ background: '#2563eb', color: '#fff' }}>
+          style={{ background: 'var(--ibm-primary)', color: 'var(--ibm-text-on-color)' }}>
           {t('settings.save')}
         </button>
       </div>

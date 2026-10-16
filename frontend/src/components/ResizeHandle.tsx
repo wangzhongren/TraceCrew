@@ -41,8 +41,8 @@ export default function ResizeHandle({ direction, onResize }: Props) {
       onMouseDown={onMouseDown}
       className={`shrink-0 transition-colors z-20 ${
         isH
-          ? 'h-[5px] w-full cursor-row-resize hover:bg-[#374151]/15'
-          : 'w-[5px] h-full cursor-col-resize hover:bg-[#374151]/15'
+          ? 'h-[5px] w-full cursor-row-resize hover:bg-[rgba(27,42,68,.15)]'
+          : 'w-[5px] h-full cursor-col-resize hover:bg-[rgba(27,42,68,.15)]'
       }`}
       style={{
         background: 'transparent',

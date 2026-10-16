@@ -133,9 +133,9 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
         key={node.id}
         className="rounded-lg cursor-pointer transition-all duration-150 mb-2 relative group"
         style={{
-          background: isSel ? c + '0d' : isHovered ? 'var(--color-bg-hover)' : 'var(--color-bg-primary)',
+          background: isSel ? `color-mix(in srgb, ${c} 5%, transparent)` : isHovered ? 'var(--ibm-layer-hover)' : 'var(--color-bg-primary)',
           boxShadow: isSel
-            ? `0 0 0 1.5px ${c}50, 0 1px 3px rgba(0,0,0,0.06)`
+            ? `0 0 0 1.5px color-mix(in srgb, ${c} 31%, transparent), 0 1px 3px rgba(0,0,0,0.06)`
             : isHovered
               ? '0 0 0 1px var(--color-border-subtle), 0 1px 2px rgba(0,0,0,0.04)'
               : '0 1px 2px rgba(0,0,0,0.04)',
@@ -162,20 +162,20 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
             </span>
             {node.status !== 'existing' && (
               <span className="text-[10px] px-1.5 py-px rounded-full font-medium shrink-0"
-                style={{ background: c + '18', color: c }}>
+                style={{ background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c }}>
                 {STATUS_LABELS[node.status as NodeStatus]}
               </span>
             )}
             {node.status === 'existing' && affectedExistingIds.has(node.id) && (
               <span className="text-[10px] px-1.5 py-px rounded-full font-medium shrink-0"
-                style={{ background: '#fff8e1', color: '#b45309' }}>
-                ⚡ 受影响
+                style={{ background: 'rgba(169,123,42,.08)', color: '#8f6720' }}>
+                受影响
               </span>
             )}
             {isActive && (
               <span className="text-[10px] px-1.5 py-px rounded-full font-medium animate-pulse shrink-0"
-                style={{ background: '#fef3c7', color: '#b45309' }}>
-                ⏳ 执行中
+                style={{ background: 'rgba(169,123,42,.08)', color: '#8f6720' }}>
+                执行中
               </span>
             )}
           </div>
@@ -191,7 +191,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
           <div className="flex items-center gap-1.5 flex-wrap">
             {node.file && (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-px rounded"
-                style={{ background: 'var(--color-bg-layer)', color: '#3b82f6' }}>
+                style={{ background: 'var(--color-bg-layer)', color: 'var(--ibm-link)' }}>
                 <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2" opacity="0.5">
                   <path d="M2 1 H6 L8 3 V9 H2 Z" strokeLinejoin="round"/>
                 </svg>
@@ -202,8 +202,8 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
               <span className="text-[10px] opacity-40" style={{ color: 'var(--color-text-muted)' }}>L{node.line}</span>
             )}
             {blocked && (
-              <span className="text-[10px] px-1 py-px rounded" style={{ background: '#fffbeb', color: '#b45309' }}>
-                ⚠ 依赖未完成
+              <span className="text-[10px] px-1 py-px rounded" style={{ background: 'rgba(169,123,42,.08)', color: '#8f6720' }}>
+                依赖未完成
               </span>
             )}
           </div>
@@ -215,7 +215,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                 <button
                   onClick={(e) => { e.stopPropagation(); window.tracecrew?.file.openFile(node.file!); }}
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-150 hover:scale-105"
-                  style={{ background: '#eff6ff', color: '#3b82f6' }}>
+                  style={{ background: 'rgba(53,96,143,.08)', color: 'var(--ibm-link)' }}>
                   <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.2">
                     <path d="M2 1 H6 L8 3 V9 H2 Z" strokeLinejoin="round"/>
                   </svg>
@@ -229,7 +229,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                     key={action}
                     onClick={(e) => { e.stopPropagation(); if (onExecuteNode) { onExecuteNode(node.id, action); } else { onSelect(node.id); onRequestAction(action); } }}
                     className="px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-150 hover:scale-105 whitespace-nowrap"
-                    style={{ background: c + '16', color: c }}
+                    style={{ background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c }}
                   >
                     {cfg.label}
                   </button>
@@ -244,14 +244,14 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
               {/* Live output — show for active node */}
               {isActive && liveOutput?.[node.id] !== undefined && (
                 <div className="rounded p-2 text-[10px] font-mono leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
-                  style={{ background: '#1e1e1e', color: '#d4d4d4' }}>
-                  {cleanProtocolTags(liveOutput[node.id] || '') || '⏳ 等待 Agent 响应...'}
+                  style={{ background: 'var(--ibm-layer-02)', color: 'var(--ibm-text-secondary)' }}>
+                  {cleanProtocolTags(liveOutput[node.id] || '') || '等待 Agent 响应...'}
                 </div>
               )}
               {/* Planner detail — always show when expanded */}
               {node.detail && (
                 <div className="text-[11px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-                  <span className="text-[10px] font-semibold opacity-40 mr-1">📋 Planner:</span>
+                  <span className="text-[10px] font-semibold opacity-40 mr-1">Planner:</span>
                   {node.detail}
                 </div>
               )}
@@ -263,14 +263,14 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                   return (
                 <>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px]" style={{ color: isGreen ? '#16a34a' : '#dc2626' }}>
-                      {passed === true ? '✅ 通过' : passed === false ? '❌ 未通过' : '✅ 完成'}
+                    <span className="text-[10px]" style={{ color: isGreen ? 'var(--ibm-success)' : 'var(--ibm-error)' }}>
+                      {passed === true ? '✓ 通过' : passed === false ? '✕ 未通过' : '✓ 完成'}
                     </span>
                   </div>
                   {rec.review_feedback && (
                     <div className="px-2 py-1 rounded text-[10px]" style={{
-                      background: isGreen ? '#f0fdf4' : '#fef2f2',
-                      color: isGreen ? '#16a34a' : '#dc2626',
+                      background: isGreen ? 'rgba(47,125,95,.08)' : 'rgba(194,69,46,.08)',
+                      color: isGreen ? 'var(--ibm-success)' : 'var(--ibm-error)',
                     }}>
                       {rec.review_feedback}
                     </div>
@@ -278,8 +278,8 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                   {(rec.review_issues?.length ?? 0) > 0 && (
                     <div className="space-y-0.5">
                       {rec.review_issues!.map((issue: any, j: number) => (
-                        <div key={j} className="flex items-start gap-1 text-[9px]" style={{ color: '#dc2626' }}>
-                          <span className="shrink-0 mt-0.5">⚠</span>
+                        <div key={j} className="flex items-start gap-1 text-[9px]" style={{ color: 'var(--ibm-error)' }}>
+                          <span className="shrink-0 mt-0.5">✕</span>
                           <span>[{issue.severity || '?'}] {issue.file || '?'}: {issue.claim || ''}</span>
                         </div>
                       ))}
@@ -349,10 +349,10 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                 disabled={streamRunning || (!autoExecRunning && unfilteredPending === 0)}
                 className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] font-semibold transition-all duration-150 disabled:opacity-30"
                 style={{
-                  background: autoExecRunning ? '#fce8e6' : '#1a73e8',
-                  color: autoExecRunning ? '#ea4335' : '#fff',
+                  background: autoExecRunning ? 'rgba(194,69,46,.08)' : 'var(--ibm-primary)',
+                  color: autoExecRunning ? 'var(--ibm-error)' : '#fff',
                 }}>
-                {autoExecRunning ? <>⏹ {t('chat.stop')}</> : <>▶ 一键执行</>}
+                {autoExecRunning ? <>{t('chat.stop')}</> : <>▶ 一键执行</>}
               </button>
             </>
           )}
@@ -391,7 +391,7 @@ function EmptyState({ phase }: { phase: Props['phase'] }) {
         <rect x="32" y="32" width="16" height="16" rx="4" stroke="currentColor" strokeWidth="1.5" opacity="0.3" />
       </svg>
       <div className="text-xs text-center max-w-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>{msg}</div>
-      <div className="text-[11px] text-center" style={{ color: '#9ca3af' }}>{t('graph.emptyAction')}</div>
+      <div className="text-[11px] text-center" style={{ color: 'var(--color-text-muted)' }}>{t('graph.emptyAction')}</div>
     </div>
   );
 }
@@ -423,7 +423,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
               marginBottom: -1,
             }}
           >
-            🔗 调用图
+            调用图
           </button>
           <button
             onClick={() => setTab('dependency')}
@@ -434,7 +434,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
               marginBottom: -1,
             }}
           >
-            🔀 任务依赖
+            任务依赖
           </button>
           <button
             onClick={() => setTab('sequence')}
@@ -445,7 +445,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
               marginBottom: -1,
             }}
           >
-            ⏱️ 时序图
+            时序图
           </button>
         </div>
       )}

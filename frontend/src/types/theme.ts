@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════
    Shared design constants — single source of truth
    for colors, icons, and labels across all components.
-   Light minimal industrial theme.
+   Blueprint（蓝图室）light precision theme —— 冷纸白 + 墨蓝 + 制图红（保留色）
    ═══════════════════════════════════════════════════════════ */
 
 export type NodeStatus = 'existing' | 'problem' | 'planned_change' | 'planned_new' | 'done'; // planned_change kept for backward compat, prefer problem
@@ -38,15 +38,15 @@ export interface StatusColor {
 }
 
 export const STATUS_COLORS: Record<NodeStatus, StatusColor> = {
-  existing:       { fill: '#ffffff', stroke: 'var(--color-status-existing)', badge: '#5f6368', text: '#374151', icon: '◈' },
-  problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#ea4335', text: '#c5221f', icon: '✕' },
-  planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#f9ab00', text: '#b06000', icon: '✎' },
-  planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#0f9d58', text: '#0d652d', icon: '+' },
-  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#1a73e8', text: '#1557b0', icon: '✓' },
+  existing:       { fill: '#ffffff', stroke: 'var(--color-status-existing)', badge: '#5e7089', text: '#3f4f6b', icon: '◈' },
+  problem:        { fill: '#ffffff', stroke: 'var(--color-status-problem)', badge: '#c2452e', text: '#a83a26', icon: '✕' },
+  planned_change: { fill: '#ffffff', stroke: 'var(--color-status-change)', badge: '#a97b2a', text: '#8f6720', icon: '✎' },
+  planned_new:    { fill: '#ffffff', stroke: 'var(--color-status-new)', badge: '#2f7d5f', text: '#26644b', icon: '+' },
+  done:           { fill: '#ffffff', stroke: 'var(--color-status-done)', badge: '#35608f', text: '#2b4f78', icon: '✓' },
 };
 
 export const STATUS_COLOR_DIM: StatusColor = {
-  fill: '#f9fafb', stroke: '#d0d5dd', badge: '#d0d5dd', text: '#9ca3af', icon: '⬡',
+  fill: '#f6f8fb', stroke: '#dbe2ec', badge: '#dbe2ec', text: '#a7b3c6', icon: '⬡',
 };
 
 /* ── Single-color status (for simple badges, MapperView, etc.) ── */
@@ -82,7 +82,7 @@ export function getStatusLabels(t: (key: string) => string): Record<string, stri
 /* ── Edge colors ── */
 
 export const EDGE_COLORS: Record<string, string> = {
-  existing: '#b0b7c3',
+  existing: '#7c8aa3',
   new: 'var(--color-status-new)',
   removed: 'var(--color-status-problem)',
   error: 'var(--color-status-problem)',
@@ -98,44 +98,44 @@ export interface NodeTypeColor {
 }
 
 export const NODE_TYPE_COLORS: Record<string, NodeTypeColor> = {
-  module:   { fill: '#eff6ff', stroke: '#3b82f6', text: '#1e40af', dot: '#3b82f6' },
-  class:    { fill: '#f0fdf4', stroke: '#16a34a', text: '#166534', dot: '#16a34a' },
-  function: { fill: '#fffbeb', stroke: '#d97706', text: '#92400e', dot: '#d97706' },
+  module:   { fill: '#eef2f8', stroke: '#35608f', text: '#2b4f78', dot: '#35608f' },
+  class:    { fill: '#edf5f1', stroke: '#2f7d5f', text: '#26644b', dot: '#2f7d5f' },
+  function: { fill: '#f7f2e7', stroke: '#a97b2a', text: '#8f6720', dot: '#a97b2a' },
 };
 
 /* ── Topology edge type colors ── */
 
 export const TOPOLOGY_EDGE_COLORS: Record<string, string> = {
-  call: '#d97706',
-  inherit: '#16a34a',
-  depend: '#3b82f6',
+  call: '#a97b2a',
+  inherit: '#2f7d5f',
+  depend: '#35608f',
 };
 
 /* ── Bug impact zone colors (for MapCanvas rendering) ── */
 
 export const BUG_IMPACT_COLORS = {
-  triggerEdge: '#ea4335',        // red — trigger path edge
+  triggerEdge: '#c2452e',        // red — trigger path edge
   triggerEdgeWidth: 2.5,         // thicker than default
-  affectedBorder: '#f9ab00',     // orange — affected node border
+  affectedBorder: '#a97b2a',     // orange — affected node border
   affectedDash: '6 3',           // dashed for affected nodes
-  affectedBg: '#fff8e1',         // warm-yellow bg tint for affected nodes
-  rootCauseBadge: '#ea4335',     // red badge for root cause
+  affectedBg: '#f8f4ea',         // warm-yellow bg tint for affected nodes
+  rootCauseBadge: '#c2452e',     // red badge for root cause
 } as const;
 
 export const FEATURE_PANEL_COLORS = {
   surface: '#ffffff',
-  surfaceVariant: '#f7f8fa',
-  onSurface: '#1a1a2e',
-  onSurfaceVariant: '#4a5568',
-  outline: '#d0d5dd',
-  outlineSoft: '#e5e7eb',
-  primary: '#3b82f6',
-  green: '#16a34a',
-  yellow: '#ca8a04',
+  surfaceVariant: '#f6f8fb',
+  onSurface: '#1b2a44',
+  onSurfaceVariant: '#51617e',
+  outline: '#dbe2ec',
+  outlineSoft: '#e9eef4',
+  primary: '#35608f',
+  green: '#2f7d5f',
+  yellow: '#a97b2a',
 } as const;
 
 export const FEATURE_LEVEL_COLORS: Record<number, string> = {
-  1: '#3b82f6',
-  2: '#16a34a',
-  3: '#ca8a04',
+  1: '#35608f',
+  2: '#2f7d5f',
+  3: '#a97b2a',
 };

@@ -366,7 +366,7 @@ export default function App() {
 
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 h-7 shrink-0 border-b"
-        style={{ borderColor: 'var(--ibm-border-subtle)', background: 'var(--ibm-layer)' }}>
+        style={{ borderColor: 'var(--ibm-border-subtle)', background: 'var(--ibm-layer-01)' }}>
         <div className="flex items-center gap-2">
           {projectPath ? (
             <span className="text-[11px]" style={{ color: 'var(--ibm-text-placeholder)' }}>{projectPath}</span>
@@ -376,7 +376,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-1">
           <button onClick={openFolder}
-            className="text-[11px] px-2 py-0.5 rounded transition-colors hover:bg-black/[0.03]"
+            className="text-[11px] px-2 py-0.5 rounded transition-colors hover:bg-[rgba(27,42,68,0.045)]"
             style={{ color: 'var(--ibm-primary)' }}>
             {projectPath ? t('app.switchProject') : t('app.openFolder')}
           </button>
@@ -390,7 +390,7 @@ export default function App() {
           <>
             {/* Left: Chat Panel */}
             <aside className="shrink-0 border-r overflow-hidden"
-              style={{ width: chatWidth, background: 'var(--ibm-layer)', borderColor: 'var(--ibm-border-subtle)' }}>
+              style={{ width: chatWidth, background: 'var(--ibm-layer-01)', borderColor: 'var(--ibm-border-subtle)' }}>
               <ChatPanel key={projectPath} projectPath={projectPath} onPipelineChange={updatePipeline}
                 savedPlan={pipeline.savedPlan} savedGraph={pipeline.graph} />
             </aside>
@@ -469,7 +469,7 @@ function SettingsBtn() {
   return (
     <div className="relative">
       <button onClick={() => setOpen(!open)} title={t('app.settings')}
-        className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-black/[0.03]"
+        className="w-7 h-7 flex items-center justify-center rounded transition-colors hover:bg-[rgba(27,42,68,0.045)]"
         style={{ color: 'var(--ibm-text-placeholder)' }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>

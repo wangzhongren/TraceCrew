@@ -31,6 +31,14 @@ interface LayoutNode extends GraphNode {
 const NODE_W = 280;
 const X_GAP = 56, Y_GAP = 60;
 
+/* Agent identity colors (blueprint B) — used by the empty-state pipeline dots.
+   Colors only; no stage dots are added or removed. */
+const AGENT_STEP_COLORS: Record<string, string> = {
+  planning: '#35608f',   // Planner
+  reviewing: '#b4452e',  // Reviewer
+  executing: '#3c7d8f',  // Mapper
+};
+
 /** Estimate node height from content length */
 function calcNodeHeight(n: GraphNode): number {
   const labelW = NODE_W - 42;
@@ -274,16 +282,18 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
   }, [graph]);
 
   return (
-    <div ref={containerRef} className="relative h-full overflow-hidden" style={{ background: '#f7f8fa' }}>
-      {/* Background dot grid */}
-      <svg className="absolute inset-0 pointer-events-none" width="100%" height="100%">
-        <defs>
-          <pattern id="dotGrid" width="24" height="24" patternUnits="userSpaceOnUse">
-            <circle cx="12" cy="12" r="0.8" fill="#000000" opacity="0.05"/>
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#dotGrid)"/>
-      </svg>
+    <div ref={containerRef} className="relative h-full overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
+      {/* Background — two-level drafting grid: fine 24px rule + major 120px rule */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: [
+          'linear-gradient(to right, rgba(27,42,68,.075) 1px, transparent 1px)',
+          'linear-gradient(to bottom, rgba(27,42,68,.075) 1px, transparent 1px)',
+          'linear-gradient(to right, rgba(27,42,68,.035) 1px, transparent 1px)',
+          'linear-gradient(to bottom, rgba(27,42,68,.035) 1px, transparent 1px)',
+        ].join(', '),
+        backgroundSize: '120px 120px, 120px 120px, 24px 24px, 24px 24px',
+        backgroundPosition: '0 0, 0 0, 12px 10px, 12px 10px',
+      }} />
 
       {/* Empty state */}
       {(!graph || graph.nodes.length === 0) && (
@@ -371,18 +381,18 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
               </p>
             </div>
 
-            {/* Pipeline step indicator */}
+            {/* Pipeline step indicator — agent identity colors */}
             {phase !== 'idle' && (
               <div className="flex items-center justify-center gap-1.5 mt-1">
                 {(['planning', 'reviewing', 'executing'] as const).map((step, i) => (
                   <span key={step} className="flex items-center gap-1.5">
                     <span className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full" style={{
-                        background: phase === step ? 'var(--color-text-link)' : 'var(--color-text-disabled)',
+                        background: phase === step ? AGENT_STEP_COLORS[step] : 'var(--color-text-disabled)',
                         animation: phase === step ? 'pulse-dot 1.5s ease-in-out infinite' : 'none',
                       }} />
                       <span className="text-[10px] font-light" style={{
-                        color: phase === step ? 'var(--color-text-link)' : 'var(--color-text-disabled)',
+                        color: phase === step ? AGENT_STEP_COLORS[step] : 'var(--color-text-disabled)',
                       }}>
                         {step === 'planning' ? 'Planner' : step === 'reviewing' ? 'Reviewer' : 'Mapper'}
                       </span>
@@ -403,20 +413,22 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
         </div>
       )}
 
-      {/* SVG canvas */}
+      {/* SVG canvas — background overridden to transparent so the drafting grid below shows
+          through; the `bg-layer` class stays because the pan handler uses it as drag target. */}
       <svg ref={svgRef} className="absolute inset-0 w-full h-full bg-layer"
+        style={{ background: 'transparent' }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}>
 
-        {/* SVG filters for Material Design card shadows */}
+        {/* SVG filters — soft blueprint card shadows (ink-tinted, 0 1px 2px rgba(27,42,68,.05)) */}
         <defs>
-          <filter id="card-shadow" x="-8%" y="-4%" width="116%" height="116%">
-            <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#000" floodOpacity="0.12" />
+          <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="124%">
+            <feDropShadow dx="0" dy="1" stdDeviation="1" floodColor="#1b2a44" floodOpacity="0.05" />
           </filter>
-          <filter id="card-shadow-hover" x="-8%" y="-4%" width="116%" height="116%">
-            <feDropShadow dx="0" dy="3" stdDeviation="10" floodColor="#000" floodOpacity="0.18" />
+          <filter id="card-shadow-hover" x="-10%" y="-10%" width="120%" height="124%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#1b2a44" floodOpacity="0.10" />
           </filter>
         </defs>
 
@@ -451,12 +463,12 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
                 <g key={`e${i}`} style={{ opacity: edgeDimmed ? 0.15 : 1, transition: 'opacity 0.3s' }}>
                   <path
                     d={`M${sx},${sy} C${midX},${sy} ${midX},${ty} ${tx},${ty}`}
-                    fill="none" stroke="#e11d48" strokeWidth={1.5}
+                    fill="none" stroke="#c2452e" strokeWidth={1.5}
                     strokeDasharray="6,3" opacity={0.6} />
                   <polygon points={`${tx-6},${ty-4} ${tx-2},${ty} ${tx-6},${ty+4}`}
-                    fill="#e11d48" opacity={0.7} />
+                    fill="#c2452e" opacity={0.7} />
                   <text x={midX - 4} y={(sy + ty) / 2 - 6} textAnchor="end"
-                    fill="#e11d48" fontSize="9" fontFamily="var(--font-family-ui)" opacity={0.6}>
+                    fill="#c2452e" fontSize="9" fontFamily="var(--font-family-ui)" opacity={0.6}>
                     ↩ {edge.label || t('graph.feedback')}
                   </text>
                 </g>
@@ -534,47 +546,59 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
 
                 {/* Problem glow */}
                 {isProblem && (
-                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={14}
-                    fill="none" stroke={c.stroke} strokeWidth={2} opacity={0.2 + (isHovered ? 0.15 : 0)}
+                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={8}
+                    fill="none" stroke={c.badge} strokeWidth={2} opacity={0.2 + (isHovered ? 0.15 : 0)}
                     style={{ transition: 'opacity 0.3s' }} />
                 )}
 
-                {/* Card background */}
-                <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={12}
+                {/* Card background — drafting radius 4px, status-coloured hairline edge */}
+                <rect x={node.x} y={node.y} width={NODE_W} height={node.h} rx={4}
                   fill={isAffected ? BUG_IMPACT_COLORS.affectedBg : c.fill}
-                  stroke={isHovered || isSelected ? c.stroke : c.badge}
-                  strokeWidth={isSelected ? 2 : isHovered ? 1.8 : 1}
-                  strokeOpacity={isHovered || isSelected ? 1 : 0.25} />
+                  stroke={c.badge}
+                  strokeWidth={1}
+                  strokeOpacity={isHovered || isSelected ? 1 : 0.45} />
 
-                {/* Affected node: orange dashed border */}
+                {/* Affected node: amber dashed frame */}
                 {isAffected && !isProblem && (
-                  <rect x={node.x - 3} y={node.y - 3} width={NODE_W + 6} height={node.h + 6} rx={14}
+                  <rect x={node.x - 4} y={node.y - 4} width={NODE_W + 8} height={node.h + 8} rx={8}
                     fill="none" stroke={BUG_IMPACT_COLORS.affectedBorder}
-                    strokeWidth={1.8} strokeDasharray={BUG_IMPACT_COLORS.affectedDash}
-                    opacity={0.7} />
+                    strokeWidth={1.5} strokeDasharray={BUG_IMPACT_COLORS.affectedDash}
+                    opacity={0.6} />
                 )}
 
-                {/* Trigger path node: small indicator dot */}
+                {/* Trigger path node: drafting-red square marker */}
                 {isTriggerNode && !isProblem && (
-                  <circle cx={node.x + NODE_W - 8} cy={node.y + 8} r={4}
+                  <rect x={node.x + NODE_W - 11.5} y={node.y + 4.5} width={7} height={7} rx={1}
                     fill={BUG_IMPACT_COLORS.triggerEdge} opacity={0.8} />
                 )}
 
-                {/* Top status accent bar */}
-                <rect x={node.x + 4} y={node.y} width={NODE_W - 8} height={4} rx={2}
-                  fill={c.badge} opacity={0.8} />
+                {/* Selected: ink outer frame + four drafting-red corner rules */}
+                {isSelected && (
+                  <>
+                    <rect x={node.x - 3} y={node.y - 3} width={NODE_W + 6} height={node.h + 6} rx={6}
+                      fill="none" stroke="#1b2a44" strokeWidth={1.5} />
+                    <path d={`M${node.x - 3},${node.y + 6} L${node.x - 3},${node.y - 3} L${node.x + 6},${node.y - 3}`}
+                      fill="none" stroke="#c2452e" strokeWidth={1.5} />
+                    <path d={`M${node.x + NODE_W - 6},${node.y - 3} L${node.x + NODE_W + 3},${node.y - 3} L${node.x + NODE_W + 3},${node.y + 6}`}
+                      fill="none" stroke="#c2452e" strokeWidth={1.5} />
+                    <path d={`M${node.x - 3},${node.y + node.h - 6} L${node.x - 3},${node.y + node.h + 3} L${node.x + 6},${node.y + node.h + 3}`}
+                      fill="none" stroke="#c2452e" strokeWidth={1.5} />
+                    <path d={`M${node.x + NODE_W - 6},${node.y + node.h + 3} L${node.x + NODE_W + 3},${node.y + node.h + 3} L${node.x + NODE_W + 3},${node.y + node.h - 6}`}
+                      fill="none" stroke="#c2452e" strokeWidth={1.5} />
+                  </>
+                )}
 
                 {/* Start marker — top-right corner + badge */}
                 {isStart && (
                   <>
                     <polygon points={`${node.x+NODE_W},${node.y} ${node.x+NODE_W-26},${node.y} ${node.x+NODE_W},${node.y+26}`}
-                      fill="#3b82f6" opacity={0.95} />
+                      fill="#35608f" opacity={0.95} />
                     <text x={node.x + NODE_W - 22} y={node.y + 17} fill="#fff" fontSize="11" fontWeight="bold"
                       fontFamily="sans-serif">▶</text>
                     <rect x={node.x + NODE_W - 74} y={node.y + 4} width={42} height={18} rx={4}
-                      fill="#3b82f6" opacity={0.15} />
+                      fill="#35608f" opacity={0.15} />
                     <text x={node.x + NODE_W - 53} y={node.y + 16} textAnchor="middle"
-                      fill="#3b82f6" fontSize="10" fontWeight={700}
+                      fill="#35608f" fontSize="10" fontWeight={700}
                       fontFamily="var(--font-family-ui)">{t('graph.start')}</text>
                   </>
                 )}
@@ -583,18 +607,18 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
                 {isEnd && (
                   <>
                     <rect x={node.x + 4} y={node.y + node.h - 6} width={NODE_W - 8} height={6} rx={3}
-                      fill="#9ca3af" opacity={0.5} />
+                      fill="#a7b3c6" opacity={0.5} />
                     <rect x={node.x + NODE_W / 2 - 20} y={node.y + node.h - 24} width={40} height={18} rx={4}
-                      fill="#9ca3af" opacity={0.15} />
+                      fill="#a7b3c6" opacity={0.15} />
                     <text x={node.x + NODE_W / 2} y={node.y + node.h - 11} textAnchor="middle"
-                      fill="#9ca3af" fontSize="11" fontWeight={700}
+                      fill="#a7b3c6" fontSize="11" fontWeight={700}
                       fontFamily="var(--font-family-ui)">{t('graph.end')}</text>
                   </>
                 )}
 
-                {/* Left accent bar */}
-                <rect x={node.x} y={node.y + 8} width={4} height={node.h - 16} rx={2}
-                  fill={c.badge} opacity={0.8} />
+                {/* Left status rule — status-coloured edge bar */}
+                <rect x={node.x} y={node.y + 4} width={3} height={node.h - 8} rx={1.5}
+                  fill={c.badge} />
 
                 {/* Status icon */}
                 <text x={node.x + 16} y={lineY} textAnchor="middle"
@@ -634,7 +658,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
                 {/* File */}
                 {node.file && (
                   <text x={node.x + 14} y={lineY + labelLen * 16 + 14 + (node.kind ? 14 : 0)}
-                    fill="#9ca3af" fontSize="10" fontFamily="var(--font-family-mono)" opacity={0.7}>
+                    fill="#8593aa" fontSize="10" fontFamily="var(--font-family-mono)" opacity={0.7}>
                     {node.file.length > 36 ? '…' + node.file.slice(-35) : node.file}{node.line ? `:${node.line}` : ''}
                   </text>
                 )}
@@ -651,7 +675,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
                     return (
                       <foreignObject x={node.x + 14} y={detailY} width={detailW} height={detailH}>
                         <div style={{
-                          color: '#6b7280', fontSize: 11,
+                          color: isAffected ? BUG_IMPACT_COLORS.affectedBorder : 'var(--color-text-secondary)', fontSize: 11,
                           fontFamily: 'var(--font-family-ui)',
                           lineHeight: '15px', wordBreak: 'break-word', overflowWrap: 'break-word',
                         }}>
@@ -676,12 +700,12 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
             onChange={(e) => setGroupFilter(e.target.value)}
             className="px-3 py-1.5 rounded-lg text-xs font-medium outline-none appearance-none cursor-pointer"
             style={{
-              background: '#ffffffdd', backdropFilter: 'blur(8px)',
-              border: '1px solid var(--color-border-default)',
+              background: '#ffffffeb', backdropFilter: 'blur(8px)',
+              border: '1px solid var(--ibm-border)',
               color: 'var(--color-text-secondary)',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+              boxShadow: '0 1px 2px rgba(27,42,68,.05)',
               paddingRight: 28,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' fill='none' stroke='%2351617e' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat',
               backgroundPosition: 'right 8px center',
             }}
@@ -697,7 +721,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
       {/* Legend — bottom left */}
       {graph && graph.nodes.length > 0 && (
         <div className="absolute bottom-4 left-4 rounded-xl px-4 py-2.5 flex gap-4 flex-wrap"
-          style={{ background: '#ffffffdd', backdropFilter: 'blur(8px)', border: '1px solid var(--color-border-default)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
+          style={{ background: '#ffffffeb', backdropFilter: 'blur(8px)', border: '1px solid var(--ibm-border)', boxShadow: '0 1px 2px rgba(27,42,68,.05)' }}>
           {[
             { key: 'existing', label: t('graph.existingCode'), count: statusCounts.existing || 0 },
             { key: 'problem', label: t('graph.problemToFix'), count: (statusCounts.problem || 0) + (statusCounts.planned_change || 0) },
@@ -711,20 +735,20 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
               <div key={key} className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c.badge }}/>
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{label}</span>
-                {count > 0 && <span className="text-caption" style={{ color: '#9ca3af' }}>({count})</span>}
+                {count > 0 && <span className="text-caption" style={{ color: 'var(--color-text-muted)' }}>({count})</span>}
               </div>
             );
           })}
           {/* Start/End markers */}
-          <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
+          <div className="w-px h-4 self-center" style={{ background: 'var(--ibm-border)' }}/>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#3b82f6' }}>▶ {t('graph.start')}</span>
+            <span className="text-caption" style={{ color: '#35608f' }}>▶ {t('graph.start')}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-caption" style={{ color: '#9ca3af' }}>━ {t('graph.end')}</span>
+            <span className="text-caption" style={{ color: '#a7b3c6' }}>━ {t('graph.end')}</span>
           </div>
           {/* Edge legend */}
-          <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }}/>
+          <div className="w-px h-4 self-center" style={{ background: 'var(--ibm-border)' }}/>
           {[
             { key: 'existing', label: t('graph.call'), color: EDGE_COLORS.existing },
             { key: 'error', label: t('graph.error'), color: EDGE_COLORS.error },
@@ -738,7 +762,7 @@ function MapCanvas({ graph, phase, selectedNode, onSelectNode, onContextMenu, la
           {/* Bug impact legend */}
           {(impactView.triggerEdges.size > 0 || impactView.affectedNodes.size > 0) && (
             <>
-              <div className="w-px h-4 self-center" style={{ background: '#d0d5dd' }} />
+              <div className="w-px h-4 self-center" style={{ background: 'var(--ibm-border)' }} />
               <div className="flex items-center gap-1.5">
                 <svg width="20" height="10"><line x1="0" y1="5" x2="14" y2="5" stroke={BUG_IMPACT_COLORS.triggerEdge} strokeWidth={BUG_IMPACT_COLORS.triggerEdgeWidth} strokeLinecap="round"/><polygon points="14,2 18,5 14,8" fill={BUG_IMPACT_COLORS.triggerEdge}/></svg>
                 <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>{t('graph.triggerPath')}</span>

@@ -13,7 +13,12 @@ interface Props {
 
 export default function ReviewCard({ passed, feedback, issues, color }: Props) {
   const t = useT();
-  const statusColor = passed ? '#22c55e' : '#ff4444';
+  let statusColor = 'var(--ibm-error)';
+  let statusWash = 'rgba(194,69,46,.06)';
+  if (passed) {
+    statusColor = 'var(--ibm-success)';
+    statusWash = 'rgba(47,125,95,.07)';
+  }
   const cleaned = useMemo(() => cleanProtocolTags(feedback || ''), [feedback]);
 
   return (
@@ -21,7 +26,7 @@ export default function ReviewCard({ passed, feedback, issues, color }: Props) {
       <div className="flex items-center gap-1.5 mb-1">
         <span className="w-1 h-3 rounded-full shrink-0" style={{ background: color }} />
         <span className="text-caption text-muted font-medium tracking-wide">{t('chat.reviewResult')}</span>
-        <span className="text-caption font-bold tracking-wider px-1.5 py-0.5 rounded" style={{ background: statusColor + '20', color: statusColor, fontSize: '9px' }}>{passed ? 'PASSED' : 'FAILED'}</span>
+        <span className="text-caption font-bold tracking-wider px-1.5 py-0.5 rounded-sm" style={{ background: statusWash, color: statusColor, fontSize: '9px' }}>{passed ? 'PASSED' : 'FAILED'}</span>
       </div>
       <div className="text-xs leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
         {cleaned && (
@@ -33,7 +38,7 @@ export default function ReviewCard({ passed, feedback, issues, color }: Props) {
               code: ({ className, children, ...props }: any) => {
                 const inline = !className;
                 return inline
-                  ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#f0f1f3', color: 'var(--color-text-link)' }} {...props}>{children}</code>
+                  ? <code className="px-1 py-0.5 rounded-sm text-caption" style={{ background: 'var(--ibm-layer-02)', color: 'var(--color-text-link)' }} {...props}>{children}</code>
                   : <code className={className} {...props}>{children}</code>;
               },
               pre: ({ children }: any) => <pre className="code-block">{children}</pre>,

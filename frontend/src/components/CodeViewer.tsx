@@ -17,12 +17,12 @@ interface Props {
 }
 
 const SYNTAX_COLORS: Record<string, string> = {
-  keyword: '#2563eb',
-  string: '#16a34a',
-  comment: '#9ca3af',
-  function: '#b45309',
-  number: '#dc2626',
-  type: '#7c3aed',
+  keyword: '#2b4f78',
+  string: '#2f7d5f',
+  comment: '#8593aa',
+  function: '#8f6720',
+  number: '#a83a26',
+  type: '#6b5b95',
 };
 
 // Lightweight syntax highlighting
@@ -78,7 +78,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
         const rows = tableRef.current?.querySelectorAll('tr');
         if (rows && rows[scrollToLine - 1]) {
           rows[scrollToLine - 1].scrollIntoView({ behavior: 'smooth', block: 'center' });
-          rows[scrollToLine - 1].style.background = '#dbeafe';
+          rows[scrollToLine - 1].style.background = 'rgba(53,96,143,.13)';
           setTimeout(() => { rows[scrollToLine - 1].style.background = ''; }, 2000);
         }
       }, 100);
@@ -140,8 +140,8 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
 
   if (!filePath) {
     return (
-      <div className="flex-1 flex items-center justify-center" style={{ background: '#ffffff' }}>
-        <div className="text-center" style={{ color: '#9ca3af' }}>
+      <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--ibm-bg)' }}>
+        <div className="text-center" style={{ color: 'var(--ibm-text-placeholder)' }}>
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mx-auto mb-3 opacity-30">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
@@ -154,21 +154,21 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center" style={{ background: '#ffffff' }}>
-        <div className="text-xs" style={{ color: '#9ca3af' }}>{t('code.loading')}</div>
+      <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--ibm-bg)' }}>
+        <div className="text-xs" style={{ color: 'var(--ibm-text-placeholder)' }}>{t('code.loading')}</div>
       </div>
     );
   }
 
   if (!content) {
     return (
-      <div className="flex-1 flex items-center justify-center" style={{ background: '#ffffff' }}>
+      <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--ibm-bg)' }}>
         <div className="text-center max-w-xs px-4">
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1" className="mx-auto mb-2 opacity-50">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--ibm-error)" strokeWidth="1" className="mx-auto mb-2 opacity-50">
             <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
           </svg>
-          <div className="text-xs" style={{ color: '#dc2626' }}>{error || t('code.failedToLoad')}</div>
-          <div className="text-[9px] mt-1 opacity-50" style={{ color: '#9ca3af', wordBreak: 'break-all' }}>
+          <div className="text-xs" style={{ color: 'var(--ibm-error)' }}>{error || t('code.failedToLoad')}</div>
+          <div className="text-[9px] mt-1 opacity-50" style={{ color: 'var(--ibm-text-placeholder)', wordBreak: 'break-all' }}>
             {filePath}
           </div>
         </div>
@@ -180,15 +180,15 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
   const displayPath = projectPath ? filePath.replace(projectPath, '').replace(/^[\\/]/, '') : filePath;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: '#ffffff' }}>
+    <div className="flex-1 flex flex-col overflow-hidden" style={{ background: 'var(--ibm-bg)' }}>
       {/* File header */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b text-xs" style={{ borderColor: '#e5e7eb', background: '#f7f8fa' }}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+      <div className="flex items-center gap-2 px-4 py-2 border-b text-xs" style={{ borderColor: 'var(--ibm-border-subtle)', background: 'var(--ibm-layer-01)' }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ibm-link)" strokeWidth="2">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
         </svg>
-        <span className="font-medium" style={{ color: '#1a1a2e' }}>{displayPath}</span>
-        <span style={{ color: '#9ca3af' }}>{content.lineCount} {t('code.lines')}</span>
+        <span className="font-medium" style={{ color: 'var(--ibm-text-secondary)' }}>{displayPath}</span>
+        <span style={{ color: 'var(--ibm-text-disabled)' }}>{content.lineCount} {t('code.lines')}</span>
       </div>
 
       {/* Code area */}
@@ -198,11 +198,11 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
             {content.lines.map((line, i) => (
               <tr
                 key={i}
-                className="hover:bg-gray-50 transition-colors duration-100"
+                className="hover:bg-[rgba(27,42,68,.03)] transition-colors duration-100"
               >
                 <td
                   className="text-right pr-3 pl-4 select-none border-r w-[1%] align-top whitespace-nowrap"
-                  style={{ color: '#9ca3af', borderColor: '#e5e7eb', paddingTop: 1, paddingBottom: 1 }}
+                  style={{ color: 'var(--ibm-text-disabled)', borderColor: 'var(--ibm-border-subtle)', paddingTop: 1, paddingBottom: 1 }}
                 >
                   {i + 1}
                 </td>

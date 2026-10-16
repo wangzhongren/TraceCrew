@@ -134,6 +134,12 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
 
    然后追加 <handoff-to-planner/>，系统将自动转交给架构师。
 
+【只读咨询派发】
+当用户在了解现状而非改造代码时，你可以派发只读咨询任务：
+- 需要设计/结构/方案分析 → 回复末尾追加 <handoff-to-architect/>（架构师做只读设计分析）
+- 需要调用关系图/链路图/时序图 → 回复末尾追加 <handoff-to-mapper/>（绘制者画图）
+规则：仅用于只读咨询；改造类需求仍走需求确认→<handoff-to-planner/>；用户显式指名（如"让 mapper 画图"）直接对应派发；设计与图都要时先 architect、回报后再 mapper；派发前用一两句话告知用户已把什么任务交给谁（完成后汇报）。
+
 【交流原则】
 - 如果用户输入有错别字，温和地确认："您说的是 XXX 吗？"
 - 如果需求太模糊（如"帮我做个系统"），引导用户提供更多上下文
@@ -716,7 +722,8 @@ export class AgentService {
 
   /** done 事件的统一 message 清洗口径：取「去操作标签与终态标记后的正文」。
    *  优先使用 parseXmlLike 解析出的正文（agentMessage，操作标签已剥离），
-   *  并去除 <final>、<done>、<handoff-to-planner> 的开/闭/自闭合各形态
+   *  并去除 <final>、<done>、<handoff-to-planner>、<handoff-to-architect>、
+   *  <handoff-to-mapper> 的开/闭/自闭合各形态
    *  （含 </final>、</handoff-to-planner> 等非规范形态；大小写不敏感）；
    *  解析失败时 agentMessage 即全文（或为空），此时兜底用 fullText 同法清洗。
    *  PM handoff 分支与通用 done 分支共用本函数。 */
@@ -729,6 +736,8 @@ export class AgentService {
       .replace(/<\/?final\s*\/?>/gi, '')
       .replace(/<\/?done\s*\/?>/gi, '')
       .replace(/<\/?handoff-to-planner\s*\/?>/gi, '')
+      .replace(/<\/?handoff-to-architect\s*\/?>/gi, '')
+      .replace(/<\/?handoff-to-mapper\s*\/?>/gi, '')
       .trim();
   }
 
@@ -934,6 +943,16 @@ export class AgentService {
           return;
         }
 
+        // PM: read-only consultation handoffs → done (same shape as planner handoff)
+        if (mode === 'pm' && /<handoff-to-architect\/>/i.test(fullText)) {
+          yield { event: 'done', data: JSON.stringify({ message: this.cleanDoneMessage(agentMessage, fullText) || '完成', operations: [] }) };
+          return;
+        }
+        if (mode === 'pm' && /<handoff-to-mapper\/>/i.test(fullText)) {
+          yield { event: 'done', data: JSON.stringify({ message: this.cleanDoneMessage(agentMessage, fullText) || '完成', operations: [] }) };
+          return;
+        }
+
         // Universal done marker: <final/> or <done/>
         if (/<final\/>|<done\/>/i.test(fullText)) {
           yield { event: 'done', data: JSON.stringify({ message: this.cleanDoneMessage(agentMessage, fullText) || '完成', operations: [] }) };
@@ -942,7 +961,7 @@ export class AgentService {
 
         // PM mode: no tools + no marker → prompt to add explicit marker
         if (mode === 'pm') {
-          messages.push({ role: 'user', content: '请使用 <done/> 结束本轮（或 <handoff-to-planner/> 转交架构师）。' });
+          messages.push({ role: 'user', content: '请使用 <done/> 结束本轮（或 <handoff-to-planner/> 转交架构师 / <handoff-to-architect/> 设计咨询 / <handoff-to-mapper/> 画图）。' });
           continue;
         }
         if (fullText.trim().length < 5) {

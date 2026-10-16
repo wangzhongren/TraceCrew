@@ -30,7 +30,7 @@ export default function PlanCard({ planSummary, color: _color }: Props) {
             code: ({ className, children, ...props }: any) => {
               const inline = !className;
               return inline
-                ? <code className="px-1 py-0.5 rounded text-caption" style={{ background: '#f0f1f3', color: 'var(--color-text-link)' }} {...props}>{children}</code>
+                ? <code className="px-1 py-0.5 rounded-sm text-caption" style={{ background: 'var(--ibm-layer-02)', color: 'var(--color-text-link)' }} {...props}>{children}</code>
                 : <code className={className} {...props}>{children}</code>;
             },
             pre: ({ children }: any) => <pre className="code-block">{children}</pre>,

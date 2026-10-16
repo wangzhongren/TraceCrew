@@ -4,41 +4,59 @@
 
 /* ══════════════════════════════════════════════════════════
    Layer 1: Design Tokens (CSS Custom Properties)
-   Light minimal industrial theme — dark gray accent
+   Blueprint（蓝图室）— 冷纸白 + 墨蓝 + 制图红（保留色）
    ══════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── IBM Carbon primitives (light mode) ── */
-  --ibm-bg: #ffffff;
-  --ibm-layer-01: #f7f8fa;
-  --ibm-layer-02: #f0f1f3;
-  --ibm-layer-03: #e8eaed;
-  --ibm-layer-hover: #eef0f2;
-  --ibm-layer-active: #dde0e3;
-  --ibm-border: #d0d5dd;
-  --ibm-border-subtle: #e5e7eb;
-  --ibm-border-strong: #98a2b3;
-  --ibm-border-interactive: #374151;
+  /* ── Blueprint primitives（蓝图室调色板） ── */
+  --bp-paper: #f6f8fb;
+  --bp-canvas: #fcfdfe;
+  --bp-card: #ffffff;
+  --bp-wash: #eef2f8;
+  --bp-hair: #dbe2ec;
+  --bp-hair-soft: #e9eef4;
+  --bp-ink: #1b2a44;
+  --bp-ink-2: #51617e;
+  --bp-ink-3: #8593aa;
+  --bp-ink-4: #a7b3c6;
+  --bp-navy: #20304f;
+  --bp-red: #c2452e;
+  --bp-amber: #a97b2a;
+  --bp-green: #2f7d5f;
+  --bp-blue: #35608f;
+  --bp-slate: #5e7089;
 
-  --ibm-text-primary: #1a1a2e;
-  --ibm-text-secondary: #4a5568;
-  --ibm-text-placeholder: #9ca3af;
-  --ibm-text-disabled: #cbd5e0;
+  /* ── Legacy --ibm-* aliases（变量名保留，值指向语义层） ── */
+  --ibm-bg: var(--color-bg-primary);
+  --ibm-layer-01: var(--color-bg-layer);
+  --ibm-layer-02: var(--color-bg-code);
+  --ibm-layer-03: #eef1f6;
+  --ibm-layer-hover: rgba(27,42,68,.045);
+  --ibm-layer-active: rgba(27,42,68,.08);
+  --ibm-border: var(--color-border-default);
+  --ibm-border-subtle: var(--color-border-subtle);
+  --ibm-border-strong: var(--color-border-strong);
+  --ibm-border-interactive: var(--bp-navy);
+
+  --ibm-text-primary: var(--color-text-primary);
+  --ibm-text-secondary: var(--color-text-secondary);
+  --ibm-text-placeholder: var(--color-text-muted);
+  --ibm-text-disabled: var(--color-text-disabled);
   --ibm-text-on-color: #ffffff;
-  --ibm-text-error: #dc2626;
+  --ibm-text-error: var(--color-error);
 
-  --ibm-link: #3b82f6;
-  --ibm-link-hover: #2563eb;
-  --ibm-icon-primary: #1a1a2e;
-  --ibm-icon-secondary: #6b7280;
+  --ibm-link: var(--color-text-link);
+  --ibm-link-hover: var(--bp-navy);
+  --ibm-icon-primary: var(--color-text-primary);
+  --ibm-icon-secondary: var(--color-text-muted);
 
-  --ibm-primary: #374151;
-  --ibm-primary-hover: #1f2937;
-  --ibm-primary-active: #111827;
+  --ibm-primary: var(--bp-navy);
+  --ibm-primary-hover: #2a3d63;
+  --ibm-primary-active: #16233c;
 
-  --ibm-success: #16a34a;
-  --ibm-warning: #ca8a04;
-  --ibm-error: #dc2626;
+  --ibm-success: var(--bp-green);
+  --ibm-warning: var(--bp-amber);
+  --ibm-error: var(--bp-red);
 
   --ibm-font: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --ibm-font-mono: 'Source Code Pro', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
@@ -51,44 +69,44 @@
   --ibm-spacing-06: 24px;
   --ibm-spacing-07: 32px;
 
-  --ibm-radius-sm: 4px;
-  --ibm-radius-md: 8px;
+  --ibm-radius-sm: 3px;
+  --ibm-radius-md: 6px;
 
   --ibm-transition: 150ms cubic-bezier(0.2, 0, 0.38, 1);
 
   /* ── Semantic tokens: backgrounds ── */
-  --color-bg-primary: #ffffff;
-  --color-bg-layer: #f7f8fa;
-  --color-bg-layer-hover: rgba(0,0,0,0.03);
-  --color-bg-code: #f5f6f8;
-  --color-bg-alt: #f0f1f3;
-  --color-bg-surface: #ffffff;
+  --color-bg-primary: var(--bp-canvas);
+  --color-bg-layer: var(--bp-paper);
+  --color-bg-layer-hover: rgba(27,42,68,.045);
+  --color-bg-code: var(--bp-wash);
+  --color-bg-alt: #eef1f6;
+  --color-bg-surface: var(--bp-card);
 
   /* ── Semantic tokens: text ── */
-  --color-text-primary: #1a1a2e;
-  --color-text-secondary: #4a5568;
-  --color-text-muted: #6b7280;
-  --color-text-disabled: #9ca3af;
-  --color-text-link: #3b82f6;
-  --color-text-subtle: #6b7280;
-  --color-text-dim: #9ca3af;
+  --color-text-primary: var(--bp-ink);
+  --color-text-secondary: var(--bp-ink-2);
+  --color-text-muted: var(--bp-ink-3);
+  --color-text-disabled: var(--bp-ink-4);
+  --color-text-link: var(--bp-blue);
+  --color-text-subtle: var(--bp-ink-3);
+  --color-text-dim: var(--bp-ink-4);
 
   /* ── Semantic tokens: borders ── */
-  --color-border-subtle: #e5e7eb;
-  --color-border-default: #d0d5dd;
-  --color-border-strong: #98a2b3;
+  --color-border-subtle: var(--bp-hair-soft);
+  --color-border-default: var(--bp-hair);
+  --color-border-strong: #c3cddc;
 
   /* ── Semantic tokens: accent & functional ── */
-  --color-accent: #3b82f6;
-  --color-warning: #ca8a04;
-  --color-error: #dc2626;
+  --color-accent: var(--bp-navy);
+  --color-warning: var(--bp-amber);
+  --color-error: var(--bp-red);
 
-  /* ── Semantic tokens: status colors (Material Design palette) ── */
-  --color-status-existing: #5f6368;
-  --color-status-problem: #ea4335;
-  --color-status-change: #f9ab00;
-  --color-status-new: #0f9d58;
-  --color-status-done: #1a73e8;
+  /* ── Semantic tokens: status colors（蓝图室保留色） ── */
+  --color-status-existing: var(--bp-slate);
+  --color-status-problem: var(--bp-red);
+  --color-status-change: var(--bp-amber);
+  --color-status-new: var(--bp-green);
+  --color-status-done: var(--bp-blue);
 
   /* ── Semantic tokens: spacing ── */
   --spacing-xs: 4px;
@@ -112,7 +130,7 @@
   /* ── Semantic tokens: radius ── */
   --radius-sm: var(--ibm-radius-sm);
   --radius-md: var(--ibm-radius-md);
-  --radius-lg: 12px;
+  --radius-lg: 8px;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -232,13 +250,13 @@ body {
 
 /* ── Focus ring (light mode) ── */
 *:focus-visible {
-  outline: 2px solid var(--ibm-primary, #374151);
+  outline: 2px solid var(--ibm-primary, #20304f);
   outline-offset: -2px;
 }
 
 /* ── Selection ── */
 ::selection {
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(27, 42, 68, 0.14);
   color: var(--ibm-text-primary);
 }
 

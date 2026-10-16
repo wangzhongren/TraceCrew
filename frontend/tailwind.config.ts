@@ -67,6 +67,8 @@ export default {
         sm: 'var(--radius-sm)',
         md: 'var(--radius-md)',
         lg: 'var(--radius-lg)',
+        xl: 'var(--radius-lg)',
+        '2xl': '10px',
       },
       fontFamily: {
         ui: ['var(--font-family-ui)'],

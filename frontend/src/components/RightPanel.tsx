@@ -88,7 +88,7 @@ export default function RightPanel({
               {filePath.split(/[\\/]/).pop()}
             </span>
             <button onClick={onCloseCode}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/[0.06] transition-colors shrink-0"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[rgba(27,42,68,.06)] transition-colors shrink-0"
               style={{ color: 'var(--color-text-muted)' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -119,7 +119,7 @@ export default function RightPanel({
               {filePath?.split(/[\\/]/).pop()}
             </span>
             <button onClick={onCloseCode}
-              className="w-5 h-5 flex items-center justify-center rounded hover:bg-black/[0.06] transition-colors shrink-0"
+              className="w-5 h-5 flex items-center justify-center rounded hover:bg-[rgba(27,42,68,.06)] transition-colors shrink-0"
               style={{ color: 'var(--color-text-muted)' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -138,7 +138,7 @@ export default function RightPanel({
 
       {/* Draggable divider */}
       <div
-        className="shrink-0 h-[5px] cursor-row-resize transition-colors hover:bg-[#374151]/15 z-10"
+        className="shrink-0 h-[5px] cursor-row-resize transition-colors hover:bg-[rgba(27,42,68,.15)] z-10"
         style={{ background: 'var(--color-border-subtle)' }}
         onMouseDown={handleDividerMouseDown}
       />

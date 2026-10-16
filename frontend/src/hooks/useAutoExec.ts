@@ -204,7 +204,7 @@ export function useAutoExec(opts: AutoExecOptions): AutoExecController {
       } else if (ev.type === 'phase') {
         setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n\n[${ev.data}]\n` }));
       } else if (ev.type === 'tools') {
-        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n🔧 ${ev.data}\n` }));
+        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n${ev.data}\n` }));
       }
     });
 
@@ -291,7 +291,7 @@ export function useAutoExec(opts: AutoExecOptions): AutoExecController {
         } else if (ev.type === 'phase') {
           setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n\n[${ev.data}]\n` }));
         } else if (ev.type === 'tools') {
-          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n🔧 ${ev.data}\n` }));
+          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n${ev.data}\n` }));
         }
       });
 
@@ -312,7 +312,7 @@ export function useAutoExec(opts: AutoExecOptions): AutoExecController {
         const g = graphRef.current;
         if (g) {
           const updatedNodes = g.nodes.map(n =>
-            n.id === node.id ? { ...n, status: 'done' as const, detail: (n.detail || '') + '\n✅ 已完成' } : n
+            n.id === node.id ? { ...n, status: 'done' as const, detail: (n.detail || '') + '\n✓ 已完成' } : n
           );
           const newGraph = { nodes: updatedNodes, edges: g.edges };
           graphRef.current = newGraph; // sync immediately for next loop iteration

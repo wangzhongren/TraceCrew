@@ -11,7 +11,7 @@ import { useT, useLocale } from '../i18n';
 /* ── Types ── */
 
 type TimelineEntry =
-  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean; tools?: Array<{ type: string; file: string }> }
+  | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean; status?: 'done'; tools?: Array<{ type: string; file: string }> }
   | { kind: 'tool'; agent: string; tool: string; file: string }
   | { kind: 'user'; text: string }
   | { kind: 'system'; text: string };
@@ -19,10 +19,11 @@ type TimelineEntry =
 /* ── Agent config ── */
 
 const AG: Record<string, { name: string; color: string }> = {
-  pm:       { name: 'PM',        color: '#059669' },
-  planner:  { name: 'Planner',  color: '#2563eb' },
-  mapper:   { name: 'Mapper',   color: '#7c3aed' },
-  reviewer: { name: 'Reviewer', color: '#dc2626' },
+  pm:        { name: 'PM',        color: '#2f7d5f' },
+  planner:   { name: 'Planner',   color: '#35608f' },
+  architect: { name: 'Architect', color: '#6b5b95' },
+  reviewer:  { name: 'Reviewer',  color: '#b4452e' },
+  mapper:    { name: 'Mapper',    color: '#3c7d8f' },
 };
 
 const TOOL_LABEL: Record<string, string> = {
@@ -32,14 +33,14 @@ const TOOL_LABEL: Record<string, string> = {
 };
 
 const TOOL_COLOR: Record<string, { bg: string; c: string }> = {
-  read_file:    { bg: '#dbeafe', c: '#2563eb' },
-  list_dir:     { bg: '#dbeafe', c: '#2563eb' },
-  search:       { bg: '#dbeafe', c: '#2563eb' },
-  insert_lines: { bg: '#dcfce7', c: '#16a34a' },
-  replace_lines:{ bg: '#dcfce7', c: '#16a34a' },
-  create_file:  { bg: '#dcfce7', c: '#16a34a' },
-  delete_lines: { bg: '#fee2e2', c: '#dc2626' },
-  run_shell:    { bg: '#fef3c7', c: '#b45309' },
+  read_file:    { bg: 'rgba(53,96,143,.09)',  c: '#35608f' },
+  list_dir:     { bg: 'rgba(53,96,143,.09)',  c: '#35608f' },
+  search:       { bg: 'rgba(53,96,143,.09)',  c: '#35608f' },
+  insert_lines: { bg: 'rgba(47,125,95,.09)',  c: '#2f7d5f' },
+  replace_lines:{ bg: 'rgba(47,125,95,.09)',  c: '#2f7d5f' },
+  create_file:  { bg: 'rgba(47,125,95,.09)',  c: '#2f7d5f' },
+  delete_lines: { bg: 'rgba(194,69,46,.08)',  c: '#c2452e' },
+  run_shell:    { bg: 'rgba(169,123,42,.10)', c: '#a97b2a' },
 };
 
 /* ── Pure helpers (exported for unit tests) ── */
@@ -74,7 +75,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     if ((savedPlan || savedGraph) && timeline.length === 0) {
       const parts: string[] = [];
       if (savedPlan?.plan_summary) {
-        parts.push(`## 📋 上次计划\n${savedPlan.plan_summary}`);
+        parts.push(`## 上次计划\n${savedPlan.plan_summary}`);
       }
       if (savedPlan?.steps?.length) {
         parts.push(`### 步骤\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || ''}`).join('\n')}`);
@@ -99,7 +100,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         savedPlan?.plan_summary ? `[计划] ${savedPlan.plan_summary}` : '',
         savedPlan?.steps?.length ? `[步骤]\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || JSON.stringify(s)}`).join('\n')}` : '',
         savedPlan?.key_files?.length ? `[关键文件] ${savedPlan.key_files.join(', ')}` : '',
-        savedGraph?.nodes?.length ? `[任务节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✅' : '⬜'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
+        savedGraph?.nodes?.length ? `[任务节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✓' : '○'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
         savedGraph?.edges?.length ? `[依赖关系] ${savedGraph.edges.map((e: any) => `${e.from}→${e.to}[${e.status}]`).join(', ')}` : '',
       ];
       savedContextRef.current = [
@@ -179,6 +180,16 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       const entry = next[idx];
       if (entry?.kind === 'agent') next[idx] = { ...entry, text: cleaned };
       return next;
+    });
+  };
+
+  /* 完成态标记：流收尾后文本卡进入「✓ 完成 · N 字」终态（完成徽章、停止旋转）。 */
+  const markCurrentAgentDone = (): void => {
+    setTimeline(prev => {
+      const u = [...prev];
+      const idx = tidxRef.current;
+      if (idx >= 0 && u[idx]?.kind === 'agent') u[idx] = { ...u[idx], status: 'done' };
+      return u;
     });
   };
 
@@ -282,6 +293,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       }
     );
     applyDoneMessage(doneMessage);
+    markCurrentAgentDone();
     return { fullText };
   };
 
@@ -302,6 +314,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       }
     );
     applyDoneMessage(doneMessage);
+    markCurrentAgentDone();
     return fullText;
   };
 
@@ -394,11 +407,11 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     let ctx = instruction;
     if (savedMd) {
       console.log('[Architect] 已有架构，发送给 LLM 判断是否跳过');
-      setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在判断是否需要修改架构...' }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: '框架设计师正在判断是否需要修改架构...' }]);
       ctx = `【已有架构】\n${savedMd}\n\n【新需求】\n${instruction}\n\n请判断：已有架构是否可以直接支撑新需求？如果不需要修改，只输出 <skip-architect/> 即可停止。如果需要修改，请输出完整的架构设计（Markdown + JSON）。`;
     } else {
       console.log('[Architect] 新项目，开始设计架构');
-      setTimeline(prev => [...prev, { kind: 'system', text: '🏗️ 框架设计师正在分析架构...' }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: '框架设计师正在分析架构...' }]);
     }
 
     // Retry loop: Architect must output valid JSON
@@ -421,7 +434,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         console.log('[Architect] → 跳过，复用已有架构');
         architectureRef.current = savedArchitecture;
         historyRef.current.push({ role: 'assistant', content: `[Architect] 架构无需修改，复用已有设计` });
-        setTimeline(prev => [...prev, { kind: 'system', text: '📐 架构无需修改，复用已有设计' }]);
+        setTimeline(prev => [...prev, { kind: 'system', text: '架构无需修改，复用已有设计' }]);
         setRunning(false);
         setTimeout(() => runPlanner(instruction, savedArchitecture), 100);
         return;
@@ -436,8 +449,8 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
       console.log(`[Architect] → JSON解析失败，准备重试...`);
       // JSON parse failed — retry with format guidance
-      retryCtx = `${ctx}\n\n⚠️ 上一次输出格式无法解析。请确保:\n1. 使用 \`\`\`json 代码块包含 architecture 对象\n2. architecture 必须包含 principle, modules, interfaces, dependency_rules, directory_skeleton\n\n请重新输出完整的架构设计。`;
-      setTimeline(prev => [...prev, { kind: 'system', text: `🔄 架构 JSON 解析失败，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
+      retryCtx = `${ctx}\n\n上一次输出格式无法解析。请确保:\n1. 使用 \`\`\`json 代码块包含 architecture 对象\n2. architecture 必须包含 principle, modules, interfaces, dependency_rules, directory_skeleton\n\n请重新输出完整的架构设计。`;
+      setTimeline(prev => [...prev, { kind: 'system', text: `架构 JSON 解析失败，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
     }
 
     const architecture = data?.architecture || null;
@@ -448,10 +461,10 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       window.tracecrew.file.writeFile('.tracecrew/ARCHITECTURE.md', fullText).catch(() => {});
 
       historyRef.current.push({ role: 'assistant', content: `[Architect] ${architecture.principle || '架构设计完成'} — ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` });
-      setTimeline(prev => [...prev, { kind: 'system', text: `✅ 架构设计${savedMd ? '更新' : ''}完成: ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: `✓ 架构设计${savedMd ? '更新' : ''}完成: ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` }]);
     } else {
       historyRef.current.push({ role: 'assistant', content: `[Architect] JSON 解析失败（已重试 ${MAX_RETRIES} 次）: ${fullText.slice(0, 200)}` });
-      setTimeline(prev => [...prev, { kind: 'system', text: `⚠️ 架构 JSON 解析失败（已重试 ${MAX_RETRIES} 次），将直接进入 Planner` }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: `架构 JSON 解析失败（已重试 ${MAX_RETRIES} 次），将直接进入 Planner` }]);
     }
 
     setRunning(false);
@@ -620,7 +633,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       const ctx = attempt === 0
         ? `【需求】${instruction}\n${planCtx}`
-        : `【需求】${instruction}\n${planCtx}\n\n⚠️ 上一次你的输出格式不正确，无法解析为有效的 JSON。请确保：\n1. 输出包含 \`\`\`json 代码块，其中同时包含 "call_graph" 和 "sequence_graph"\n2. call_graph 和 sequence_graph 各自包含 nodes 和 edges 数组\n3. sequence_graph 的每个 node 必须有 lane 和 step 字段\n\n请重新生成。`;
+        : `【需求】${instruction}\n${planCtx}\n\n上一次你的输出格式不正确，无法解析为有效的 JSON。请确保：\n1. 输出包含 \`\`\`json 代码块，其中同时包含 "call_graph" 和 "sequence_graph"\n2. call_graph 和 sequence_graph 各自包含 nodes 和 edges 数组\n3. sequence_graph 的每个 node 必须有 lane 和 step 字段\n\n请重新生成。`;
 
       const result = await agentLoop('mapper', '', ctx, history);
       fullText = result.fullText;
@@ -638,7 +651,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       history.push({ role: 'assistant', content: `[Mapper] JSON 解析失败 (第${attempt + 1}次): ${errPreview}` });
       history.push({ role: 'user', content: `你的输出无法解析为有效的 call_graph JSON。请严格按照格式重新输出。` });
 
-      setTimeline(prev => [...prev, { kind: 'system', text: `🔄 Mapper 输出格式错误，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: `Mapper 输出格式错误，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
     }
 
     setTimeline(prev => {
@@ -671,7 +684,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     if (graph) {
       flushSync(() => onPipelineChange({ phase: 'done', graph, sequenceGraph }));
     } else {
-      setTimeline(prev => [...prev, { kind: 'system', text: `❌ ${t('chat.mapperNoGraph')}（已重试 ${MAX_RETRIES} 次）` }]);
+      setTimeline(prev => [...prev, { kind: 'system', text: `✕ ${t('chat.mapperNoGraph')}（已重试 ${MAX_RETRIES} 次）` }]);
       onPipelineChange({ phase: 'done' });
     }
 
@@ -721,25 +734,33 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
   return (
     <div className="shrink-0 border-b" style={{ borderColor: 'var(--color-border-subtle)' }}>
       <div className="flex items-center gap-1.5 px-4 py-1.5">
-        <span className="text-[9px] font-semibold uppercase tracking-wider shrink-0" style={{ color: '#2563eb' }}>📋 Plan</span>
+        <span className="text-[9px] font-semibold uppercase tracking-wider shrink-0 inline-flex items-center gap-1" style={{ color: 'var(--ibm-link)' }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0">
+            <rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5V3h6v1.5"/><path d="M9 10h6M9 14h4"/>
+          </svg>
+          Plan
+        </span>
         <span className="text-[10px] truncate" style={{ color: 'var(--color-text-secondary)' }}>
           {plan.plan_summary.slice(0, 60)}{plan.plan_summary.length > 60 ? '…' : ''}
         </span>
         <button onClick={() => openPopup(raw)}
-          className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-black/[0.04]"
-          style={{ color: '#2563eb' }} title="展开当前计划">
+          className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-[rgba(27,42,68,0.045)]"
+          style={{ color: 'var(--ibm-link)' }} title="展开当前计划">
           ↗
         </button>
         {/* History dropdown */}
         <div className="relative">
           <button onClick={() => setShowHistory(!showHistory)}
-            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-black/[0.04]"
+            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded transition-colors hover:bg-[rgba(27,42,68,0.045)] inline-flex items-center gap-1"
             style={{ color: 'var(--color-text-muted)' }} title="历史计划">
-            📂 {planFiles.length || ''}
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="shrink-0">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            </svg>
+            {planFiles.length || ''}
           </button>
           {showHistory && (
-            <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border shadow-lg overflow-hidden"
-              style={{ width: 320, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)' }}
+            <div className="absolute right-0 top-full mt-1 z-50 rounded-md border overflow-hidden"
+              style={{ width: 320, background: 'var(--color-bg-layer)', borderColor: 'var(--color-border-default)', boxShadow: '0 10px 28px rgba(27,42,68,.14)' }}
               onMouseLeave={() => setShowHistory(false)}>
               <div className="px-3 py-2 border-b text-[9px] font-semibold" style={{ borderColor: 'var(--color-border-subtle)', color: 'var(--color-text-muted)' }}>
                 历史计划 ({planFiles.length})
@@ -762,7 +783,7 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
                           // 预期可忽略：单条历史计划读取失败时静默跳过（不展开），可稍后重试
                         }
                       }}
-                        className="w-full text-left px-3 py-2 hover:bg-black/[0.03] transition-colors border-b last:border-b-0"
+                        className="w-full text-left px-3 py-2 hover:bg-[rgba(27,42,68,0.045)] transition-colors border-b last:border-b-0"
                         style={{ borderColor: 'var(--color-border-subtle)' }}>
                         <div className="text-[9px] font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>{namePart}</div>
                         <div className="text-[8px]" style={{ color: 'var(--color-text-muted)' }}>{datePart}</div>
@@ -786,8 +807,8 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
       {/* Header */}
       <div className="shrink-0 px-4 py-3 border-b flex items-center gap-2.5"
         style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#2563eb12' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+        <div className="w-7 h-7 rounded-md flex items-center justify-center" style={{ background: 'rgba(53,96,143,.09)' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#35608f" strokeWidth="2">
             <circle cx="12" cy="12" r="3"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
             <circle cx="5" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
             <line x1="12" y1="8" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="16"/>
@@ -808,14 +829,14 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
         {timeline.length === 0 ? (
           <div className="flex items-center justify-center h-full px-6">
             <div className="text-center">
-              <div className="w-14 h-14 mx-auto mb-3 rounded-2xl flex items-center justify-center"
-                style={{ background: 'var(--color-bg-layer)', border: '2px dashed var(--color-border-subtle)' }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ opacity: 0.3, color: 'var(--color-text-muted)' }}>
+              <div className="w-14 h-14 mx-auto mb-3 rounded-md flex items-center justify-center"
+                style={{ background: 'var(--color-bg-layer)', border: '2px dashed var(--ibm-border-strong)' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ color: 'var(--color-text-muted)' }}>
                   <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
                   <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
                 </svg>
               </div>
-              <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-secondary)' }}>{t('chat.describeTask')}</div>
+              <div className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>{t('chat.describeTask')}</div>
               <div className="mt-1 text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.pipelineHint')}</div>
             </div>
           </div>
@@ -826,8 +847,8 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
 
       {/* Input */}
       <div className="shrink-0 px-3 py-2.5 border-t" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
-        <div className="flex items-end gap-2 px-3 py-2 rounded-xl border transition-colors"
-          style={{ background: 'var(--color-bg-primary)', borderColor: 'var(--color-border-default)' }}>
+        <div className="flex items-end gap-2 px-3 py-2 rounded-md border border-[color:var(--color-border-default)] transition-colors focus-within:border-[#35608f] focus-within:shadow-[0_0_0_3px_rgba(53,96,143,0.10)]"
+          style={{ background: 'var(--color-bg-surface)' }}>
           <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
             placeholder={pmState.active ? t('pm.replyPlaceholder') : t('chat.inputPlaceholder')} disabled={running} rows={1}
             className="flex-1 text-[12px] bg-transparent outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 resize-none min-h-[24px] max-h-[120px] leading-relaxed"
@@ -836,14 +857,14 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
           />
           {running ? (
             <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
-              className="shrink-0 px-2.5 py-1 rounded-lg text-[10px] font-semibold"
-              style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca' }}>
-              ⏹ {t('chat.stop')}
+              className="shrink-0 px-2.5 py-1 rounded-md text-[10px] font-semibold"
+              style={{ color: 'var(--ibm-error)', background: 'rgba(194,69,46,.07)', border: '1px solid rgba(194,69,46,.4)' }}>
+              {t('chat.stop')}
             </button>
           ) : (
             <button onClick={handleSend} disabled={!input.trim()}
-              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 hover:scale-105 disabled:opacity-20"
-              style={{ background: input.trim() ? '#2563eb' : 'var(--color-border-subtle)' }}>
+              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md transition-all duration-150 hover:scale-105 disabled:opacity-20"
+              style={{ background: input.trim() ? 'var(--ibm-primary)' : 'var(--color-border-subtle)' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
               </svg>
@@ -860,7 +881,7 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
             }}
               className="text-[9px] hover:underline"
               style={{ color: 'var(--color-text-muted)' }}>
-              ⏭ {t('pm.skipToPlanner')}
+              {t('pm.skipToPlanner')}
             </button>
           ) : (
             <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
@@ -896,7 +917,7 @@ function TimelineView({ timeline, t }: { timeline: TimelineEntry[]; t: any }) {
 function SystemMsg({ text }: { text: string }) {
   return (
     <div className="py-1.5 text-center">
-      <span className="text-[9px] px-2.5 py-0.5 rounded-full" style={{ color: 'var(--color-text-muted)', background: 'var(--color-bg-layer)' }}>
+      <span className="text-[9px] px-2.5 py-0.5 rounded-full" style={{ color: 'var(--color-text-muted)', background: 'var(--ibm-bg)', border: '1px solid var(--ibm-border-subtle)' }}>
         {text}
       </span>
     </div>
@@ -906,8 +927,8 @@ function SystemMsg({ text }: { text: string }) {
 function UserMsg({ text }: { text: string }) {
   return (
     <div className="flex justify-end py-1">
-      <div className="max-w-[90%] rounded-2xl rounded-tr-md px-3.5 py-2.5"
-        style={{ background: 'var(--color-bg-layer)', border: '1px solid var(--color-border-subtle)' }}>
+      <div className="max-w-[90%] rounded px-3.5 py-2.5"
+        style={{ background: 'var(--ibm-layer-02)', border: '1px solid var(--ibm-border)' }}>
         <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-primary)' }}>
           {text}
         </div>
@@ -923,7 +944,11 @@ function CollapsibleReasoning({ text }: { text: string }) {
       <div onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-[9px] cursor-pointer select-none py-0.5"
         style={{ color: 'var(--color-text-muted)' }}>
-        <span>{open ? '▾' : '▸'}</span> 💭 思考过程
+        <span>{open ? '▾' : '▸'}</span>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+          <path d="M12 3a6 6 0 0 0-3.5 10.9V17h7v-3.1A6 6 0 0 0 12 3z"/><path d="M10 21h4"/>
+        </svg>
+        思考过程
       </div>
       {open && (
         <div className="opacity-60" onClick={() => setOpen(false)}>
@@ -943,15 +968,19 @@ function CollapsibleTools({ tools }: { tools: Array<{ type: string; file: string
       <div onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 text-[9px] cursor-pointer select-none py-0.5"
         style={{ color: 'var(--color-text-muted)' }}>
-        <span>{open ? '▾' : '▸'}</span> 📄 工具调用 ({tools.length})
+        <span>{open ? '▾' : '▸'}</span>
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
+          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+        工具调用 ({tools.length})
       </div>
       {open && (
         <div className="mt-1 space-y-0.5">
           {tools.map((tool, i) => {
-            const tc = TOOL_COLOR[tool.type] || { bg: '#f3f4f6', c: '#6b7280' };
+            const tc = TOOL_COLOR[tool.type] || { bg: 'var(--ibm-layer-02)', c: 'var(--color-text-muted)' };
             return (
               <div key={i} className="flex items-center gap-2 py-0.5 pl-1">
-                <span className="text-[9px] font-mono font-medium rounded px-1.5 py-0.5 shrink-0"
+                <span className="text-[9px] font-mono font-medium rounded-sm px-1.5 py-0.5 shrink-0"
                   style={{ background: tc.bg, color: tc.c }}>
                   {TOOL_LABEL[tool.type] || tool.type}
                 </span>
@@ -970,14 +999,14 @@ function CollapsibleTools({ tools }: { tools: Array<{ type: string; file: string
 /* ── Agent card ── */
 
 function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: any }) {
-  const cfg = AG[entry.agent] || { name: entry.agent, color: '#6b7280' };
+  const cfg = AG[entry.agent] || { name: entry.agent, color: '#8593aa' };
   const [expanded, setExpanded] = useState(true);
   const result = entry.result;
 
   // Hide completely after Mapper completes
   if (entry.autoCollapse) return null;
   const hasText = !!(entry.text || '').trim();
-  const isThinking = !result && hasText;
+  const isThinking = !result && hasText && entry.status !== 'done';
 
   // Status from result
   let status: 'thinking' | 'done' | 'failed' = isThinking ? 'thinking' : 'done';
@@ -990,33 +1019,55 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
   } else if (result?.type === 'graph') {
     statusLabel = `${result.nodes}${t('graph.nodes')} · ${result.edges}${t('graph.edges')}`;
   } else if (isThinking) {
-    statusLabel = `${Math.round(entry.text.length / 100)}${t('chat.chars')}`;
+    statusLabel = `${t('chat.thinking')} · ${entry.text.length}${t('chat.chars')}`;
+  } else if (entry.status === 'done') {
+    statusLabel = `${t('chat.done')} · ${entry.text.length}${t('chat.chars')}`;
+  }
+
+  // Status pill palette: done = green wash, failed = drafting red wash, running = violet wash
+  let pillBg = 'rgba(107,91,149,.07)';
+  let pillBorder = '1px solid rgba(107,91,149,.4)';
+  let pillColor = '#6b5b95';
+  if (status === 'done') {
+    pillBg = 'rgba(47,125,95,.07)';
+    pillBorder = '1px solid rgba(47,125,95,.4)';
+    pillColor = 'var(--ibm-success)';
+  } else if (status === 'failed') {
+    pillBg = 'rgba(194,69,46,.07)';
+    pillBorder = '1px solid rgba(194,69,46,.4)';
+    pillColor = 'var(--ibm-error)';
   }
 
   return (
-    <div className="rounded-xl overflow-hidden"
-      style={{ background: cfg.color + '06', border: `1px solid ${cfg.color}18` }}>
+    <div className="rounded-md overflow-hidden"
+      style={{
+        background: 'var(--color-bg-surface)',
+        borderWidth: '1px 1px 1px 2.5px',
+        borderStyle: 'solid',
+        borderColor: `var(--ibm-border) var(--ibm-border) var(--ibm-border) ${cfg.color}`,
+      }}>
       {/* Header */}
       <button onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-black/[0.015]">
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-[rgba(27,42,68,0.03)]">
         {/* Dot */}
         <span className="shrink-0 w-[15px] h-[15px] rounded-full flex items-center justify-center"
-          style={{ border: `2px solid ${status === 'failed' ? '#dc2626' : cfg.color}`, background: 'var(--color-bg-primary)' }}>
+          style={{ border: `2px solid ${status === 'failed' ? 'var(--ibm-error)' : cfg.color}`, background: 'var(--color-bg-surface)' }}>
           {status === 'thinking' ? (
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={cfg.color} strokeWidth="3" className="animate-spin">
               <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
             </svg>
           ) : (
-            <span className="w-[6px] h-[6px] rounded-full" style={{ background: status === 'failed' ? '#dc2626' : cfg.color }} />
+            <span className="w-[6px] h-[6px] rounded-full" style={{ background: status === 'failed' ? 'var(--ibm-error)' : cfg.color }} />
           )}
         </span>
         {/* Name */}
-        <span className="text-[11px] font-semibold" style={{ color: cfg.color }}>{cfg.name}</span>
+        <span className="text-[11px] font-semibold" style={{ color: 'var(--color-text-primary)' }}>{cfg.name}</span>
         {/* Status badge */}
         {statusLabel && (
-          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full" style={{
-            background: status === 'failed' ? '#fef2f2' : status === 'done' ? '#f0fdf4' : cfg.color + '12',
-            color: status === 'failed' ? '#dc2626' : status === 'done' ? '#16a34a' : 'var(--color-text-muted)',
+          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-sm" style={{
+            background: pillBg,
+            border: pillBorder,
+            color: pillColor,
           }}>
             {status === 'failed' ? '✕ ' : status === 'done' ? '✓ ' : ''}{statusLabel}
           </span>
@@ -1085,28 +1136,28 @@ function Markdown({ text }: { text: string }) {
     .replace(/([^\n])(#{1,4}\s)/g, '$1\n$2');
 
   return (
-    <div className="mt-1" style={{ fontSize: 11, color: '#374151', lineHeight: 1.65 }}>
+    <div className="mt-1" style={{ fontSize: 11, color: 'var(--ibm-text-secondary)', lineHeight: 1.65 }}>
       <style>{`
-        .md-body h1 { font-size:14px; font-weight:700; color:#1a1a2e; margin:12px 0 6px; }
-        .md-body h2 { font-size:13px; font-weight:700; color:#1a1a2e; margin:10px 0 4px; }
-        .md-body h3 { font-size:12px; font-weight:600; color:#1a1a2e; margin:8px 0 3px; }
-        .md-body h4 { font-size:11px; font-weight:600; color:#1a1a2e; margin:6px 0 2px; }
+        .md-body h1 { font-size:14px; font-weight:700; color:var(--ibm-text-primary); margin:12px 0 6px; }
+        .md-body h2 { font-size:13px; font-weight:700; color:var(--ibm-text-primary); margin:10px 0 4px; }
+        .md-body h3 { font-size:12px; font-weight:600; color:var(--ibm-text-primary); margin:8px 0 3px; }
+        .md-body h4 { font-size:11px; font-weight:600; color:var(--ibm-text-primary); margin:6px 0 2px; }
         .md-body p { margin:0 0 6px; }
         .md-body ul, .md-body ol { padding-left:18px; margin:4px 0 8px; }
         .md-body li { margin-bottom:2px; }
-        .md-body code { padding:1px 5px; border-radius:3px; font-size:10px; background:#f3f4f6; color:#dc2626; }
-        .md-body pre { margin:8px 0; padding:10px 12px; border-radius:6px; overflow-x:auto; font-size:10px; background:#f3f4f6; }
+        .md-body code { padding:1px 5px; border-radius:3px; font-size:10px; background:var(--ibm-layer-02); color:var(--ibm-link); }
+        .md-body pre { margin:8px 0; padding:10px 12px; border-radius:6px; overflow-x:auto; font-size:10px; background:var(--ibm-layer-02); }
         .md-body pre code { padding:0; background:none; color:inherit; font-size:inherit; }
         .md-body table { width:100%; border-collapse:collapse; font-size:10px; margin:8px 0; }
-        .md-body th, .md-body td { border:1px solid #e5e7eb; padding:4px 8px; text-align:left; }
-        .md-body th { background:#f9fafb; font-weight:600; }
-        .md-body hr { margin:12px 0; border:none; border-top:1px solid #e5e7eb; }
-        .md-body blockquote { border-left:2px solid #e5e7eb; padding-left:10px; margin:8px 0; opacity:0.8; }
-        .md-body a { color:#3b82f6; }
+        .md-body th, .md-body td { border:1px solid var(--ibm-border-subtle); padding:4px 8px; text-align:left; }
+        .md-body th { background:var(--ibm-layer-01); font-weight:600; }
+        .md-body hr { margin:12px 0; border:none; border-top:1px solid var(--ibm-border-subtle); }
+        .md-body blockquote { border-left:2px solid var(--ibm-border); padding-left:10px; margin:8px 0; opacity:0.8; }
+        .md-body a { color:var(--ibm-link); }
       `}</style>
       <div
         className="md-body"
-        style={{ fontSize: 11, color: '#374151', lineHeight: 1.65 }}
+        style={{ fontSize: 11, color: 'var(--ibm-text-secondary)', lineHeight: 1.65 }}
         dangerouslySetInnerHTML={{ __html: marked.parse(cleaned, { async: false })! }}
       />
     </div>
