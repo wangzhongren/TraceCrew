@@ -13,7 +13,7 @@ One brain does everything               PM         — requirements clarificatio
   ├── understand project structure      Architect  — IoC framework design
   ├── search codebase                   Planner    — architecture analysis & planning
   ├── plan changes                      Reviewer   — evidence verification
-  ├── write code                        Mapper     — task graph & sequence diagram
+  ├── write code                        Mapper     — dependency graph & sequence diagram
 
 Token cost: $$$$                        Each agent is small, focused, and auditable
 No oversight, role confusion            Checks & balances between stages catch errors early
@@ -25,12 +25,16 @@ No oversight, role confusion            Checks & balances between stages catch e
 
 ## Interface
 
+![TraceCrew interface overview — Planner card, sequence diagram, pending list, and thinking-effort selector](docs/images/ui-overview.png)
+
+*Interface overview of a restored session: the Planner card on the left recaps the last plan (summary, steps, analysis report); the canvas shows the sequence-diagram view with its legend; the pending list on the right describes each affected node with「查看代码」and「解释」actions; the input bar carries the Low / Mid / High thinking-effort selector.*
+
 ```
 ┌─────────────────────┬──────────────────────────────────────────────┐
 │                     │                                              │
 │    Chat Panel       │           Graph View                         │
 │                     │                                              │
-│  PM (需求澄清)      │  ┌ 🔗调用图 │ 🔀任务依赖 │ ⏱️时序图 ────┐  │
+│  PM (需求澄清)      │  ┌ 🔗调用图 │ 🔀依赖关系 │ ⏱️时序图 ────┐  │
 │    ↓                │  │                                      │  │
 │  Architect (框架)   │  │  ○ ───→ ○ ───→ ○                    │  │
 │    ↓                │  │   │       │                           │  │
@@ -65,11 +69,11 @@ No oversight, role confusion            Checks & balances between stages catch e
 
 **Pipeline:** PM clarifies → Architect designs IoC framework → Planner creates execution plan → Reviewer verifies → Mapper draws graphs. If Reviewer rejects, Planner revises. Architect is skipped when existing architecture covers the new requirement.
 
-### Task Node States
+### Node States
 
 | State | Icon | Meaning |
 |-------|------|---------|
-| `planned_new` | ◉ | New task to implement |
+| `planned_new` | ◉ | New node to implement |
 | `problem` | ✕ | Issue detected, needs fixing |
 | `planned_change` | ✎ | Scheduled modification |
 | `existing` | ○ | Existing code, no action needed |
