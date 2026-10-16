@@ -335,7 +335,7 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
               marginBottom: -1,
             }}
           >
-            任务依赖
+            依赖关系
           </button>
           <button
             onClick={() => setTab('sequence')}

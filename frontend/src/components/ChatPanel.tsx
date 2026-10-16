@@ -192,15 +192,6 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       if (savedPlan?.steps?.length) {
         parts.push(`### 步骤\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || ''}`).join('\n')}`);
       }
-      if (savedGraph?.nodes?.length) {
-        const done = savedGraph.nodes.filter((n: any) => n.status === 'done' || n.status === 'existing').length;
-        const total = savedGraph.nodes.filter((n: any) => n.status !== 'existing').length;
-        parts.push(`### 任务进度\n已完成 ${done}/${total} 个任务`);
-        const pending = savedGraph.nodes.filter((n: any) => n.status !== 'done' && n.status !== 'existing');
-        if (pending.length > 0) {
-          parts.push(`**待完成**: ${pending.map((n: any) => n.label).join('、')}`);
-        }
-      }
       const summary = parts.join('\n\n');
       setTimeline([{ kind: 'agent', agent: 'planner', text: summary, result: { type: 'plan', plan: savedPlan || {} } }]);
 
@@ -212,7 +203,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         savedPlan?.plan_summary ? `[计划] ${savedPlan.plan_summary}` : '',
         savedPlan?.steps?.length ? `[步骤]\n${savedPlan.steps.map((s: any, i: number) => `${i + 1}. ${s.description || s.title || JSON.stringify(s)}`).join('\n')}` : '',
         savedPlan?.key_files?.length ? `[关键文件] ${savedPlan.key_files.join(', ')}` : '',
-        savedGraph?.nodes?.length ? `[任务节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✓' : '○'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
+        savedGraph?.nodes?.length ? `[节点]\n${savedGraph.nodes.map((n: any) => `- ${n.status === 'done' || n.status === 'existing' ? '✓' : '○'} ${n.label} [${n.kind}]${n.file ? ` @${n.file}${n.line ? `:L${n.line}` : ''}` : ''}${n.detail ? ` — ${n.detail}` : ''}`).join('\n')}` : '',
         savedGraph?.edges?.length ? `[依赖关系] ${savedGraph.edges.map((e: any) => `${e.from}→${e.to}[${e.status}]`).join(', ')}` : '',
       ];
       savedContextRef.current = [
@@ -1048,7 +1039,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const runConsultReportBack = async (agentLabel: string, summary: string, hasGraph: boolean, originalInstruction: string) => {
     pmHistoryRef.current.push({
       role: 'user',
-      content: `【系统回报】${agentLabel} 已完成当前咨询任务。产出摘要（截断）：\n${summary}${hasGraph ? '\n（图谱已生成并显示于中央画布）' : ''}\n请向用户简要汇报（要点化，勿复述全文）；除用户显式要求外不再派发；结束时输出 <done/>。`,
+      content: `【系统回报】${agentLabel} 已完成本轮咨询。产出摘要（截断）：\n${summary}${hasGraph ? '\n（图谱已生成并显示于中央画布）' : ''}\n请向用户简要汇报（要点化，勿复述全文）；除用户显式要求外不再派发；结束时输出 <done/>。`,
     });
     const summaryText = await pmStream([...pmHistoryRef.current]);
     pmHistoryRef.current.push({ role: 'assistant', content: summaryText });

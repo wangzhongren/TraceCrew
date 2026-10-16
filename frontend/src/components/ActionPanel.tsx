@@ -249,7 +249,7 @@ export default function ActionPanel({
                   )}
                   {is.fix_files?.length > 0 && (
                     <div className="flex items-start gap-1">
-                      <span className="text-[10px] font-semibold shrink-0" style={{ color: 'var(--ibm-warning)' }}>修复文件：</span>
+                      <span className="text-[10px] font-semibold shrink-0" style={{ color: 'var(--ibm-warning)' }}>涉及文件：</span>
                       <div className="flex flex-wrap gap-1">
                         {is.fix_files.map(f => (
                           <code key={f} className="text-[9px] px-1 py-px rounded-sm" style={{ background: 'rgba(194,69,46,.07)', color: 'var(--ibm-error)' }}>{f}</code>
