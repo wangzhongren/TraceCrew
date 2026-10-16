@@ -77,10 +77,11 @@
 | 21 | 2026-10-16 ~17:35 | verification-passed | X2-A、X2-B | 核验：X2-B diff 恰 -2 行（`864b1d44…`、引用清零、可达性论证成立）；X2-A 三哈希与合并复验逐字一致（`55129dc4…`/`7fddf5ac…`/`15b942d1…`）、双旗标生效；**合并四门槛：check:electron=0、tsc=0、build=0、test=0（98/98）**——类型门达与前端全同标准且基线 0；双负对照（worker+PM）成立。X2-A/X2-B verified；观察 (i)(ii) 归目 Z4/Z5（§6） |
 | 22 | 2026-10-16 ~17:50 | completed | 全部 | **批 1 任务闭环**：B1-1…B1-6、B1-V、X1-A/C/B、X2-A/B、R1-N、B1-D 全部 verified；98/98、tsc=0、build=0、check:electron=0、冒烟与 404 复核通过；规则 R19 与三处口径已修正、§5 哈希清单补全；H1/Z1–Z5 观察项全部归目；**未提交 git（待客户决定）** |
 | 23 | 2026-10-16 ~18:00 | noted | 收口核对 | 工作区核对发现客户侧已有两次提交：`38a57c0`（修复链：测试迁移 + 两处缺陷，43→95/95）与 `9980fb1`（治理目录纳入）；**批 1 变更仍在工作区未提交**（vs HEAD：30 files、131+/497−、含 4 删除；另有 5 个未跟踪项：`frontend/tsconfig.electron.json`、`frontend/test/project-management/`、`角色卡/app-shell/changelog.md`、`docs/change/`、`docs/scheduling/architecture-batch1.md`）——提交/发布待客户决定（记录役未自行提交任何内容） |
+| 24 | 2026-10-16 ~18:20 | completed | 收口 | **H1 闭环**（治理扩充 `.gitignore` 用途 + `*.tsbuildinfo` 忽略 + 移出跟踪；`dd7b395` 已推送）；git 全景核对：`38a57c0`/`9980fb1`/`beab2b8`（批 1 应用变更）/`8356a87`（治理文档更新）/`dd7b395` 五提交覆盖全部交付；**工作区干净（0 变更）**——「提交/发布」项就此闭合 |
 
 ## 7. 收口
 
-批 1（architecture-batch1）于 2026-10-16 闭环：全部必需节点与附属小项 verified；候选物双版本可追溯（B1-V 冻结版 + X2 增量）；门槛全绿（98/98、tsc=0、build=0、check:electron=0）；独立验证由 project-test 在冻结候选上执行、X2 增量由 PM 合并复验。未提交 git；提交/发布与批 2/3 立项待客户决定。
+批 1（architecture-batch1）于 2026-10-16 闭环：全部必需节点与附属小项 verified；候选物双版本可追溯（B1-V 冻结版 + X2 增量）；门槛全绿（98/98、tsc=0、build=0、check:electron=0）。**提交状态（客户侧，均已推送 master）：`38a57c0` 修复链、`9980fb1` 治理目录、`beab2b8` 批 1 应用变更、`8356a87` 治理文档更新、`dd7b395` H1；工作区干净。**后续：发布与批 2/3 立项、Z1–Z5 观察项待客户决定。
 
 ## 5. 验收口径（来自提案）
 
@@ -102,6 +103,6 @@
 - **观察项 Z3（口径澄清）**：C7 批 1 验收的「空 catch」狭义指**体为空或仅有注释**的静默点（本批枚举：`agent.ts` 6 处 + `fileManager:574`，均已处置）。`fileManager` 其余 `catch { return 默认值 }`（L67/88/131/392/509/517/596 附近）与 `db.ts parseJsonField` 不在本批范围——其中 `readFile` 经返回值 `error` 字段向上报告（非静默）、`killShell` 为动作兜底，其余属「设计内默认值兜底」；归档为 N2 后续批次候选（B1-V 按此口径复核，不记为失败）。
 - **观察项 Z4（X2-A 上报）**：`main.ts` 的 `closeDatabase` import 由 rebrand 提交 `8d64343` 引入（message 自称 “for proper cleanup”，但 `git log -S` 证明**该调用从未落地**）——X2 仅移除、不代接线。如未来要做「退出前显式关闭 DB」属新增小项（待客户定；当前 better-sqlite3 WAL 随进程退出由 OS 释放，无可见问题）。
 - **观察项 Z5（批 1 可观察后果）**：`db.ts` 在 electron/ 生产侧现已无导入者（仅 `db.test.ts` 完整覆盖；features/change_queue 存储层按客户 D5 裁定保留）。后续批次若决定彻底移除需另案（含约 15 条测试的处置）。
-- **H1（卫生后续项，提交时处置）**：`frontend/tsconfig.tsbuildinfo` 自首次提交起被 git 跟踪，含陈旧条目（如已不存在的 topologycanvas.tsx）。建议从跟踪移除并加入忽略（需在提交时执行、属新范围；候选并入后续批次）。B1-V 宽 grep 若命中它属已知项。另注：今日会话环境曾声明「非 git 仓库」，实测 git 正常——以实测为准。
+- **H1（已闭环 2026-10-16）**：`frontend/tsconfig.tsbuildinfo` 已由客户指令处置——治理侧扩充 `.gitignore` 条目用途（锁文件与生成物构建缓存）、追加第 25 行 `*.tsbuildinfo`、`git rm --cached` 移出跟踪（本地文件保留）；提交 `dd7b395` 已推送 master。复核：`git check-ignore -v frontend/tsconfig.tsbuildinfo` 命中 `.gitignore:25`。另注：今日会话环境曾声明「非 git 仓库」，实测 git 正常——以实测为准。
 - **观察项 Z1**：`agent.ts` 764/781 两处非空 catch（返回默认值、无说明注释）；`App.tsx` 149/155/161/293/295 等前端静默 catch——候选并入后续批次的 N2 前端部分，本批未动。
 - **观察项 Z2**：`graph.analyzing` 文案与 MapCanvas 阶段指示器在 planning 阶段统一显示 “Planner”，而该阶段也可能由 Architect 在跑（UI 细节，graph-view 范围）；本批未动，候选后续。
