@@ -13,8 +13,120 @@ import { useT, useLocale } from '../i18n';
 type TimelineEntry =
   | { kind: 'agent'; agent: string; text: string; reasoning?: string; result?: any; autoCollapse?: boolean; status?: 'done'; tools?: Array<{ type: string; file: string }> }
   | { kind: 'tool'; agent: string; tool: string; file: string }
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images?: string[] }
   | { kind: 'system'; text: string };
+
+/* ── 思考强度三档（②，design_chat-input-images-thinking §2） ── */
+
+type ThinkingTier = 'low' | 'mid' | 'high';
+
+/** 档位 → 代理 thinking.type 映射（同模型三态、不换模型；常量对象，禁三元） */
+const THINKING_PARAM: Record<ThinkingTier, { type: 'disabled' | 'adaptive' | 'enabled' }> = {
+  low: { type: 'disabled' },
+  mid: { type: 'adaptive' },
+  high: { type: 'enabled' },
+};
+
+/** 客户指定默认=中（adaptive）；调整改此处 */
+const DEFAULT_THINKING_TIER: ThinkingTier = 'mid';
+
+/** 会话记忆键：读取时校验枚举，非法值/不可用回落默认档 */
+const THINKING_TIER_STORAGE_KEY = 'tracecrew.thinkingTier';
+
+const THINKING_TIERS: ThinkingTier[] = ['low', 'mid', 'high'];
+
+const THINKING_TIER_LABEL_KEY: Record<ThinkingTier, string> = {
+  low: 'chat.thinkingLow',
+  mid: 'chat.thinkingMid',
+  high: 'chat.thinkingHigh',
+};
+
+const THINKING_TIER_HINT_KEY: Record<ThinkingTier, string> = {
+  low: 'chat.thinkingLowHint',
+  mid: 'chat.thinkingMidHint',
+  high: 'chat.thinkingHighHint',
+};
+
+function readStoredThinkingTier(): ThinkingTier {
+  try {
+    const raw = localStorage.getItem(THINKING_TIER_STORAGE_KEY);
+    if (raw === 'low' || raw === 'mid' || raw === 'high') return raw;
+  } catch (err) {
+    // 预期可忽略：localStorage 不可用（隐私模式/嵌入环境等）不影响会话，回落默认档
+    console.warn('[ChatPanel] 读取思考强度记忆失败：', err);
+  }
+  return DEFAULT_THINKING_TIER;
+}
+
+/* ── 图片发送（①，design_chat-input-images-thinking §1） ── */
+
+type Attachment = { id: string; dataUrl: string; bytes: number };
+
+const MAX_IMAGE_EDGE = 1400;                       // 最长边（等比缩放上限，保持截图文字可读）
+const MAX_IMAGE_BYTES_PER_ITEM = 500 * 1024;       // 单图编码后上限（超标二次降质，仍超则拒绝）
+const MAX_IMAGES_PER_MESSAGE = 3;                  // 每消息张数上限
+const MAX_IMAGE_BYTES_TOTAL = 1.2 * 1024 * 1024;   // 消息总量（编码后）上限
+const JPEG_QUALITY_PRIMARY = 0.85;
+const JPEG_QUALITY_SECONDARY = 0.7;
+
+/** data URL 的 base64 载荷字节估算（4 字符 ≈ 3 字节） */
+function estimateDataUrlBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',');
+  if (comma === -1) return 0;
+  return Math.floor((dataUrl.length - comma - 1) * 3 / 4);
+}
+
+type CompressResult = { ok: true; dataUrl: string; bytes: number } | { ok: false; reason: 'too-large' | 'decode-failed' };
+
+/**
+ * 浏览器端压缩（纯渲染层，无新 IPC）：createImageBitmap → 最长边 ≤1400 等比缩放 →
+ * 白底 JPEG q0.85；编码后 >500KB 二次降质 q0.7；仍超 → 拒绝（too-large）。
+ */
+async function compressImageFile(file: File): Promise<CompressResult> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch (err) {
+    console.warn('[ChatPanel] 图片解码失败：', err);
+    return { ok: false, reason: 'decode-failed' };
+  }
+  try {
+    let width = bitmap.width;
+    let height = bitmap.height;
+    const maxEdge = Math.max(width, height);
+    if (maxEdge > MAX_IMAGE_EDGE) {
+      const ratio = MAX_IMAGE_EDGE / maxEdge;
+      width = Math.max(1, Math.round(width * ratio));
+      height = Math.max(1, Math.round(height * ratio));
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      console.error('[ChatPanel] 图片压缩失败：canvas 2d 上下文不可用');
+      return { ok: false, reason: 'decode-failed' };
+    }
+    // 白底铺底：避免透明 PNG 转 JPEG 后透明区变黑
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    let dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY_PRIMARY);
+    let bytes = estimateDataUrlBytes(dataUrl);
+    if (bytes > MAX_IMAGE_BYTES_PER_ITEM) {
+      dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY_SECONDARY);
+      bytes = estimateDataUrlBytes(dataUrl);
+    }
+    if (bytes > MAX_IMAGE_BYTES_PER_ITEM) {
+      console.log(`[ChatPanel] 图片二次降质后仍超限（${Math.round(bytes / 1024)}KB > ${MAX_IMAGE_BYTES_PER_ITEM / 1024}KB），拒绝`);
+      return { ok: false, reason: 'too-large' };
+    }
+    return { ok: true, dataUrl, bytes };
+  } finally {
+    bitmap.close();
+  }
+}
 
 /* ── Agent config ── */
 
@@ -112,6 +224,14 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   }, [savedPlan, savedGraph]);
   const [input, setInput] = useState('');
   const [running, setRunning] = useState(false);
+  const [thinkingTier, setThinkingTier] = useState<ThinkingTier>(() => readStoredThinkingTier());
+  const thinkingTierRef = useRef<ThinkingTier>(thinkingTier);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const attachmentsRef = useRef<Attachment[]>([]);
+  const [attachNotice, setAttachNotice] = useState('');
+  const [compressingCount, setCompressingCount] = useState(0);
+  const pendingImagesRef = useRef<Attachment[] | null>(null);   // 待随本轮请求发送的图片（发送时置入、请求组装时消费清空）
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [pmState, setPmState] = useState<{ active: boolean; originalInstruction: string }>({ active: false, originalInstruction: '' });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -137,6 +257,74 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   }, [input]);
 
   /* ── Helpers ── */
+
+  /* 附件状态与 ref 同步：事件回调（粘贴/拖拽/异步压缩）需要即时读到最新列表，避免闭包过期 */
+  const updateAttachments = (next: Attachment[]): void => {
+    attachmentsRef.current = next;
+    setAttachments(next);
+  };
+
+  const removeAttachment = (id: string): void => {
+    updateAttachments(attachmentsRef.current.filter(a => a.id !== id));
+  };
+
+  /* ① 三入口共用（粘贴/文件选择/拖拽）：压缩后加入待发区；数量/总量超限给出行内提示 */
+  const addImageFiles = async (files: File[]): Promise<void> => {
+    const images = files.filter(f => f.type.startsWith('image/'));
+    if (images.length === 0) return;
+    setAttachNotice('');
+
+    const slots = MAX_IMAGES_PER_MESSAGE - attachmentsRef.current.length;
+    if (slots <= 0) {
+      setAttachNotice(t('chat.imageLimitReached', { count: MAX_IMAGES_PER_MESSAGE }));
+      return;
+    }
+    if (images.length > slots) {
+      setAttachNotice(t('chat.imageLimitReached', { count: MAX_IMAGES_PER_MESSAGE }));
+    }
+    const accepted = images.slice(0, slots);
+    setCompressingCount(n => n + accepted.length);
+    try {
+      for (const file of accepted) {
+        const result = await compressImageFile(file);
+        if (!result.ok) {
+          if (result.reason === 'too-large') setAttachNotice(t('chat.imageTooLarge'));
+          else setAttachNotice(t('chat.imageFailed'));
+          continue;
+        }
+        const current = attachmentsRef.current;
+        if (current.length >= MAX_IMAGES_PER_MESSAGE) {
+          setAttachNotice(t('chat.imageLimitReached', { count: MAX_IMAGES_PER_MESSAGE }));
+          break;
+        }
+        const totalBytes = current.reduce((sum, a) => sum + a.bytes, 0) + result.bytes;
+        if (totalBytes > MAX_IMAGE_BYTES_TOTAL) {
+          // 总量超限按体积问题提示（与单图超限共用文案）
+          setAttachNotice(t('chat.imageTooLarge'));
+          continue;
+        }
+        updateAttachments([...current, {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          dataUrl: result.dataUrl,
+          bytes: result.bytes,
+        }]);
+      }
+    } finally {
+      setCompressingCount(n => Math.max(0, n - accepted.length));
+    }
+  };
+
+  /* 切换思考档（②）：ref 供请求体组装即时读取；localStorage 记忆，写入失败不影响当前会话 */
+  const changeThinkingTier = (tier: ThinkingTier): void => {
+    thinkingTierRef.current = tier;
+    setThinkingTier(tier);
+    try {
+      localStorage.setItem(THINKING_TIER_STORAGE_KEY, tier);
+    } catch (err) {
+      // 预期可忽略：记忆写入失败仅丢失跨会话持久化，当前会话仍按所选档位生效
+      console.warn('[ChatPanel] 写入思考强度记忆失败：', err);
+    }
+  };
 
   const parseJson = (text: string): any => {
     if (!text) return null;
@@ -199,11 +387,43 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   /* ── SSE stream ── */
 
   const streamSSE = async (body: Record<string, any>, onToken: (t: string) => void, onReasoning?: (t: string) => void, onTools?: (ops: any[]) => void) => {
-    const res = await fetch('/api/v1/agent/chat/stream', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, project_path: projectPath, locale }),
-      signal: abortRef.current?.signal,
-    });
+    // ① 图片：仅本轮携带（消费即清空，历史重发不重发图片——v1 取舍）；
+    // ② 思考强度：所有经本面板的请求（pm/agentLoop/咨询链）一律携带当前档位。
+    const carriedAttachments = pendingImagesRef.current;
+    pendingImagesRef.current = null;
+    // ② 线格式为 { type } 对象（设计 §2.3，与 routes 严格校验一致）；服务端校验后再透传代理
+    const requestBody: Record<string, any> = { ...body, project_path: projectPath, locale, thinking: THINKING_PARAM[thinkingTierRef.current] };
+    if (carriedAttachments && carriedAttachments.length > 0) {
+      requestBody.images = carriedAttachments.map(a => a.dataUrl);
+    }
+
+    let res: Response;
+    try {
+      res = await fetch('/api/v1/agent/chat/stream', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: abortRef.current?.signal,
+      });
+    } catch (err) {
+      // 预期可忽略：网络/中止异常维持既有向上传播语义；带图本轮额外恢复附件并如实提示（用户主动停止不算失败）
+      console.error('[streamSSE] 请求发送异常：', err);
+      const aborted = err instanceof DOMException && err.name === 'AbortError';
+      if (!aborted && carriedAttachments) {
+        updateAttachments([...carriedAttachments, ...attachmentsRef.current].slice(0, MAX_IMAGES_PER_MESSAGE));
+        setAttachNotice(t('chat.imageFailed'));
+      }
+      throw err;
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[streamSSE] HTTP ${res.status} 请求被拒：`, errText);
+      if (carriedAttachments) {
+        // 失败态（设计 §1.1）：本轮带图 → 恢复附件 + 行内提示（可移除重发）；本轮以空结果收束
+        updateAttachments([...carriedAttachments, ...attachmentsRef.current].slice(0, MAX_IMAGES_PER_MESSAGE));
+        setAttachNotice(t('chat.imageFailed'));
+        return { fullText: '', doneMessage: '' };
+      }
+    }
     const reader = res.body?.getReader();
     if (!reader) return { fullText: '', doneMessage: '' };
     const dec = new TextDecoder();
@@ -315,6 +535,13 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         setTimeline(prev => {
           const u = [...prev], idx = tidxRef.current;
           if (idx >= 0 && u[idx]?.kind === 'agent') u[idx] = { ...u[idx], text: u[idx].text + t };
+          return u;
+        });
+      },
+      (t) => {
+        setTimeline(prev => {
+          const u = [...prev], idx = tidxRef.current;
+          if (idx >= 0 && u[idx]?.kind === 'agent') u[idx] = { ...u[idx], reasoning: (u[idx].reasoning || '') + t };
           return u;
         });
       }
@@ -832,12 +1059,26 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const handleSend = () => {
     if (!input.trim() || running) return;
     const msg = input.trim();
+    const sentAttachments = attachmentsRef.current;
+    const images = sentAttachments.map(a => a.dataUrl);
     setInput('');
-    setTimeline(prev => [...prev, { kind: 'user', text: msg }]);
+    setAttachNotice('');
+    if (sentAttachments.length > 0) {
+      pendingImagesRef.current = sentAttachments;
+      updateAttachments([]);
+    }
+    // 展示条目带缩略图；历史推送的文本附加「（附图 N 张）」标记（模型侧注入文本，展示文本不加）
+    let entryImages: string[] | undefined;
+    let historyText = msg;
+    if (images.length > 0) {
+      entryImages = images;
+      historyText = `${msg}（附图 ${images.length} 张）`;
+    }
+    setTimeline(prev => [...prev, { kind: 'user', text: msg, images: entryImages }]);
     if (pmState.active) {
-      runProjectManagerFollowUp(msg);
+      runProjectManagerFollowUp(historyText);
     } else {
-      runProjectManager(msg);
+      runProjectManager(historyText);
     }
   };
 
@@ -979,20 +1220,96 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
             </div>
           </div>
         ) : (
-          <TimelineView timeline={timeline} t={t} />
+          <TimelineView timeline={timeline} t={t} thinkingTier={thinkingTier} />
         )}
       </div>
 
       {/* Input */}
       <div className="shrink-0 px-3 py-2.5 border-t" style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
+        {/* ① 待发预览条：缩略图 chips（含体积标注与 ✕ 移除，方角 3px、发丝边）+ 压缩中占位 */}
+        {(attachments.length > 0 || compressingCount > 0) && (
+          <div className="flex items-center flex-wrap gap-1.5 px-1 pb-1.5">
+            {attachments.map((a) => (
+              <div key={a.id} className="relative shrink-0"
+                style={{ borderRadius: 3, border: '1px solid var(--ibm-border)', background: 'var(--color-bg-surface)' }}>
+                <img src={a.dataUrl} alt="" style={{ height: 44, maxWidth: 110, objectFit: 'cover', display: 'block', borderRadius: 2 }} />
+                <span className="absolute left-0 bottom-0 text-[8px] px-1 py-0.5 leading-none"
+                  style={{ background: 'rgba(32,48,79,.72)', color: '#fff', borderTopRightRadius: 3 }}>
+                  {Math.round(a.bytes / 1024)}KB
+                </span>
+                <button onClick={() => removeAttachment(a.id)} title="✕"
+                  className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 flex items-center justify-center text-[8px] leading-none rounded-full"
+                  style={{ background: 'var(--ibm-primary)', color: '#fff' }}>
+                  ✕
+                </button>
+              </div>
+            ))}
+            {compressingCount > 0 && (
+              <div className="shrink-0 flex items-center justify-center"
+                style={{ width: 44, height: 44, borderRadius: 3, border: '1px dashed var(--ibm-border-strong)', background: 'var(--color-bg-surface)' }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="animate-spin"
+                  style={{ color: 'var(--color-text-muted)' }}>
+                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                </svg>
+              </div>
+            )}
+          </div>
+        )}
+        {/* ① 行内提示：数量/体积超限、发送失败（可移除后重发） */}
+        {attachNotice && (
+          <div className="flex items-center gap-1.5 px-1 pb-1.5">
+            <span className="text-[9px]" style={{ color: 'var(--ibm-error)' }}>{attachNotice}</span>
+            <button onClick={() => setAttachNotice('')} className="text-[9px] hover:underline shrink-0"
+              style={{ color: 'var(--color-text-muted)' }}>
+              ✕
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2 px-3 py-2 rounded-md border border-[color:var(--color-border-default)] transition-colors focus-within:border-[#35608f] focus-within:shadow-[0_0_0_3px_rgba(53,96,143,0.10)]"
-          style={{ background: 'var(--color-bg-surface)' }}>
+          style={{ background: 'var(--color-bg-surface)' }}
+          onDragOver={(e) => { e.preventDefault(); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const dropped = Array.from(e.dataTransfer?.files || []);
+            if (dropped.length > 0) addImageFiles(dropped);
+          }}>
+          {/* ① 文件选择入口（纯渲染层，无新 IPC） */}
+          <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={(e) => {
+              const picked = Array.from(e.target.files || []);
+              e.target.value = ''; // 允许连续选择同一个文件
+              addImageFiles(picked);
+            }} />
           <textarea ref={textareaRef} value={input} onChange={e => setInput(e.target.value)}
             placeholder={pmState.active ? t('pm.replyPlaceholder') : t('chat.inputPlaceholder')} disabled={running} rows={1}
             className="flex-1 text-[12px] bg-transparent outline-none focus:outline-none focus:ring-0 focus:ring-offset-0 resize-none min-h-[24px] max-h-[120px] leading-relaxed"
             style={{ color: 'var(--color-text-primary)' }}
+            onPaste={(e) => {
+              // ① 粘贴入口：仅当剪贴板含图片文件时拦截（纯文本粘贴不受影响）
+              const items = e.clipboardData?.items;
+              if (!items) return;
+              const files: File[] = [];
+              for (let i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
+                  const f = items[i].getAsFile();
+                  if (f) files.push(f);
+                }
+              }
+              if (files.length > 0) {
+                e.preventDefault();
+                addImageFiles(files);
+              }
+            }}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleSend(); } }}
           />
+          <button onClick={() => fileInputRef.current?.click()} disabled={running}
+            className="shrink-0 w-6 h-6 mb-0.5 flex items-center justify-center rounded-md transition-colors hover:bg-[rgba(27,42,68,0.045)] disabled:opacity-30"
+            style={{ color: 'var(--color-text-muted)' }}
+            title={t('chat.imageAttach')} aria-label={t('chat.imageAttach')}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+            </svg>
+          </button>
           {running ? (
             <button onClick={() => { abortRef.current?.abort(); setRunning(false); }}
               className="shrink-0 px-2.5 py-1 rounded-md text-[10px] font-semibold"
@@ -1009,22 +1326,51 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
             </button>
           )}
         </div>
-        <div className="flex justify-between mt-1.5 px-1">
-          {pmState.active ? (
-            <button onClick={() => {
-              const orig = pmState.originalInstruction;
-              setPmState({ active: false, originalInstruction: '' });
-              setTimeline(prev => [...prev, { kind: 'system', text: t('pm.skipToPlanner') }]);
-              setTimeout(() => runPlanner(orig), 100);
-            }}
-              className="text-[9px] hover:underline"
-              style={{ color: 'var(--color-text-muted)' }}>
-              {t('pm.skipToPlanner')}
-            </button>
-          ) : (
-            <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
-          )}
-          <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.charCount', { count: input.length })}</span>
+        <div className="flex items-center justify-between mt-1.5 px-1 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* 思考强度三档分段控件（②）：点击切换即持久化；样式沿用蓝图室 token（墨蓝选中态、方角 3px） */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.thinkingLabel')}</span>
+              <div className="flex overflow-hidden" style={{ border: '1px solid var(--ibm-border)', borderRadius: 3 }}>
+                {THINKING_TIERS.map((tier, index) => {
+                  const selected = thinkingTier === tier;
+                  const segmentStyle: { background: string; color: string; borderLeft?: string } = {
+                    background: 'transparent',
+                    color: 'var(--color-text-muted)',
+                  };
+                  if (index > 0) segmentStyle.borderLeft = '1px solid var(--ibm-border)';
+                  if (selected) {
+                    segmentStyle.background = 'var(--ibm-primary)';
+                    segmentStyle.color = '#fff';
+                  }
+                  return (
+                    <button key={tier} onClick={() => changeThinkingTier(tier)}
+                      className="px-1.5 py-0.5 flex flex-col items-center leading-none transition-colors"
+                      style={segmentStyle}
+                      title={t(THINKING_TIER_HINT_KEY[tier])}>
+                      <span className="text-[9px] font-medium">{t(THINKING_TIER_LABEL_KEY[tier])}</span>
+                      <span className="text-[8px] mt-0.5" style={{ opacity: 0.72 }}>{t(THINKING_TIER_HINT_KEY[tier])}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {pmState.active ? (
+              <button onClick={() => {
+                const orig = pmState.originalInstruction;
+                setPmState({ active: false, originalInstruction: '' });
+                setTimeline(prev => [...prev, { kind: 'system', text: t('pm.skipToPlanner') }]);
+                setTimeout(() => runPlanner(orig), 100);
+              }}
+                className="text-[9px] hover:underline truncate"
+                style={{ color: 'var(--color-text-muted)' }}>
+                {t('pm.skipToPlanner')}
+              </button>
+            ) : (
+              <span className="text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
+            )}
+          </div>
+          <span className="text-[9px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>{t('chat.charCount', { count: input.length })}</span>
         </div>
       </div>
     </div>
@@ -1035,17 +1381,17 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
    Timeline renderer — pure, no side effects
    ══════════════════════════════════════════════ */
 
-function TimelineView({ timeline, t }: { timeline: TimelineEntry[]; t: any }) {
+function TimelineView({ timeline, t, thinkingTier }: { timeline: TimelineEntry[]; t: any; thinkingTier: ThinkingTier }) {
   return (
     <div className="px-4 py-2 space-y-0.5">
       {timeline.map((entry, i) => {
         if (entry.kind === 'system') return <SystemMsg key={i} text={entry.text} />;
-        if (entry.kind === 'user') return <UserMsg key={i} text={entry.text} />;
+        if (entry.kind === 'user') return <UserMsg key={i} text={entry.text} images={entry.images} />;
         if (entry.kind === 'tool') {
           // All tool calls are now embedded inside AgentCard — skip standalone ToolRow
           return null;
         }
-        if (entry.kind === 'agent') return <AgentCard key={i} entry={entry} t={t} />;
+        if (entry.kind === 'agent') return <AgentCard key={i} entry={entry} t={t} thinkingTier={thinkingTier} />;
         return null;
       })}
     </div>
@@ -1062,11 +1408,19 @@ function SystemMsg({ text }: { text: string }) {
   );
 }
 
-function UserMsg({ text }: { text: string }) {
+function UserMsg({ text, images }: { text: string; images?: string[] }) {
   return (
     <div className="flex justify-end py-1">
       <div className="max-w-[90%] rounded px-3.5 py-2.5"
         style={{ background: 'var(--ibm-layer-02)', border: '1px solid var(--ibm-border)' }}>
+        {images && images.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-1.5 mb-1.5">
+            {images.map((src, i) => (
+              <img key={i} src={src} alt="" className="max-w-full object-contain"
+                style={{ maxHeight: 120, borderRadius: 3, border: '1px solid var(--ibm-border)' }} />
+            ))}
+          </div>
+        )}
         <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-primary)' }}>
           {text}
         </div>
@@ -1075,7 +1429,7 @@ function UserMsg({ text }: { text: string }) {
   );
 }
 
-function CollapsibleReasoning({ text }: { text: string }) {
+function CollapsibleReasoning({ text, t }: { text: string; t: (key: string) => string }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="mt-2">
@@ -1086,7 +1440,7 @@ function CollapsibleReasoning({ text }: { text: string }) {
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0">
           <path d="M12 3a6 6 0 0 0-3.5 10.9V17h7v-3.1A6 6 0 0 0 12 3z"/><path d="M10 21h4"/>
         </svg>
-        思考过程
+        {t('chat.reasoning')}
       </div>
       {open && (
         <div className="opacity-60" onClick={() => setOpen(false)}>
@@ -1136,10 +1490,15 @@ function CollapsibleTools({ tools }: { tools: Array<{ type: string; file: string
 
 /* ── Agent card ── */
 
-function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: any }) {
+function AgentCard({ entry, t, thinkingTier }: { entry: TimelineEntry & { kind: 'agent' }; t: any; thinkingTier: ThinkingTier }) {
   const cfg = AG[entry.agent] || { name: entry.agent, color: '#8593aa' };
   const [expanded, setExpanded] = useState(true);
   const result = entry.result;
+
+  // ② 思考强度徽标：档=中/高时显示（低档不显示）；文案复用档位副标
+  let thinkingBadge = '';
+  if (thinkingTier === 'mid') thinkingBadge = t('chat.thinkingMidHint');
+  else if (thinkingTier === 'high') thinkingBadge = t('chat.thinkingHighHint');
 
   // Hide completely after Mapper completes
   if (entry.autoCollapse) return null;
@@ -1210,6 +1569,16 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
             {status === 'failed' ? '✕ ' : status === 'done' ? '✓ ' : ''}{statusLabel}
           </span>
         )}
+        {/* 思考强度徽标（复用状态胶囊位、方角 3px） */}
+        {thinkingBadge && (
+          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-sm" style={{
+            background: 'rgba(53,96,143,.07)',
+            border: '1px solid rgba(53,96,143,.4)',
+            color: '#35608f',
+          }}>
+            {thinkingBadge}
+          </span>
+        )}
         <div className="flex-1" />
         <svg width="10" height="10" viewBox="0 0 8 8"
           style={{ transform: expanded ? 'rotate(180deg)' : '', transition: 'transform 0.15s' }}>
@@ -1222,7 +1591,7 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
         <div className="px-3.5 pb-3">
           {/* Reasoning — above main text, collapsible */}
           {entry.reasoning && (
-            <CollapsibleReasoning text={entry.reasoning} />
+            <CollapsibleReasoning text={entry.reasoning} t={t} />
           )}
 
           {/* Tools — collapsible file list (read_file) */}

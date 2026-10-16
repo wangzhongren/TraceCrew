@@ -14,7 +14,7 @@ export function createServer(frontendDistDir: string): Server {
 
   // ── Middleware ──
   app.use(cors({ origin: '*', credentials: true }));
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '8mb' }));
 
   // ── Static files (production: serve frontend dist) ──
   if (fs.existsSync(frontendDistDir)) {

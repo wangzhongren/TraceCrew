@@ -541,6 +541,15 @@ function loopNudgePrompt(): string {
 /** 终稿轮注入（达限硬收尾与循环防护提前收尾共用同一文案） */
 const FINAL_WRAPUP_PROMPT = '【系统】已达探索轮次上限。请立即基于已获得的信息，直接输出最终结论/图谱（不再使用任何工具），并在末尾追加 <final/>。';
 
+/* ── ① 图片消息与 ② 思考强度（design_chat-input-images-thinking） ── */
+
+/** ① 图片消息：消息 content 升级为字符串或 OpenAI 兼容 parts 数组（文本 + image_url） */
+type ChatPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatPart[] };
+
+/** ② 思考强度枚举（同模型三态、不换模型）；仅在请求携带时透传代理 */
+type ThinkingType = 'adaptive' | 'enabled' | 'disabled';
+
 /* ── Agent Service ── */
 
 export class AgentService {
@@ -769,14 +778,14 @@ export class AgentService {
     return `已达探索轮次上限（${maxTurns} 轮，已执行 ${executedOps} 次工具操作）。建议：再发送一条消息即可继续，我会带着当前进度接着做。`;
   }
 
-  private buildMessages(history?: Array<{ role: string; content: string }> | null) {
+  private buildMessages(history?: Array<{ role: string; content: string }> | null): ChatMessage[] {
     if (history !== undefined && history !== null && !Array.isArray(history)) {
       throw new Error(
         `buildMessages: history 必须是数组（或省略 / null），实际收到 ${typeof history}；` +
           '非数组值会被逐字符遍历、静默产出逐字符垃圾消息，故立即报错',
       );
     }
-    const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+    const msgs: ChatMessage[] = [];
     if (history) {
       for (const h of history) {
         // 客户端（ChatPanel）全程发送 role:'assistant' 的历史项；'agent' 为 legacy 兼容。
@@ -791,7 +800,9 @@ export class AgentService {
     return msgs;
   }
 
-  private truncate(text: string, maxChars = MAX_CONTEXT_CHARS): string {
+  /** 文本截断（保留头尾）。① 图片消息的 parts 数组不截断，原样跳过返回。 */
+  private truncate(text: string | ChatPart[], maxChars = MAX_CONTEXT_CHARS): string | ChatPart[] {
+    if (typeof text !== 'string') return text;
     if (text.length <= maxChars) return text;
     const half = Math.floor(maxChars / 2);
     return text.slice(0, half) + '\n\n... (truncated) ...\n\n' + text.slice(-half);
@@ -856,7 +867,8 @@ export class AgentService {
     try {
       const response = await this.getClient('executor').chat.completions.create({
         model: this.getModel('executor'),
-        messages,
+        // ① messages 类型升级为 string | parts[] 联合；SDK 参数类型面较窄，此处最小 cast
+        messages: messages as any,
         temperature: 0.0,
       });
 
@@ -875,8 +887,25 @@ export class AgentService {
     mode?: string | null;
     locale?: string | null;
     max_turns?: number | null;
+    thinking?: ThinkingType;
+    images?: string[];
   }): AsyncGenerator<{ event: string; data: string }> {
     const messages = this.buildMessages(req.history);
+
+    // ① 图片（设计 §1.2）：仅把「本轮最后一条 user 消息」的 content 升级为 parts 数组
+    // [文本, ...image_url]；历史与后续注入消息保持字符串——历史重发不重发图片（v1 取舍）。
+    if (req.images && req.images.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage && lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
+        const textPart: ChatPart = { type: 'text', text: lastMessage.content };
+        lastMessage.content = [
+          textPart,
+          ...req.images.map((url): ChatPart => ({ type: 'image_url', image_url: { url } })),
+        ];
+      } else {
+        console.log('[processStream] 收到 images 但最后一条消息不是 user（或历史为空），放弃包装');
+      }
+    }
     const projectPath = req.project_path || '';
 
     // 本轮探索轮次上限：默认 50；合法数字 clamp 到 [1, DEFAULT_MAX_TURNS]；
@@ -905,7 +934,11 @@ export class AgentService {
 
     console.log(`[processStream] mode=${mode} msgs=${messages.length}`);
     for (let i = 0; i < Math.min(messages.length, 3); i++) {
-      console.log(`[processStream]   msg[${i}] role=${messages[i].role} preview=${messages[i].content.slice(0, 100)}`);
+      // ① content 可能是 parts 数组（图片消息），日志仅预览字符串形态
+      const content = messages[i].content;
+      let preview = '[parts]';
+      if (typeof content === 'string') preview = content.slice(0, 100);
+      console.log(`[processStream]   msg[${i}] role=${messages[i].role} preview=${preview}`);
     }
 
     let turn = 0, emptyCount = 0;
@@ -934,11 +967,17 @@ export class AgentService {
       let fullText = '';
 
       try {
+        // ② 思考强度：仅当本请求携带合法枚举时加入 thinking 参数（未提供时请求形态与现状逐字段一致）；
+        // 该字段不在 OpenAI SDK 类型面内，经 spread 携带（不受对象字面量多余属性检查）。
+        const thinkingExtras: { thinking?: { type: ThinkingType } } = {};
+        if (req.thinking !== undefined) thinkingExtras.thinking = { type: req.thinking };
         const stream = await this.getClient(mode).chat.completions.create({
           model: this.getModel(mode),
-          messages,
+          // ① messages 类型升级为 string | parts[] 联合；SDK 参数类型面较窄，此处最小 cast
+          messages: messages as any,
           temperature: 0.0,
           stream: true,
+          ...thinkingExtras,
         });
 
         for await (const chunk of stream) {
