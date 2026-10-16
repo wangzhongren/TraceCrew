@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCK_FILE="$SCRIPT_DIR/.codeatlas.lock"
+LOCK_FILE="$SCRIPT_DIR/.tracecrew.lock"
 FRONTEND_DIR="$SCRIPT_DIR/frontend"
 
 RED='\033[0;31m'
@@ -12,7 +12,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${CYAN}╔══════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       CodeAtlas Launcher         ║${NC}"
+echo -e "${CYAN}║       TraceCrew Launcher         ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════╝${NC}"
 echo ""
 
@@ -52,7 +52,7 @@ echo ""
 
 # ── Start Electron (Express backend embedded) ──────
 
-echo -e "${CYAN}[2/2] Starting CodeAtlas...${NC}"
+echo -e "${CYAN}[2/2] Starting TraceCrew...${NC}"
 cd "$FRONTEND_DIR"
 unset ELECTRON_RUN_AS_NODE
 npm run electron:dev &

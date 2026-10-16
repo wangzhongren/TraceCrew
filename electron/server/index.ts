@@ -3,11 +3,7 @@ import cors from 'cors';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { Server } from 'http';
-import { fileURLToPath } from 'url';
 import agentRoutes from './routes/agent';
-import featuresRoutes from './routes/features';
-import changesRoutes from './routes/changes';
-import topologyRoutes from './routes/topology';
 import { agentService } from './services/agent';
 import { updateEnvFile } from '../settingsStore';
 
@@ -27,9 +23,6 @@ export function createServer(frontendDistDir: string): Server {
 
   // ── API Routes ──
   app.use('/api/v1/agent', agentRoutes);
-  app.use('/api/v1/features', featuresRoutes);
-  app.use('/api/v1/changes', changesRoutes);
-  app.use('/api/v1/topology', topologyRoutes);
 
   // ── Settings ──
 
@@ -76,7 +69,7 @@ export function createServer(frontendDistDir: string): Server {
 
   // ── Health ──
   app.get('/api/v1/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'code-atlas' });
+    res.json({ status: 'ok', service: 'tracecrew' });
   });
 
   // SPA fallback — skipped in dev (Vite serves frontend)

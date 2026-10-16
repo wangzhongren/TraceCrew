@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT, useLocale, LOCALE_LABELS, type Locale } from './i18n';
 import ChatPanel from './components/ChatPanel';
 import MapperView from './components/MapperView';
-import type { CallGraph, GraphNode, GraphEdge } from './components/MapCanvas';
+import type { CallGraph, GraphNode } from './components/MapCanvas';
 import TitleBar from './components/TitleBar';
 import SettingsPanel from './components/SettingsPanel';
 import RightPanel from './components/RightPanel';
@@ -147,7 +147,7 @@ export default function App() {
           }
         }
       } catch { /* no saved state */ }
-      setPipeline({ phase: 'idle', graph: null });
+      setPipeline({ phase: 'idle', graph: null, sequenceGraph: null });
     })();
   }, []);
 
@@ -534,8 +534,7 @@ export default function App() {
                   };
                 }
                 case 'token':
-                case 'review_token':
-                case 'remap_token': {
+                case 'review_token': {
                   // Append token to the last timeline entry
                   const tl = [...prev.timeline];
                   if (tl.length > 0) {
@@ -580,7 +579,7 @@ export default function App() {
             });
           } catch {
             // Non-JSON data — append as token to last timeline entry
-            if (event === 'token' || event === 'review_token' || event === 'remap_token') {
+            if (event === 'token' || event === 'review_token') {
               setStream(prev => {
                 const tl = [...prev.timeline];
                 if (tl.length > 0) {

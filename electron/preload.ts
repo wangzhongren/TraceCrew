@@ -49,9 +49,6 @@ search: (query: string, dirPath: string, options?: import('./fileManager').Searc
       ipcRenderer.on('shell:error', (_e, data: { id: string; error: string }) => cb(data.id, data.error));
     },
   },
-  backend: {
-    getUrl: () => 'http://localhost:19850',
-  },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),

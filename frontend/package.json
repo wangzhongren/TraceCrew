@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "check:electron": "tsc --noEmit -p tsconfig.electron.json",
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
@@ -57,14 +58,7 @@
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*",
-      "../backend/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "../backend",
-        "to": "backend"
-      }
+      "dist-electron/**/*"
     ],
     "win": {
       "target": "nsis",

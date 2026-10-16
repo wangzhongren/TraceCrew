@@ -1134,7 +1134,12 @@ export class AgentService {
   private extractPlanJson(text: string): Record<string, unknown> {
     const jsonStr = this.extractJsonBlock(text, 'steps');
     if (jsonStr) {
-      try { return JSON.parse(jsonStr); } catch {}
+      try {
+        return JSON.parse(jsonStr);
+      } catch {
+        // Expected failure: the extracted block may not be valid JSON when the
+        // model output drifts; the fallback object below marks it as unparsable.
+      }
     }
     return { plan: '无法解析计划', steps: [], raw: text.slice(0, 500) };
   }
@@ -1197,7 +1202,10 @@ ${raw.slice(0, 3000)}
 
 `;
         }
-      } catch { /* no saved plan */ }
+      } catch {
+        // Expected failure: the persisted plan file is missing or unreadable, so
+        // there is no plan context to inject; the caller continues without one.
+      }
       return '';
     }
 
@@ -1538,12 +1546,14 @@ ${JSON.stringify(reviewIssues)}
 
           // Parse tool operations from reviewer output
           let reviewOps: Record<string, unknown>[] = [];
-          let reviewAgentMsg = reviewFullText;
           try {
             const parsed = this.parseXmlLike(reviewFullText);
             reviewOps = parsed.operations;
-            reviewAgentMsg = parsed.message;
-          } catch { /* no ops */ }
+          } catch {
+            // Expected: parseXmlLike throws when the reviewer output contains no
+            // operation tags — i.e. the reviewer answered without calling tools.
+            // reviewOps stays empty and the branch below treats that as done.
+          }
 
           reviewMessages.push({ role: 'assistant', content: reviewFullText });
 
@@ -1582,7 +1592,11 @@ ${JSON.stringify(reviewIssues)}
             reviewPassed = !!reviewJson.passed;
             reviewFeedback = reviewJson.feedback || '';
             reviewIssues = reviewJson.issues || [];
-          } catch { /* fall through to fallback */ }
+          } catch {
+            // Expected failure: the extracted verdict block is not valid JSON;
+            // fall through to the regex-based verdict fallback below
+            // (reviewPassed stays null until that fallback runs).
+          }
         }
         if (reviewPassed === null) {
           // Fallback: check for explicit "passed": true/false, not just word PRESENCE
@@ -1720,7 +1734,11 @@ ${JSON.stringify(reviewIssues, null, 2)}
             const parsed = this.parseXmlLike(fixFullText);
             fixOps = parsed.operations;
             fixAgentMsg = parsed.message;
-          } catch { /* no ops */ }
+          } catch {
+            // Expected: parseXmlLike throws when the executor output contains no
+            // operation tags — i.e. the model gave a final answer without tool
+            // calls. fixOps stays empty and the branch below ends the fix loop.
+          }
 
           messages.push({ role: 'assistant', content: fixFullText });
 
@@ -1774,7 +1792,10 @@ ${JSON.stringify(reviewIssues, null, 2)}
       try {
         const parsed = JSON.parse(cgJson);
         callGraph2 = parsed.call_graph || null;
-      } catch { /* ignore */ }
+      } catch {
+        // Expected failure: call_graph is best-effort enrichment; an unparsable
+        // block leaves callGraph2 null and the done event is still emitted below.
+      }
     }
 
     // No reviewer needed (read-only or no changes) — treat as passed

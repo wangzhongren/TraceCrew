@@ -544,10 +544,10 @@ export interface TaskLogEntry {
 
 /** Append a task completion record to .tracecrew/TASKLOG.md (append-only, no conflicts). */
 export function appendTaskLog(projectPath: string, entry: TaskLogEntry): void {
+  const logFile = join(projectPath, '.tracecrew', 'TASKLOG.md');
   try {
     const logDir = join(projectPath, '.tracecrew');
     if (!existsSync(logDir)) mkdirSync(logDir, { recursive: true });
-    const logFile = join(logDir, 'TASKLOG.md');
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
     const filesCreated = entry.files_created.length > 0
@@ -573,7 +573,10 @@ export function appendTaskLog(projectPath: string, entry: TaskLogEntry): void {
     } else {
       writeFileSync(logFile, section, { flag: 'a' });
     }
-  } catch { /* best-effort logging, don't crash on write failure */ }
+  } catch (e: any) {
+    // 任务日志是尽力而为的旁路记录：写入失败不中断调用方，但输出错误（路径 + 原因）便于排查。
+    console.error('[appendTaskLog] 写入任务日志失败: ' + logFile + ' — ' + (e?.message || e));
+  }
 }
 
 /** Read recent task log entries as Markdown (for agent context). */

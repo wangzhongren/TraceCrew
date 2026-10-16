@@ -82,9 +82,6 @@ export interface TraceCrewAPI {
     onDone: (cb: (id: string, code: number | null) => void) => void;
     onError: (cb: (id: string, error: string) => void) => void;
   };
-  backend: {
-    getUrl: () => string;
-  };
   getAppIcon: () => string;
 }
 

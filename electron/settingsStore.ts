@@ -3,7 +3,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// server/ → electron/ → CodeAtlas/.env
+// server/ → electron/ → TraceCrew/.env
 const ENV_PATH = join(__dirname, '..', '..', '.env');
 
 const AGENTS = ['PM', 'ARCHITECT', 'PLANNER', 'REVIEWER', 'MAPPER', 'EXECUTOR'] as const;

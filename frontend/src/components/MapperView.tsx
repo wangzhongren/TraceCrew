@@ -9,7 +9,7 @@ import { useT } from '../i18n';
 interface Props {
   graph: CallGraph | null;
   sequenceGraph: CallGraph | null;
-  phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected';
+  phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected' | 'clarifying';
   onSelectNode: (id: string | null) => void;
   onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;

@@ -27,7 +27,6 @@ export default function RightPanel({
   onActionConfirm, onActionClose, onReplan, onCloseCode,
 }: Props) {
   const [codeRatio, setCodeRatio] = useState(0.5); // 50% code, 50% action when both visible
-  const dragging = useState(false);
 
   const handleDividerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

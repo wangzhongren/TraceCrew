@@ -7,9 +7,9 @@ import { useT } from '../i18n';
 
 export interface StreamState {
   running: boolean;
-  phase: 'action' | 'review' | 'fix' | 'remap' | null;
+  phase: 'action' | 'review' | 'fix' | null;
   timeline: Array<{
-    phase: 'action' | 'review' | 'fix' | 'remap';
+    phase: 'action' | 'review' | 'fix';
     output: string;
     tools: Array<{ type: string; file: string }>;
     reviewPassed?: boolean | null;
@@ -64,6 +64,15 @@ export default function ActionPanel({
 
   const downstreamCount = downstreamNodes?.length || 0;
 
+  // Header status text for the streaming panel: the review phase has its own
+  // label; an active fix or any running action shows the executing label.
+  let phaseLabel = t('action.execComplete');
+  if (stream.phase === 'review') {
+    phaseLabel = t('action.reviewerVerifying');
+  } else if (stream.phase === 'fix' || stream.running) {
+    phaseLabel = t('action.agentExecuting');
+  }
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--color-bg-primary)' }}>
       {/* ── Header ── */}
@@ -76,10 +85,7 @@ export default function ActionPanel({
           <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--color-text-muted)' }}>
             {isStreaming ? (
               <span>
-                {stream.phase === 'review' ? t('action.reviewerVerifying') :
-                 stream.phase === 'fix' ? t('action.agentExecuting') :
-                 stream.phase === 'remap' ? '🗺️ ' + t('action.remapping') :
-                 stream.running ? t('action.agentExecuting') : t('action.execComplete')}
+                {phaseLabel}
               </span>
             ) : config.description}
           </p>
@@ -107,7 +113,6 @@ export default function ActionPanel({
                   entry={entry}
                   phaseConfig={phaseConfig}
                   isCurrent={isCurrent}
-                  actionColor={config.color}
                   t={t}
                 />
               );
@@ -359,16 +364,14 @@ function getPhaseConfig(phase: string, t: (k: string) => string) {
     case 'action':  return { icon: '⚙️', label: t('action.agentExecuting'), borderColor: 'var(--color-border-subtle)' };
     case 'review':  return { icon: '🔍', label: t('action.reviewerVerifying'), borderColor: '#fecaca' };
     case 'fix':     return { icon: '🔧', label: t('action.agentExecuting'), borderColor: '#fed7aa' };
-    case 'remap':   return { icon: '🗺️', label: t('action.remapping'), borderColor: '#c4b5fd' };
     default:        return { icon: '⚙️', label: phase, borderColor: 'var(--color-border-subtle)' };
   }
 }
 
-function PhaseSection({ entry, phaseConfig, isCurrent, actionColor, t }: {
+function PhaseSection({ entry, phaseConfig, isCurrent, t }: {
   entry: StreamState['timeline'][0];
   phaseConfig: ReturnType<typeof getPhaseConfig>;
   isCurrent: boolean;
-  actionColor: string;
   t: (k: string, v?: Record<string, string | number>) => string;
 }) {
   const [expanded, setExpanded] = useState(true);

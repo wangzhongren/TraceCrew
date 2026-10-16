@@ -21,3 +21,4 @@ Thumbs.db
 .codeatlas/
 .tracecrew/
 .tracecrew-logs/
+.tracecrew.lock

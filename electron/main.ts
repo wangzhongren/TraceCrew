@@ -17,7 +17,6 @@ import {
   runShell, killShell, killAllShells, getShellLogFile, readLogFile,
   restoreBackup,
 } from './fileManager';
-import { closeDatabase } from './server/services/db';
 
 let mainWindow: BrowserWindow | null = null;
 let httpServer: Server | null = null;

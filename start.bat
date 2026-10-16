@@ -1,14 +1,14 @@
 @echo off
-title CodeAtlas
+title TraceCrew
 setlocal enabledelayedexpansion
 
 set ROOT=%~dp0
 set FRONTEND_DIR=%ROOT%frontend
 set PORT=19850
-set LOCK_FILE=%ROOT%.codeatlas.lock
+set LOCK_FILE=%ROOT%.tracecrew.lock
 
 echo ============================================
-echo   CodeAtlas Launcher
+echo   TraceCrew Launcher
 echo ============================================
 echo.
 
@@ -42,7 +42,7 @@ echo.
 
 :: ── Start Electron (Express backend embedded) ────
 
-echo [2/2] Starting CodeAtlas...
+echo [2/2] Starting TraceCrew...
 cd /d %FRONTEND_DIR%
 set ELECTRON_RUN_AS_NODE=
 npm run electron:dev
