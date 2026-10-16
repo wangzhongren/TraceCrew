@@ -101,7 +101,7 @@
 ### R10 测试套件状态（2026-10-16：红灯已解除）
 
 - 历史（2026-10-16 上午实测）：`npm test` = 3 个文件失败、43 失败 / 50 通过（93 例）；两类原因：ABI（15 例）+ 用例过时（28 例）；复测后又确认 1 项 (c) 实现缺陷（`searchInFiles` 恒空，3 例）。当时「任何测试通过的表述都不成立」的约束，随本条更新即告解除。
-- 现状（2026-10-16 批 1 后）：**5 个文件、98/98、退出码 0**（含 O-b1 的 i18n 一致性测试 3 例）；`tsc --noEmit`=0、`npm run build`=0、`check:electron`=0（见 R19）。批 1 独立验证（B1-V）通过：两连跑无 flake、skip/only 零命中、启动冒烟通过。
+- 现状（2026-10-16 E 系列后）：**6 个文件、114/114、退出码 0**（含 O-b1 i18n 测试 3 例与 E 系列新增 16 例）；`tsc --noEmit`=0、`npm run build`=0、`check:electron`=0（见 R19）。批 1 独立验证（B1-V）与 E2E 无干预对照复跑（E-F3：6/6 全通）均通过。历史：批 1 后为 5 文件 98/98（含红灯解除过程记录于下）。
 - 处置记录：[docs/fix/2026-10-16_fix_test-suite-red.md](fix/2026-10-16_fix_test-suite-red.md)、[docs/fix/2026-10-16_fix_search-in-files-empty.md](fix/2026-10-16_fix_search-in-files-empty.md)；调度记录 [docs/scheduling/test-suite-red-fix.md](scheduling/test-suite-red-fix.md)。
 **来源**：2026-10-16 本机实测（实施前 43 失败逐文件清单；实施后 94/94 与逐节点核验记录）。
 
@@ -144,6 +144,13 @@ Interface → Pipeline → Service → Provider；Model 共享。已知存量偏
 - 政策：**保持 0**——新增/修改 electron/ 文件不得引入任何检查错误；提交/交付前以该命令输出为准。electron/ 的构建链（vite/esbuild 转译）不含类型检查，本门是 electron/ 的类型保障来源。
 **来源**：批 1 实施提案 C6 与附属 X2（客户 2026-10-16 批准）；证据归目见 `docs/scheduling/architecture-batch1.md`（事件 seq 17/20/21）。
 
+### R20 流式终态语义（F1 口径；E 系列修复确立）
+
+- **终态判定仅在无操作轮生效**：`chat/stream` 与 `action/stream` 同此语义——模型同轮既输出操作标签又输出 `<final/>`/`<done/>`（或 PM handoff）时，先执行全部操作、结果回喂、继续循环；该轮终态标记不生效，由模型在下一轮基于真实结果收尾。
+- **done.message 清洗口径**：一律为「去操作标签与终态标记后的正文」，终态标记覆盖开/闭/自闭合全形态（`<final>`/`</final>`/`<final/>` 等）；PM handoff 分支同口径。
+- 收束**信号检测**保持严格字面（仅规范字面触发收束；非规范闭合不触发、模型续写至规范形式）。
+**来源**：修复提案 `docs/fix/2026-10-16_fix_e2e-findings.md`（客户批准「全修」）；实测对照见 `docs/scheduling/e2e-live-test.md`（无干预 2/6 → 6/6、F1 命中 11/17 → 0/11）。
+
 ## 7. 命名与命名空间
 
 ### R18 产品内 LLM Agent 的命名是六个固定标识
@@ -162,3 +169,4 @@ Interface → Pipeline → Service → Provider；Model 共享。已知存量偏
 - **T8** `chat.pipelineFlow` 等 i18n 文案与实际流水线的漂移修正（见 architecture.md 偏差 10）——i18n 属项目管理范围，修正需走提案；已纳入《项目架构升级方案》（[docs/design/2026-10-16_design_architecture-upgrade-plan.md](design/2026-10-16_design_architecture-upgrade-plan.md)）的 D10 项一并评审。
 - **T9 缺陷 #2 修复（M8）**：`electron/server/services/agent.ts:1013` 把 `SearchResponse` 当数组（Agent 搜索工具恒返错误串）——**已批准并实施核验**（M8：1 行解构修复 + 1 条回归用例；全套 95/95、严格试算 TS2339 归零）；方案关联见《项目架构升级方案》N1（[docs/design/2026-10-16_design_architecture-upgrade-plan.md](design/2026-10-16_design_architecture-upgrade-plan.md)）。
 - **T10 批 1 后续与遗留观察归目**：~~H1（tsbuildinfo 跟踪）~~ **已闭环（2026-10-16，`dd7b395`：`*.tsbuildinfo` 入 `.gitignore` 并移出跟踪）**；Z1–Z5 观察项（静默 catch 后续批次 / planning 阶段指示器文案 / `8d64343` 的 closeDatabase 历史声明 / db.ts 生产侧暂无导入者等）——详见 [docs/scheduling/architecture-batch1.md](scheduling/architecture-batch1.md) §6；是否在下批处理由客户定。
+- **T11 E 系列收口后残余观察**：GUI 级观察（PM done.message 保留 `<confirmed-requirement>` 容器、Mapper 含 call_graph JSON 正文——属结构容器/正文）；非规范闭合作为**收束信号**的检测口径未扩展（保持严格，如放宽属新裁定）；未测项（GUI 可视终确认——客户进行中；`/plan/stream`；auto-exec；Windows）。详见 [docs/scheduling/e2e-live-test.md](scheduling/e2e-live-test.md) §6。

@@ -13,6 +13,7 @@
 | 架构升级方案 | 存量偏差逐条评估与分批规划（**批 1 已实施并验证**；批 2/3 候选） | [docs/design/2026-10-16_design_architecture-upgrade-plan.md](docs/design/2026-10-16_design_architecture-upgrade-plan.md) |
 | 批 1 实施提案 | 卫生清理与防复发（C1–C8 + D5/D6/D7，已验证闭环） | [docs/change/2026-10-16_change_batch1-cleanup-hardening.md](docs/change/2026-10-16_change_batch1-cleanup-hardening.md) |
 | 两轮修复记录 | 测试红灯修复（94→95 例）与文件搜索恒空修复（含缺陷 #2） | [docs/fix/2026-10-16_fix_test-suite-red.md](docs/fix/2026-10-16_fix_test-suite-red.md)、[docs/fix/2026-10-16_fix_search-in-files-empty.md](docs/fix/2026-10-16_fix_search-in-files-empty.md) |
+| E2E 真实链路修复 | F1–F7 修复与无干预对照（2/6 → 6/6、F1 11/17 → 0/11） | [docs/fix/2026-10-16_fix_e2e-findings.md](docs/fix/2026-10-16_fix_e2e-findings.md)、[docs/scheduling/e2e-live-test.md](docs/scheduling/e2e-live-test.md) |
 | 调度记录 | 任务图、状态与事件历史、观察项归目 | [docs/scheduling/test-suite-red-fix.md](docs/scheduling/test-suite-red-fix.md)、[docs/scheduling/architecture-batch1.md](docs/scheduling/architecture-batch1.md) |
 | 项目工程规则 | 已确认的构建/端口/环境/测试/质量规则，以及单独一节的「待确认」清单 | [docs/project-rules.md](docs/project-rules.md) |
 | 共享组件清单 | 跨角色共享基础资产（i18n）的用途、导出与消费者 | `docs/architecture/shared-components.md`（待创建） |
