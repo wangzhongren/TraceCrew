@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { GraphNode } from './MapCanvas';
-import { getActionConfig, type ActionType } from './ActionDialog';
+import { getActionConfig, cleanProtocolTags, type ActionType } from './ActionDialog';
 import { useT } from '../i18n';
 
 export interface StreamState {
@@ -537,17 +537,7 @@ function getToolColor(type: string): { bg: string; text: string } {
 /* ── Inline Markdown renderer ── */
 
 function MarkdownContent({ text }: { text: string }) {
-  const cleaned = useMemo(() => {
-    if (!text) return '';
-    return text
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
-      .replace(/<done>[^<]*<\/done>/gi, '')
-      .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
-      .replace(/<all-done>[^<]*<\/all-done>/gi, '')
-      .replace(/<final\/>/gi, '')
-      .replace(/\n{3,}/g, '\n\n').trim();
-  }, [text]);
+  const cleaned = useMemo(() => cleanProtocolTags(text), [text]);
 
   if (!cleaned) return null;
   return (

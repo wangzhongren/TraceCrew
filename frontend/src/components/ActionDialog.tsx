@@ -80,6 +80,44 @@ export function getActionsForNode(status: string): ActionType[] {
   }
 }
 
+/* ── Shared protocol-tag cleaner（F3：5 个 Agent 面板共用的唯一清洗实现）── */
+
+/** 操作标签名：成对块与自闭合形态都要被整体剔除（连内容）。 */
+const OPERATION_TAG_NAMES = 'list-dir|read-file|run-shell|update|create-file|delete-file|search';
+
+/** 已知协议标签名全集：操作标签 + 终态/交接标记 + 保留内容的容器标签。 */
+const PROTOCOL_TAG_NAMES = `${OPERATION_TAG_NAMES}|final|done|handoff-to-planner|skip-architect|step-done|all-done|confirmed-requirement`;
+
+/**
+ * 清洗 Agent 流式文本里的协议标签，供 ChatPanel / PlanCard / ReviewCard /
+ * ActionDialog / ActionPanel 在渲染期统一调用（F3 单点维护）。规则分四类：
+ *  1. 操作标签（list-dir 等）：成对块连内容一起剔除；自闭合形态直接剔除；
+ *  2. 保留内容的容器标签（confirmed-requirement）：仅去掉开闭标签、保留内部文本；
+ *  3. 自闭合终态/协议标记（final / done / handoff-to-planner / skip-architect /
+ *     step-done / all-done）：直接移除；成对的 done / step-done / all-done 连内容剔除；
+ *  4. 未闭合的已知标签片段（只有开片段、无闭合）：按标签名精确匹配、行内剥离，
+ *     普通文本与合法 HTML（如 <b>、<dataFile>）不受影响。
+ * 最后压缩连续空行并去掉首尾空白。
+ */
+export function cleanProtocolTags(text: string): string {
+  if (!text) return '';
+  const operationSelfClosing = new RegExp(`<(${OPERATION_TAG_NAMES})\\b[^>]*\\/>`, 'gi');
+  const operationPaired = new RegExp(`<(${OPERATION_TAG_NAMES})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi');
+  const knownTagSweep = new RegExp(`<\\/?(?:${PROTOCOL_TAG_NAMES})\\b[^>]*>`, 'gi');
+  const truncatedFragment = new RegExp(`<(?:${PROTOCOL_TAG_NAMES})\\b[^>\\n]*\\s*$`, 'i');
+  return text
+    .replace(operationSelfClosing, '')
+    .replace(operationPaired, '')
+    .replace(/<done\b[^>]*>[\s\S]*?<\/done\s*>/gi, '')
+    .replace(/<step-done\b[^>]*>[\s\S]*?<\/step-done\s*>/gi, '')
+    .replace(/<all-done\b[^>]*>[\s\S]*?<\/all-done\s*>/gi, '')
+    .replace(/<\/?confirmed-requirement\b[^>]*>/gi, '')
+    .replace(knownTagSweep, '')
+    .replace(truncatedFragment, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 interface Props {
   action: ActionType;
   node: GraphNode;
@@ -459,17 +497,7 @@ export default function ActionDialog({
 /* ── Inline Markdown renderer (matches project dark theme) ── */
 
 function MarkdownContent({ text }: { text: string }) {
-  const cleaned = useMemo(() => {
-    if (!text) return '';
-    return text
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
-      .replace(/<done>[^<]*<\/done>/gi, '')
-      .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
-      .replace(/<all-done>[^<]*<\/all-done>/gi, '')
-      .replace(/<final\/>/gi, '')
-      .replace(/\n{3,}/g, '\n\n').trim();
-  }, [text]);
+  const cleaned = useMemo(() => cleanProtocolTags(text), [text]);
 
   if (!cleaned) return null;
   return (

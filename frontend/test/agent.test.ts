@@ -365,6 +365,24 @@ describe('buildMessages', () => {
     expect(msgs[1].content).toBe('hi there');
   });
 
+  // F2 回归守护（2026-10-16 fix_e2e-findings 第 2 节）：ChatPanel 全程发送 role:'assistant'
+  // 的历史项；映射缺失 'assistant' 时第二轮起模型把自己的历史答复当作用户输入（自导自演）。
+  it('maps assistant and agent to assistant, any other role to user (F2)', () => {
+    const svc = makeService();
+    const msgs = (svc as any).buildMessages([
+      { role: 'assistant', content: 'a' },
+      { role: 'agent', content: 'b' },
+      { role: 'user', content: 'c' },
+      { role: 'weird', content: 'd' },
+    ]);
+    expect(msgs.map((m: { role: string }) => m.role)).toEqual([
+      'assistant',
+      'assistant',
+      'user',
+      'user',
+    ]);
+  });
+
   // O2 守护（2026-10-16 提案第 7 节）：history 提供但非数组时立即报错，
   // 杜绝旧签名误用（传字符串）被逐字符遍历、静默产出逐字符垃圾消息。
   it('throws a descriptive error when history is provided but not an array', () => {
@@ -479,5 +497,155 @@ describe('executeTool search', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// cleanDoneMessage (private) — done.message 统一清洗口径（F4）
+// ═══════════════════════════════════════════════════════════════════
+
+describe('cleanDoneMessage', () => {
+  // F4 回归守护（2026-10-16 fix_e2e-findings 第 4 节）：PM handoff 的 done.message
+  // 曾残留 <final/>；清洗口径统一为「去操作标签与终态标记后的正文」。
+  it('strips final/done/handoff markers case-insensitively from the parsed body', () => {
+    const svc = makeService();
+    const cleaned = (svc as any).cleanDoneMessage(
+      '已完成读取。\n<FINAL/>\n<Done/>\n<HANDOFF-TO-PLANNER/>',
+      'fallback text',
+    );
+    expect(cleaned).toBe('已完成读取。');
+  });
+
+  it('falls back to fullText when the parsed body is empty', () => {
+    const svc = makeService();
+    const cleaned = (svc as any).cleanDoneMessage('', '兜底正文 <final/>');
+    expect(cleaned).toBe('兜底正文');
+  });
+
+  // E-F1b（2026-10-16 裁定残余 1）：E-F3 复跑现场出现 </final> 等非规范闭合形态，
+  // 清洗必须覆盖开/闭/自闭合各形态，而不是只认 <final/> 三种字面。
+  it('strips non-canonical opening/closing forms such as </final> and </handoff-to-planner>', () => {
+    const svc = makeService();
+    const cleaned = (svc as any).cleanDoneMessage(
+      '正文\n</final>\n</handoff-to-planner>\n<done>\n</final />',
+      'fallback text',
+    );
+    expect(cleaned).toBe('正文');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// processStream — 同轮终态标记与工具执行（F1）
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * F1 假客户端：按调用次序逐条回放 outputs。
+ * 形态与 OpenAI SDK 的 chat.completions.create 流式接口一致（返回异步生成器），
+ * 并记录每次请求的 messages，供断言「工具结果是否真的回喂」。
+ */
+function makeFakePlannerClient(outputs: string[]) {
+  const calls: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  return {
+    calls,
+    callCount() {
+      return calls.length;
+    },
+    chat: {
+      completions: {
+        create: async (params: { messages: Array<{ role: string; content: string }> }) => {
+          calls.push({ messages: params.messages });
+          const index = calls.length - 1;
+          let content = '';
+          if (index < outputs.length) {
+            content = outputs[index];
+          }
+          return (async function* () {
+            yield { choices: [{ delta: { content } }] };
+          })();
+        },
+      },
+    },
+  };
+}
+
+async function collectStreamEvents(
+  svc: AgentService,
+  req: { history: Array<{ role: string; content: string }>; mode: string; project_path: string },
+): Promise<Array<{ event: string; data: string }>> {
+  const events: Array<{ event: string; data: string }> = [];
+  for await (const ev of svc.processStream(req)) {
+    events.push(ev);
+  }
+  return events;
+}
+
+describe('processStream — same-turn terminal marker vs tools (F1)', () => {
+  // F1 回归守护（2026-10-16 fix_e2e-findings 第 1 节）：终态检查曾先于工具执行并 return，
+  // 同轮「操作标签 + <final/>」时已解析的 operations 被静默丢弃、无 tools 事件。
+  // 修复后对齐 runActionStream 语义：本轮有操作则先执行全部工具、结果回喂、继续循环。
+  it('runs same-turn tools before honoring <final/>, then ends on the next turn', async () => {
+    const svc = makeService();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracecrew-agent-f1a-'));
+    try {
+      fs.writeFileSync(path.join(tmpDir, 'a.ts'), 'export const a = 1;\n', 'utf-8');
+
+      const fake = makeFakePlannerClient([
+        '<read-file path="a.ts"></read-file>\n<final/>',
+        '已读取 a.ts，内容是一个常量声明。\n<final/>',
+      ]);
+      (svc as any)._clients.set('PLANNER', fake);
+      (svc as any)._models.set('PLANNER', 'fake-model');
+
+      const events = await collectStreamEvents(svc, {
+        history: [{ role: 'user', content: 'x' }],
+        mode: 'planner',
+        project_path: tmpDir,
+      });
+
+      // 本轮有操作 → 必须发出 tools 事件（修复前此处为 0）
+      const toolEvents = events.filter((e) => e.event === 'tools');
+      expect(toolEvents).toHaveLength(1);
+      expect(JSON.parse(toolEvents[0].data).count).toBe(1);
+
+      // 工具被真正执行并回喂：第二轮的请求里带上了 a.ts 的真实内容
+      expect(fake.callCount()).toBe(2);
+      const secondMessages = fake.calls[1].messages;
+      const toolResultMsg = secondMessages.find((m) => m.content.includes('【工具执行结果】'));
+      expect(toolResultMsg).toBeDefined();
+      expect(toolResultMsg?.content).toContain('export const a = 1;');
+
+      // 会话看过真实结果后以 done 收束，且 message 无终态标记与操作标签
+      const doneEvents = events.filter((e) => e.event === 'done');
+      expect(doneEvents).toHaveLength(1);
+      const doneData = JSON.parse(doneEvents[0].data);
+      expect(doneData.message).toBe('已读取 a.ts，内容是一个常量声明。');
+      expect(doneData.message).not.toContain('<final/>');
+      expect(doneData.message).not.toContain('<read-file');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // 无操作 + <final/> 的既有行为不回归：直接 done、不发 tools、只调用模型一次。
+  it('still ends immediately when a turn has no operations (no regression)', async () => {
+    const svc = makeService();
+    const fake = makeFakePlannerClient(['这是最终答复，没有工具操作。\n<final/>']);
+    (svc as any)._clients.set('PLANNER', fake);
+    (svc as any)._models.set('PLANNER', 'fake-model');
+
+    const events = await collectStreamEvents(svc, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+    });
+
+    expect(events.filter((e) => e.event === 'tools')).toHaveLength(0);
+    expect(fake.callCount()).toBe(1);
+
+    const doneEvents = events.filter((e) => e.event === 'done');
+    expect(doneEvents).toHaveLength(1);
+    const doneData = JSON.parse(doneEvents[0].data);
+    expect(doneData.message).toBe('这是最终答复，没有工具操作。');
+    expect(doneData.message).not.toContain('<final/>');
   });
 });

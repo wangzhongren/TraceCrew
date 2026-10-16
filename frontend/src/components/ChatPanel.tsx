@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import type { PipelineState } from '../App';
 import PlanCard from './PlanCard';
 import ReviewCard from './ReviewCard';
+import { cleanProtocolTags } from './ActionDialog';
 import type { CallGraph } from './MapCanvas';
 import { useT, useLocale } from '../i18n';
 
@@ -159,6 +160,25 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     return null;
   };
 
+  /*
+   * F3 完成期归零：done.message 非空时，用它（经共享工具清洗兜底）替换当前
+   * agent 卡片的流式累积展示文本。fullText 原文不受影响——parseJson 与 PM
+   * handoff 判定仍读原文。done.message 清洗后为空时保留累积文本（不空白卡片）。
+   */
+  const applyDoneMessage = (doneMessage: string): void => {
+    if (!doneMessage.trim()) return;
+    const cleaned = cleanProtocolTags(doneMessage);
+    if (!cleaned) return;
+    setTimeline(prev => {
+      const next = [...prev];
+      const idx = tidxRef.current;
+      if (idx < 0) return next;
+      const entry = next[idx];
+      if (entry?.kind === 'agent') next[idx] = { ...entry, text: cleaned };
+      return next;
+    });
+  };
+
   /* ── SSE stream ── */
 
   const streamSSE = async (body: Record<string, any>, onToken: (t: string) => void, onReasoning?: (t: string) => void, onTools?: (ops: any[]) => void) => {
@@ -168,9 +188,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       signal: abortRef.current?.signal,
     });
     const reader = res.body?.getReader();
-    if (!reader) return '';
+    if (!reader) return { fullText: '', doneMessage: '' };
     const dec = new TextDecoder();
-    let buf = '', full = '';
+    let buf = '', full = '', doneMessage = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -187,9 +207,18 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
           const ops = typeof data === 'string' ? JSON.parse(data).ops : data.ops;
           onTools?.(ops || []);
         }
+        else if (event === 'done') {
+          // 服务端 done 负载可能是 JSON 字符串（agent.ts yield）或对象（路由兜底）
+          let payload: any = data;
+          if (typeof data === 'string') {
+            try { payload = JSON.parse(data); }
+            catch (err) { console.error('[streamSSE] done 事件负载 JSON 解析失败：', err); payload = null; }
+          }
+          if (payload && typeof payload.message === 'string') doneMessage = payload.message;
+        }
       }
     }
-    return full;
+    return { fullText: full, doneMessage };
   };
 
   /* ── Agent loop ── */
@@ -203,7 +232,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     let fullText = '';
     setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent, text: '', reasoning: '', result: null }]; });
 
-    await streamSSE({ history: messages, mode: agent },
+    const { doneMessage } = await streamSSE({ history: messages, mode: agent },
       (t) => {
         fullText += t;
         setTimeline(prev => {
@@ -248,6 +277,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         }
       }
     );
+    applyDoneMessage(doneMessage);
     return { fullText };
   };
 
@@ -257,7 +287,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
   const pmStream = async (messages: Array<{ role: string; content: string }>): Promise<string> => {
     setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent: 'pm', text: '', reasoning: '', result: null }]; });
-    const fullText = await streamSSE(
+    const { fullText, doneMessage } = await streamSSE(
       { history: messages, mode: 'pm' },
       (t) => {
         setTimeline(prev => {
@@ -267,6 +297,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
         });
       }
     );
+    applyDoneMessage(doneMessage);
     return fullText;
   };
 
@@ -671,11 +702,7 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
   }, [plan]);
 
   const openPopup = (content: string) => {
-    const cleaned = content
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '\n')
-      .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '\n')
-      .replace(/<done>[^<]*<\/done>/gi, '\n')
-      .replace(/<final\/>/gi, '\n')
+    const cleaned = cleanProtocolTags(content)
       .replace(/([^\n])(#{1,4}\s)/g, '$1\n$2');
     const html = marked.parse(cleaned, { async: false }) as string;
     window.tracecrew?.window.openPlan(html);
@@ -1042,13 +1069,7 @@ function AgentCard({ entry, t }: { entry: TimelineEntry & { kind: 'agent' }; t: 
 /* ── Markdown component ── */
 
 function Markdown({ text }: { text: string }) {
-  const cleaned = text
-    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '\n')
-    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '\n')
-    .replace(/<done>[^<]*<\/done>/gi, '\n')
-    .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '\n')
-    .replace(/<all-done>[^<]*<\/all-done>/gi, '\n')
-    .replace(/<final\/>/gi, '\n')
+  const cleaned = cleanProtocolTags(text)
     .replace(/([^\n])(#{1,4}\s)/g, '$1\n$2');
 
   return (

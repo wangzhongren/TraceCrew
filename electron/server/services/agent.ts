@@ -176,7 +176,7 @@ const ARCHITECT_SYSTEM_PROMPT = `你是 TraceCrew 的框架设计师。你的职
 - 如果项目为空（新项目）→ 先确认，再基于需求复杂度设计
 
 【输出格式】
-用 Markdown 组织分析，最后附上 \`\`\`json 代码块。不需要接口的场景，interfaces 和 dependency_rules 可以为空数组。
+用 Markdown 组织分析，最后附上 \`\`\`json 代码块。若模块之间存在跨模块调用，interfaces 至少给出这些调用的最小契约；确无跨模块调用时，interfaces 和 dependency_rules 方可为空数组。
 
 \`\`\`json
 {
@@ -297,6 +297,8 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 
 例如 label: "[前端] handleClose", "[后端] window:close handler", "[IPC] invoke window:close"
 
+**自检**：label 的来源前缀必须与 lane/kind 语义一致（如 [客户端] 属于前端泳道，不得配 lane:"第三方"）
+
 【核心规则 3：节点 detail 必须包含关键文件】
 每个节点的 detail 字段**必须列出该节点涉及的关键文件**，格式：先写任务描述，另起一行写「涉及文件:」后跟文件列表。
 
@@ -309,6 +311,7 @@ const MAPPER_SYSTEM_PROMPT = `你是 TraceCrew 的调用链路绘制者。你拥
 【核心规则 4：定位行号】
 每个节点必须标注 line 字段，值为该函数/类/组件定义的第一行行号：
 - 从 read-file 的输出中（带行号前缀）找到定义所在行
+- **自检**：line 必须是函数/类的**定义行**——用 read-file 返回的行号前缀核对定义处（非引用处）
 - line 为数字类型，不是字符串
 - 这是必填字段，用于代码查看器跳转到准确位置
 - **新项目节点的 line 设为 1**
@@ -711,6 +714,24 @@ export class AgentService {
     }
   }
 
+  /** done 事件的统一 message 清洗口径：取「去操作标签与终态标记后的正文」。
+   *  优先使用 parseXmlLike 解析出的正文（agentMessage，操作标签已剥离），
+   *  并去除 <final>、<done>、<handoff-to-planner> 的开/闭/自闭合各形态
+   *  （含 </final>、</handoff-to-planner> 等非规范形态；大小写不敏感）；
+   *  解析失败时 agentMessage 即全文（或为空），此时兜底用 fullText 同法清洗。
+   *  PM handoff 分支与通用 done 分支共用本函数。 */
+  private cleanDoneMessage(agentMessage: string, fullText: string): string {
+    let source = agentMessage;
+    if (source.trim().length === 0) {
+      source = fullText;
+    }
+    return source
+      .replace(/<\/?final\s*\/?>/gi, '')
+      .replace(/<\/?done\s*\/?>/gi, '')
+      .replace(/<\/?handoff-to-planner\s*\/?>/gi, '')
+      .trim();
+  }
+
   private buildMessages(history?: Array<{ role: string; content: string }> | null) {
     if (history !== undefined && history !== null && !Array.isArray(history)) {
       throw new Error(
@@ -721,7 +742,12 @@ export class AgentService {
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     if (history) {
       for (const h of history) {
-        const role = h.role === 'agent' ? 'assistant' as const : 'user' as const;
+        // 客户端（ChatPanel）全程发送 role:'assistant' 的历史项；'agent' 为 legacy 兼容。
+        // 两者都映射为 assistant，其余角色（含未知）兜底为 user。
+        let role: 'assistant' | 'user' = 'user';
+        if (h.role === 'assistant' || h.role === 'agent') {
+          role = 'assistant';
+        }
         msgs.push({ role, content: h.content });
       }
     }
@@ -825,20 +851,14 @@ export class AgentService {
       reviewer: REVIEWER_SYSTEM_PROMPT,
       reviewer_exec: REVIEWER_EXEC_SYSTEM_PROMPT,
     };
-    console.log('1222222'+req.mode);
     const mode = req.mode || 'default';
 
     const systemPrompt = withLocale(SYSTEM_PROMPTS[mode] || PROTOCOL_EXECUTE, req.locale || undefined);
-    console.log(systemPrompt);
     if (systemPrompt && messages[0]?.role !== 'system') {
       messages.unshift({ role: 'system', content: systemPrompt});
     }
 
-    console.log("2222222222"+ systemPrompt)
-    console.log(messages[0])
     console.log(`[processStream] mode=${mode} msgs=${messages.length}`);
-
-    console.log("2222222222"+ JSON.stringify(messages[0]))
     for (let i = 0; i < Math.min(messages.length, 3); i++) {
       console.log(`[processStream]   msg[${i}] role=${messages[i].role} preview=${messages[i].content.slice(0, 100)}`);
     }
@@ -903,21 +923,23 @@ export class AgentService {
       // Save assistant response to conversation
       messages.push({ role: 'assistant', content: fullText });
 
-      // PM: handoff marker → done regardless of tool calls
-      if (mode === 'pm' && /<handoff-to-planner\/>/i.test(fullText)) {
-        const clean = fullText.replace(/<handoff-to-planner\/>/gi, '').trim();
-        yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
-        return;
-      }
-
-      // Universal done marker: <final/> or <done/> → end conversation regardless of tool calls
-      if (/<final\/>|<done\/>/i.test(fullText)) {
-        const clean = fullText.replace(/<final\/>|<done\/>/gi, '').trim();
-        yield { event: 'done', data: JSON.stringify({ message: clean || '完成', operations: [] }) };
-        return;
-      }
-
+      // Terminal markers decide the turn only when it issued no operations
+      // (same semantics as runActionStream): a turn that also parsed tool ops must
+      // run all of them first and see real results before finishing — its
+      // <final/> / <done/> / PM handoff markers are ignored this turn.
       if (operations.length === 0) {
+        // PM: handoff marker → done
+        if (mode === 'pm' && /<handoff-to-planner\/>/i.test(fullText)) {
+          yield { event: 'done', data: JSON.stringify({ message: this.cleanDoneMessage(agentMessage, fullText) || '完成', operations: [] }) };
+          return;
+        }
+
+        // Universal done marker: <final/> or <done/>
+        if (/<final\/>|<done\/>/i.test(fullText)) {
+          yield { event: 'done', data: JSON.stringify({ message: this.cleanDoneMessage(agentMessage, fullText) || '完成', operations: [] }) };
+          return;
+        }
+
         // PM mode: no tools + no marker → prompt to add explicit marker
         if (mode === 'pm') {
           messages.push({ role: 'user', content: '请使用 <done/> 结束本轮（或 <handoff-to-planner/> 转交架构师）。' });

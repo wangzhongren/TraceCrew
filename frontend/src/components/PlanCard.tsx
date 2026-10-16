@@ -2,17 +2,7 @@ import { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useT } from '../i18n';
-
-function cleanTags(text: string): string {
-  return text
-    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '')
-    .replace(/<done>[^<]*<\/done>/gi, '')
-    .replace(/<step-done[^>]*>[^<]*<\/step-done>/gi, '')
-    .replace(/<all-done>[^<]*<\/all-done>/gi, '')
-    .replace(/<final\/>/gi, '')
-    .replace(/\n{3,}/g, '\n\n').trim();
-}
+import { cleanProtocolTags } from './ActionDialog';
 
 interface Props {
   planSummary: string;
@@ -21,7 +11,7 @@ interface Props {
 
 export default function PlanCard({ planSummary, color: _color }: Props) {
   const t = useT();
-  const cleaned = useMemo(() => cleanTags(planSummary || ''), [planSummary]);
+  const cleaned = useMemo(() => cleanProtocolTags(planSummary || ''), [planSummary]);
   if (!cleaned) return null;
 
   return (

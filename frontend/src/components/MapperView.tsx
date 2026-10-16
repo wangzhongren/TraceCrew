@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import MapCanvas, { type CallGraph } from './MapCanvas';
-import { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
+import { getActionsForNode, ACTION_CONFIGS, cleanProtocolTags } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
@@ -244,7 +244,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
               {isActive && liveOutput?.[node.id] !== undefined && (
                 <div className="rounded p-2 text-[10px] font-mono leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
                   style={{ background: '#1e1e1e', color: '#d4d4d4' }}>
-                  {liveOutput[node.id]?.replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*>[\s\S]*?<\/\1>/gi, '').replace(/<(list-dir|read-file|run-shell|update|create-file|delete-file|search)\b[^>]*\/>/gi, '').replace(/<done>[^<]*<\/done>/gi, '').replace(/<final\/>/gi, '') || '⏳ 等待 Agent 响应...'}
+                  {cleanProtocolTags(liveOutput[node.id] || '') || '⏳ 等待 Agent 响应...'}
                 </div>
               )}
               {/* Planner detail — always show when expanded */}
