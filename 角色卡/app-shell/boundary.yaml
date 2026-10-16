@@ -53,6 +53,9 @@ section1:
       path: frontend/tsconfig.json
       purpose: TypeScript 配置
     - type: Single file
+      path: frontend/tsconfig.electron.json
+      purpose: electron/ 目录独立类型检查配置（ratchet 类型门，批 1/C6）
+    - type: Single file
       path: frontend/tailwind.config.ts
       purpose: Tailwind 配置
     - type: Single file
@@ -64,6 +67,9 @@ section1:
     - type: Single file
       path: start.bat
       purpose: Windows 启动脚本
+    - type: Single file
+      path: .gitignore
+      purpose: 补充新建锁文件的忽略行（当前限 .tracecrew.lock；.codeatlas 条目与数据处置仍等客户单独指示）
     - type: Single file
       path: frontend/public/icon.png
       purpose: 应用图标资源

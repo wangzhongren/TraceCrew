@@ -23,10 +23,12 @@
 | Single file | `frontend/vite.config.ts` | 构建配置：React、electron 插件、开发代理（5173 → 19850）、SSE 透传 |
 | Single file | `frontend/vitest.config.ts` | 测试运行器配置 |
 | Single file | `frontend/tsconfig.json` | TypeScript 配置 |
+| Single file | `frontend/tsconfig.electron.json` | electron/ 目录独立类型检查配置（ratchet 类型门，批 1/C6） |
 | Single file | `frontend/tailwind.config.ts` | Tailwind 配置 |
 | Single file | `frontend/postcss.config.js` | PostCSS 配置 |
 | Single file | `start.sh` | macOS/Linux 启动脚本（清理、加锁、启动与健康检查） |
 | Single file | `start.bat` | Windows 启动脚本 |
+| Single file | `.gitignore` | 补充新建锁文件的忽略行（当前限 `.tracecrew.lock`；`.codeatlas` 条目与数据处置仍等客户单独指示） |
 | Single file | `frontend/public/icon.png` | 应用图标资源 |
 | Owned directory | `frontend/test/app-shell/` | 本角色单元测试的归属目录；不放置生产代码 |
 | Single file | `角色卡/app-shell/memo.md` | 本角色的简短事实与续接线索 |

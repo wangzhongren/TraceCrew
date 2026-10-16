@@ -13,6 +13,7 @@
 | 开发启动 | `npm run electron:dev` | `vite`（vite-plugin-electron 构建主进程/preload 并启动 Electron，内嵌后端随之监听 19850） |
 | 纯前端开发服务器 | `npm run dev` | `vite` |
 | 类型检查 + 构建 | `npm run build` | `tsc --noEmit && vite build` |
+| electron/ 独立类型检查（ratchet 门） | `npm run check:electron` | `tsc --noEmit -p tsconfig.electron.json`（基线 0，见 R19） |
 | 打包 | `npm run electron:build` | `vite build && electron-builder` |
 | 测试（跑一次） | `npm test` | `vitest run` |
 | 测试（监听） | `npm run test:watch` | `vitest` |
@@ -100,7 +101,7 @@
 ### R10 测试套件状态（2026-10-16：红灯已解除）
 
 - 历史（2026-10-16 上午实测）：`npm test` = 3 个文件失败、43 失败 / 50 通过（93 例）；两类原因：ABI（15 例）+ 用例过时（28 例）；复测后又确认 1 项 (c) 实现缺陷（`searchInFiles` 恒空，3 例）。当时「任何测试通过的表述都不成立」的约束，随本条更新即告解除。
-- 现状（2026-10-16 闭环）：**4 个文件全部通过、95/95、退出码 0**；M5 独立验证通过（两连跑无 flake、skip/only 零命中、启动冒烟通过）。
+- 现状（2026-10-16 批 1 后）：**5 个文件、98/98、退出码 0**（含 O-b1 的 i18n 一致性测试 3 例）；`tsc --noEmit`=0、`npm run build`=0、`check:electron`=0（见 R19）。批 1 独立验证（B1-V）通过：两连跑无 flake、skip/only 零命中、启动冒烟通过。
 - 处置记录：[docs/fix/2026-10-16_fix_test-suite-red.md](fix/2026-10-16_fix_test-suite-red.md)、[docs/fix/2026-10-16_fix_search-in-files-empty.md](fix/2026-10-16_fix_search-in-files-empty.md)；调度记录 [docs/scheduling/test-suite-red-fix.md](scheduling/test-suite-red-fix.md)。
 **来源**：2026-10-16 本机实测（实施前 43 失败逐文件清单；实施后 94/94 与逐节点核验记录）。
 
@@ -135,6 +136,14 @@ Interface → Pipeline → Service → Provider；Model 共享。已知存量偏
 `package.json`、vite / vitest / tsconfig 等构建设置影响所有角色，变更必须走提案并通知受影响角色；端口变更按 R2 三处同步。
 **来源**：角色卡 app-shell「质量约束」。
 
+### R19 electron/ 独立类型门（ratchet，基线 0；批 1 新增）
+
+- 门槛命令：`cd frontend && npm run check:electron`（= `tsc --noEmit -p tsconfig.electron.json`）。
+- 配置：`frontend/tsconfig.electron.json`（app-shell Section 1；`strict` 全家 + `noUnusedLocals`/`noUnusedParameters`，与前端主配置**全同标准**）。维护注意：`paths` 的 `@types` 优先顺序**不可颠倒**（颠倒即复现约 24 条解析噪音，并使路由处理器参数退化为隐式 any）。
+- 基线：**0 条错误**（2026-10-16 实测；worker 与项目管理各一轮**负对照**——在 /tmp 隔离副本注入错误均被恰准抓出——证实检查器真实生效）。
+- 政策：**保持 0**——新增/修改 electron/ 文件不得引入任何检查错误；提交/交付前以该命令输出为准。electron/ 的构建链（vite/esbuild 转译）不含类型检查，本门是 electron/ 的类型保障来源。
+**来源**：批 1 实施提案 C6 与附属 X2（客户 2026-10-16 批准）；证据归目见 `docs/scheduling/architecture-batch1.md`（事件 seq 17/20/21）。
+
 ## 7. 命名与命名空间
 
 ### R18 产品内 LLM Agent 的命名是六个固定标识
@@ -152,3 +161,4 @@ Interface → Pipeline → Service → Provider；Model 共享。已知存量偏
 - **T7** 端口是否允许配置化（当前三处硬编码，见 R2）。
 - **T8** `chat.pipelineFlow` 等 i18n 文案与实际流水线的漂移修正（见 architecture.md 偏差 10）——i18n 属项目管理范围，修正需走提案；已纳入《项目架构升级方案》（[docs/design/2026-10-16_design_architecture-upgrade-plan.md](design/2026-10-16_design_architecture-upgrade-plan.md)）的 D10 项一并评审。
 - **T9 缺陷 #2 修复（M8）**：`electron/server/services/agent.ts:1013` 把 `SearchResponse` 当数组（Agent 搜索工具恒返错误串）——**已批准并实施核验**（M8：1 行解构修复 + 1 条回归用例；全套 95/95、严格试算 TS2339 归零）；方案关联见《项目架构升级方案》N1（[docs/design/2026-10-16_design_architecture-upgrade-plan.md](design/2026-10-16_design_architecture-upgrade-plan.md)）。
+- **T10 批 1 后续与遗留观察归目**：H1（`frontend/tsconfig.tsbuildinfo` 受 git 跟踪，建议提交时移除跟踪并加入忽略）、Z1–Z5 观察项（静默 catch 后续批次 / planning 阶段指示器文案 / `8d64343` 的 closeDatabase 历史声明 / db.ts 生产侧暂无导入者等）——详见 [docs/scheduling/architecture-batch1.md](scheduling/architecture-batch1.md) §6；是否在下批处理由客户定。
