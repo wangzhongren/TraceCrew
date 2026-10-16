@@ -35,11 +35,9 @@ describe('i18n 语言包一致性', () => {
       'settings.agentReviewer',
       'settings.agentMapper',
       'settings.agentExecutor',
-      'action.test',
-      'action.fix',
-      'action.refactor',
       'action.explain',
-      'action.develop',
+      'action.explainDesc',
+      'action.explainPlaceholder',
     ];
     for (const name of Object.keys(LOCALES)) {
       for (const key of criticalKeys) {

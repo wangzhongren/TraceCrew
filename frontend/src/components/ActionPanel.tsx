@@ -26,6 +26,8 @@ export interface StreamState {
     call_graph?: any;
   } | null;
   error: string | null;
+  /** explain 成功完成后讲解 Markdown 落盘的相对路径（.tracecrew/explanations/…）；未导出/落盘失败时为 undefined */
+  explainExportPath?: string;
 }
 
 export const INITIAL_STREAM_STATE: StreamState = {
@@ -35,6 +37,10 @@ export const INITIAL_STREAM_STATE: StreamState = {
 interface Props {
   action: ActionType;
   node: GraphNode;
+  /**
+   * 由 RightPanel 传入。动作收敛为 explain 后本面板不再消费，保留声明以维持
+   * RightPanel（应用外壳）既有调用点兼容；其清理需与 app-shell 一并调度。
+   */
   downstreamNodes?: GraphNode[];
   onClose: () => void;
   onConfirm: (instruction: string) => Promise<void>;
@@ -43,7 +49,7 @@ interface Props {
 }
 
 export default function ActionPanel({
-  action, node, downstreamNodes, onClose, onConfirm, onReplan, stream,
+  action, node, onClose, onConfirm, onReplan, stream,
 }: Props) {
   const t = useT();
   const [instruction, setInstruction] = useState('');
@@ -61,8 +67,6 @@ export default function ActionPanel({
   const handleConfirm = () => {
     onConfirm(instruction);
   };
-
-  const downstreamCount = downstreamNodes?.length || 0;
 
   // Header status text for the streaming panel: the review phase has its own
   // label; an active fix or any running action shows the executing label.
@@ -131,6 +135,11 @@ export default function ActionPanel({
                   </span>
                 </div>
                 {stream.result.message && <MarkdownContent text={stream.result.message} />}
+                {stream.result.success && stream.explainExportPath && (
+                  <div className="mt-1.5 text-[9px]" style={{ color: 'var(--color-text-muted)' }}>
+                    {t('action.explainExported', { path: stream.explainExportPath })}
+                  </div>
+                )}
                 {stream.result.review_passed !== null && stream.result.review_passed !== undefined && (
                   <div className="mt-2 flex items-center gap-2">
                     <span className="text-[9px] font-bold px-2 py-0.5 rounded-sm"
@@ -287,8 +296,8 @@ export default function ActionPanel({
               </div>
             )}
 
-            {/* Context info — varies by action */}
-            <ActionContext action={action} node={node} config={config} downstreamNodes={downstreamNodes} downstreamCount={downstreamCount} t={t} />
+            {/* Context info — 解释动作的产出说明卡 */}
+            <ActionContext t={t} />
 
             {/* Instruction input */}
             <div>
@@ -298,7 +307,7 @@ export default function ActionPanel({
               <textarea
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
-                placeholder={getPlaceholder(action, t)}
+                placeholder={t('action.explainPlaceholder')}
                 rows={2}
                 className="w-full px-3 py-2 rounded-md text-xs bg-transparent resize-none outline-none transition-colors focus:ring-0"
                 style={{
@@ -334,10 +343,7 @@ export default function ActionPanel({
           </>
         ) : (
           <>
-            <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>
-              {t('action.autoBackupShort')}
-            </span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto">
               <button onClick={onClose}
                 className="px-3 py-1.5 rounded-md text-xs font-medium transition-all hover:bg-[rgba(27,42,68,0.045)] active:scale-[0.98]"
                 style={{ color: 'var(--color-text-muted)' }}>
@@ -458,97 +464,23 @@ function PhaseSection({ entry, phaseConfig, isCurrent, t }: {
   );
 }
 
-/* ── Action-specific context info ── */
+/* ── Action-specific context info（动作收敛：仅「解释」卡） ── */
 
-function ActionContext({ action, node, config, downstreamNodes, downstreamCount, t }: {
-  action: ActionType; node: GraphNode; config: ReturnType<typeof getActionConfig>;
-  downstreamNodes?: GraphNode[]; downstreamCount: number; t: (key: string, vars?: Record<string, string | number>) => string;
+function ActionContext({ t }: {
+  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
-  switch (action) {
-    case 'fix':
-      return (
-        <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-          <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            {t('action.fixContext', { name: node.label })}
-          </p>
-        </div>
-      );
-    case 'test':
-      return (
-        <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-          <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            {t('action.testContext', { name: node.label })}
-          </p>
-          <div className="mt-2 flex items-center gap-1.5">
-            {[t('action.unitTest'), t('action.integrationTest'), t('action.e2eTest')].map(label => (
-              <span key={label} className="text-[9px] px-1.5 py-0.5 rounded-sm" style={{ background: 'var(--ibm-layer-02)', color: 'var(--color-text-secondary)' }}>{label}</span>
-            ))}
-          </div>
-        </div>
-      );
-    case 'refactor':
-      return (
-        <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-          <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            {t('action.refactorContext', { name: node.label })}
-            {downstreamCount > 0 && <span>{t('action.downstreamCountShort', { count: downstreamCount })}</span>}。
-          </p>
-          {downstreamNodes && downstreamNodes.length > 0 && (
-            <div className="mt-2 space-y-0.5">
-              {downstreamNodes.slice(0, 8).map((n) => (
-                <div key={n.id} className="flex items-center gap-1.5 text-[9px] pl-1.5 py-0.5">
-                  <span className="w-1 h-1 rounded-full" style={{ background: config.color }} />
-                  <span style={{ color: 'var(--color-text-secondary)' }}>{n.label}</span>
-                  {n.file && <span className="font-mono" style={{ color: 'var(--color-text-disabled)' }}>{n.file.split('/').pop()}</span>}
-                </div>
-              ))}
-              {downstreamNodes.length > 8 && (
-                <span className="text-[9px]" style={{ color: 'var(--color-text-disabled)' }}>{t('action.moreNodesShort', { count: downstreamNodes.length - 8 })}</span>
-              )}
-            </div>
-          )}
-        </div>
-      );
-    case 'explain':
-      return (
-        <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-          <ul className="space-y-0.5 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
-            {[t('action.docItem1'), t('action.docItem2'), t('action.docItem3'), t('action.docItem4'), t('action.docItem5')].map(item => (
-              <li key={item}>· {item}</li>
-            ))}
-          </ul>
-        </div>
-      );
-    case 'develop':
-      return (
-        <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
-          <p className="text-[10px] leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>
-            {t('action.devContext', { name: node.label })}
-          </p>
-          <div className="mt-2 flex items-center gap-1.5">
-            {[t('action.createFiles'), t('action.implFunctions'), t('action.buildCallChain')].map(label => (
-              <span key={label} className="text-[9px] px-1.5 py-0.5 rounded-sm" style={{ background: 'var(--ibm-layer-02)', color: 'var(--color-text-secondary)' }}>{label}</span>
-            ))}
-          </div>
-        </div>
-      );
-    default:
-      return null;
-  }
+  return (
+    <div className="rounded-md p-3" style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)' }}>
+      <ul className="space-y-0.5 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+        {[t('action.docItem1'), t('action.docItem2'), t('action.docItem3'), t('action.docItem4'), t('action.docItem5')].map(item => (
+          <li key={item}>· {item}</li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 /* ── Helpers ── */
-
-function getPlaceholder(action: ActionType, t: (key: string) => string): string {
-  switch (action) {
-    case 'test': return t('action.testPlaceholder');
-    case 'fix': return t('action.fixPlaceholder');
-    case 'refactor': return t('action.refactorPlaceholder');
-    case 'explain': return t('action.explainPlaceholder');
-    case 'develop': return t('action.developPlaceholder');
-    default: return t('action.defaultPlaceholder');
-  }
-}
 
 function getToolColor(type: string): { bg: string; text: string } {
   switch (type) {

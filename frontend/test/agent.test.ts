@@ -570,7 +570,7 @@ function makeFakePlannerClient(outputs: string[]) {
 
 async function collectStreamEvents(
   svc: AgentService,
-  req: { history: Array<{ role: string; content: string }>; mode: string; project_path: string },
+  req: { history: Array<{ role: string; content: string }>; mode: string; project_path: string; max_turns?: number },
 ): Promise<Array<{ event: string; data: string }>> {
   const events: Array<{ event: string; data: string }> = [];
   for await (const ev of svc.processStream(req)) {
@@ -647,5 +647,236 @@ describe('processStream — same-turn terminal marker vs tools (F1)', () => {
     const doneData = JSON.parse(doneEvents[0].data);
     expect(doneData.message).toBe('这是最终答复，没有工具操作。');
     expect(doneData.message).not.toContain('<final/>');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// processStream — 轮次上限收尾与循环防护（T1，design_turn-limit-wrapup v1）
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * T1 假客户端：按「本次请求的 messages」动态决定本轮输出（形态与
+ * makeFakePlannerClient 相同：单 chunk 整段正文）。供循环复现 / 逼近上限 /
+ * 终稿轮等需要「先读到注入消息、再据此响应」的场景。
+ */
+function makeResponderClient(
+  respond: (messages: Array<{ role: string; content: string }>, callIndex: number) => string,
+) {
+  const calls: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  return {
+    calls,
+    callCount() {
+      return calls.length;
+    },
+    chat: {
+      completions: {
+        create: async (params: { messages: Array<{ role: string; content: string }> }) => {
+          // 快照本轮请求：processStream 会继续向同一 messages 数组 push（注入/回喂），
+          // 若按引用记录，历史请求会被后续写入污染，无法断言「注入发生在哪一轮」。
+          calls.push({ messages: params.messages.map((m) => ({ role: m.role, content: m.content })) });
+          const content = respond(params.messages, calls.length - 1);
+          return (async function* () {
+            yield { choices: [{ delta: { content } }] };
+          })();
+        },
+      },
+    },
+  };
+}
+
+/** 工具执行替身：固定结果，使「相同操作 + 相同结果」的循环签名可控。 */
+function stubToolResults(svc: AgentService, result: string): void {
+  (svc as any).executeTool = async () => result;
+}
+
+function messagesHave(messages: Array<{ role: string; content: string }>, text: string): boolean {
+  return messages.some((m) => m.content.includes(text));
+}
+
+function countMessagesContaining(messages: Array<{ role: string; content: string }>, text: string): number {
+  return messages.filter((m) => m.content.includes(text)).length;
+}
+
+const LOOP_NUDGE_MARK = '你已连续 3 次执行完全相同的操作';
+const NEAR_LIMIT_MARK = '探索轮次即将用尽';
+const FINAL_WRAPUP_MARK = '已达探索轮次上限。请立即基于已获得的信息';
+const BARE_LIMIT = '已达到最大轮次限制';
+
+function installFakePlanner(svc: AgentService, fake: ReturnType<typeof makeResponderClient>): void {
+  (svc as any)._clients.set('PLANNER', fake);
+  (svc as any)._models.set('PLANNER', 'fake-model');
+}
+
+describe('processStream — 循环防护（T1）', () => {
+  // design_turn-limit-wrapup 3.3 回归守护：现场为 mapper 咨询连续 26 轮相同
+  // <search> 且结果不变、零进展直至裸撞限。K=3 连续相同（操作+结果）→ 纠偏注入；
+  // 纠偏 2 次后仍复现 → 提前进入终稿轮（不再等待撞限）。
+  it('K=3 identical turns → nudge; after 2 nudges → forced wrap-up turn; done = final text', async () => {
+    const svc = makeService();
+    stubToolResults(svc, '[search "needle" in x.js]\n(无匹配结果)');
+    const finalText = '最终结论：sendMedia 的调用入口在 doudian_im_msg.js。';
+    const fake = makeResponderClient((messages) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) {
+        // 终稿轮：即使输出操作标签 + <final/>，也必须不执行工具、正文即最终产出
+        return `<search path="x.js">needle</search>\n${finalText}\n<final/>`;
+      }
+      return '<search path="x.js">needle</search>';
+    });
+    installFakePlanner(svc, fake);
+
+    const events = await collectStreamEvents(svc, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+    });
+
+    // 轮 1-3 签名相同 → 第 4 次请求（calls[3]）出现纠偏；第 3 次请求尚未出现
+    expect(fake.callCount()).toBe(10);
+    expect(countMessagesContaining(fake.calls[2].messages, LOOP_NUDGE_MARK)).toBe(0);
+    expect(countMessagesContaining(fake.calls[3].messages, LOOP_NUDGE_MARK)).toBe(1);
+    // 纠偏共 2 次（第 3 次复现不再注入，而是提前终稿）
+    expect(countMessagesContaining(fake.calls[9].messages, LOOP_NUDGE_MARK)).toBe(2);
+    // 2 次纠偏后仍复现 → 终稿注入出现于第 10 轮（0-based calls[9]）
+    expect(messagesHave(fake.calls[9].messages, FINAL_WRAPUP_MARK)).toBe(true);
+    // 终稿轮不执行工具：tools 事件恰为轮 1-9 的 9 个
+    expect(events.filter((e) => e.event === 'tools')).toHaveLength(9);
+    // done 来自终稿文本（清洗 <final/> 与操作标签），非裸串、非兜底
+    const doneEvents = events.filter((e) => e.event === 'done');
+    expect(doneEvents).toHaveLength(1);
+    const doneData = JSON.parse(doneEvents[0].data);
+    expect(doneData.message).toBe(finalText);
+    expect(doneData.message).not.toBe(BARE_LIMIT);
+  });
+});
+
+describe('processStream — 近限与达限收尾（T1）', () => {
+  // design_turn-limit-wrapup 3.1/3.2 回归守护：近限注入恰一次（含剩余轮数）；
+  // 达限不再裸 done，而是预算外终稿轮（无工具调用），done = 终稿文本。
+  it('near-limit prompt injected once with remaining turns; final wrap-up turn supplies done', async () => {
+    const svc = makeService();
+    stubToolResults(svc, '[search "n"]\n(无匹配结果)');
+    const finalText = '最终结论：已基于已收集信息给出图谱。';
+    const fake = makeResponderClient((messages, callIndex) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) {
+        return `${finalText}\n<final/>`;
+      }
+      // 每轮操作不同 → 不触发循环防护（隔离本用例被测行为）
+      return `<search path="file-${callIndex}.js">needle-${callIndex}</search>`;
+    });
+    installFakePlanner(svc, fake);
+
+    const events = await collectStreamEvents(svc, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+      max_turns: 5,
+    });
+
+    // 预算 5 轮 + 预算外终稿轮 1 次 = 6 次模型调用
+    expect(fake.callCount()).toBe(6);
+    // 近限注入在轮 3（5-3+1=剩余 3 轮）首次出现，且全流恰一条
+    expect(countMessagesContaining(fake.calls[1].messages, NEAR_LIMIT_MARK)).toBe(0);
+    expect(countMessagesContaining(fake.calls[2].messages, NEAR_LIMIT_MARK)).toBe(1);
+    expect(fake.calls[2].messages.some((m) => m.content.includes('剩余 3 轮'))).toBe(true);
+    expect(countMessagesContaining(fake.calls[5].messages, NEAR_LIMIT_MARK)).toBe(1);
+    // 第 6 次调用即终稿轮：注入终稿指令、不执行工具
+    expect(messagesHave(fake.calls[5].messages, FINAL_WRAPUP_MARK)).toBe(true);
+    expect(events.filter((e) => e.event === 'tools')).toHaveLength(5);
+    const doneData = JSON.parse(events.filter((e) => e.event === 'done')[0].data);
+    expect(doneData.message).toBe(finalText);
+    expect(doneData.message).not.toBe(BARE_LIMIT);
+  });
+
+  // design_turn-limit-wrapup 3.2 兜底 + 3.4 终止口径：终稿轮空产出 → 结构化终止
+  // 文案（含轮次、已执行操作数、「继续」指引），不再出现裸字面串。
+  it('empty final wrap-up output → structured limit message with turns, op count and continue hint', async () => {
+    const svc = makeService();
+    stubToolResults(svc, '[search "n"]\n(无匹配结果)');
+    const fake = makeResponderClient((messages, callIndex) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) return ''; // 终稿轮空产出
+      return `<search path="file-${callIndex}.js">needle-${callIndex}</search>`;
+    });
+    installFakePlanner(svc, fake);
+
+    const events = await collectStreamEvents(svc, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+      max_turns: 2,
+    });
+
+    // 预算 2 轮（各 1 次操作）+ 终稿轮 = 3 次调用
+    expect(fake.callCount()).toBe(3);
+    const doneData = JSON.parse(events.filter((e) => e.event === 'done')[0].data);
+    expect(doneData.message).toContain('已达探索轮次上限（2 轮');
+    expect(doneData.message).toContain('已执行 2 次工具操作');
+    expect(doneData.message).toContain('再发送一条消息即可继续');
+    expect(doneData.message).not.toBe(BARE_LIMIT);
+    expect(doneData.message).not.toContain(BARE_LIMIT);
+  });
+});
+
+describe('processStream — max_turns 参数（T1）', () => {
+  // design_turn-limit-wrapup 3.5：非法类型不抛错、回落默认 50；数值 clamp 到 [1, 50]。
+  it('invalid max_turns falls back to the 50-turn default', async () => {
+    const svc = makeService();
+    stubToolResults(svc, '[search "n"]\n(无匹配结果)');
+    const fake = makeResponderClient((messages, callIndex) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) return '最终结论。\n<final/>';
+      return `<search path="file-${callIndex}.js">needle-${callIndex}</search>`;
+    });
+    installFakePlanner(svc, fake);
+
+    const events = await collectStreamEvents(svc, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+      max_turns: 'abc' as any, // 非法类型：不抛错，回落默认 50
+    });
+
+    // 回落 50：预算 50 轮 + 终稿轮 1 = 51 次调用；近限注入落于轮 48（剩余 3 轮）
+    expect(fake.callCount()).toBe(51);
+    expect(countMessagesContaining(fake.calls[46].messages, NEAR_LIMIT_MARK)).toBe(0);
+    expect(countMessagesContaining(fake.calls[47].messages, NEAR_LIMIT_MARK)).toBe(1);
+    expect(fake.calls[47].messages.some((m) => m.content.includes('剩余 3 轮'))).toBe(true);
+    expect(messagesHave(fake.calls[50].messages, FINAL_WRAPUP_MARK)).toBe(true);
+    const doneData = JSON.parse(events.filter((e) => e.event === 'done')[0].data);
+    expect(doneData.message).toBe('最终结论。');
+  });
+
+  it('out-of-range values clamp: 0 → 1 turn, 999 → 50 turns', async () => {
+    // 下钳：0 → 1 轮（近限注入即“剩余 1 轮”），随后终稿轮，共 2 次调用
+    const svcLow = makeService();
+    stubToolResults(svcLow, '[search "n"]\n(无匹配结果)');
+    const fakeLow = makeResponderClient((messages, callIndex) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) return '最终结论。\n<final/>';
+      return `<search path="file-${callIndex}.js">needle-${callIndex}</search>`;
+    });
+    installFakePlanner(svcLow, fakeLow);
+    await collectStreamEvents(svcLow, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+      max_turns: 0,
+    });
+    expect(fakeLow.callCount()).toBe(2);
+    expect(fakeLow.calls[0].messages.some((m) => m.content.includes('剩余 1 轮'))).toBe(true);
+
+    // 上钳：999 → 50（与默认同路径），共 51 次调用
+    const svcHigh = makeService();
+    stubToolResults(svcHigh, '[search "n"]\n(无匹配结果)');
+    const fakeHigh = makeResponderClient((messages, callIndex) => {
+      if (messagesHave(messages, FINAL_WRAPUP_MARK)) return '最终结论。\n<final/>';
+      return `<search path="file-${callIndex}.js">needle-${callIndex}</search>`;
+    });
+    installFakePlanner(svcHigh, fakeHigh);
+    await collectStreamEvents(svcHigh, {
+      history: [{ role: 'user', content: 'x' }],
+      mode: 'planner',
+      project_path: '',
+      max_turns: 999,
+    });
+    expect(fakeHigh.callCount()).toBe(51);
+    expect(messagesHave(fakeHigh.calls[50].messages, FINAL_WRAPUP_MARK)).toBe(true);
   });
 });

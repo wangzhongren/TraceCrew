@@ -7,9 +7,8 @@ import TitleBar from './components/TitleBar';
 import SettingsPanel from './components/SettingsPanel';
 import RightPanel from './components/RightPanel';
 import ResizeHandle from './components/ResizeHandle';
-import type { ActionType } from './components/ActionDialog';
+import { cleanProtocolTags, type ActionType } from './components/ActionDialog';
 import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel';
-import { useAutoExec } from './hooks/useAutoExec';
 
 export interface PipelineState {
   phase: 'idle' | 'clarifying' | 'planning' | 'reviewing' | 'done' | 'rejected';
@@ -30,22 +29,6 @@ export default function App() {
   // Action state (lifted from MapperView)
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM_STATE);
-
-  // Auto-save execution record when stream completes
-  useEffect(() => {
-    if (!stream.result || !selectedNode) return;
-    if (stream.result.message) {
-      setExecRecords(prev => ({
-        ...prev,
-        [selectedNode]: {
-          summary: stream.result!.message || '',
-          review_passed: stream.result!.review_passed ?? null,
-          review_feedback: stream.result!.review_feedback,
-          review_issues: stream.result!.review_issues,
-        },
-      }));
-    }
-  }, [stream.result, selectedNode]);
 
   // Per-node stream persistence: save/restore action state when switching nodes
   const savedStreamsRef = useRef<Record<string, StreamState>>({});
@@ -90,7 +73,11 @@ export default function App() {
     }, null, 2)).catch(() => { /* 预期可忽略：STATE.json 为旁路持久化（尽力而为），写失败不影响会话 */ });
   }, [pipeline.graph, pipeline.savedPlan, projectPath]);
 
-  /** Compute downstream nodes for the selected node (used by refactor action) */
+  /**
+   * Compute downstream nodes for the selected node.
+   * 定位对齐（动作收敛为 explain）后请求体不再使用；保留以维持 RightPanel
+   * （应用外壳）既有 props 契约，其清理需与 app-shell 一并调度。
+   */
   const downstreamNodes = useMemo((): GraphNode[] => {
     if (!pipeline.graph || !selectedNode) return [];
     const visited = new Set<string>();
@@ -209,20 +196,6 @@ export default function App() {
     setPipeline(prev => ({ ...prev, phase: 'idle' }));
   }, [handleActionClose]);
 
-  // Auto-exec 编排（批 2 / D3 抽取）：状态与处理器由 hooks/useAutoExec.ts 提供
-  const {
-    autoExecRunning, autoExecProgress, execRecords, liveOutput, setExecRecords,
-    runAutoExec, stopAutoExec, executeNode,
-  } = useAutoExec({
-    projectPath,
-    graphRef,
-    onGraphChange: handleGraphChange,
-    locale,
-    savedPlanRef,
-    setStream,
-    actionAbortRef,
-  });
-
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
 
@@ -244,7 +217,8 @@ export default function App() {
           node: selectedNodeData,
           instruction,
           project_path: projectPath,
-          downstream_nodes: activeAction === 'refactor' ? downstreamNodes : [],
+          // 动作收敛为 explain（只读，无下游写入面）：不再下发下游节点
+          downstream_nodes: [],
           locale,
           plan_context: savedPlanRef.current || null,
         }),
@@ -343,6 +317,15 @@ export default function App() {
               });
             }
           }
+
+          // explain 动作成功完成后：把讲解 Markdown 落盘到项目内（best-effort），
+          // 并把相对导出路径记入 stream，供结果区显示导出提示
+          if (event === 'done' && activeAction === 'explain' && isSuccessfulExplanation(d)) {
+            const exportPath = await writeExplanationFile(selectedNodeData, d.message);
+            if (exportPath) {
+              setStream(prev => ({ ...prev, explainExportPath: exportPath }));
+            }
+          }
         }
       }
     } catch (e: any) {
@@ -405,18 +388,9 @@ export default function App() {
                   phase={pipeline.phase}
                   selectedNode={selectedNode}
                   onSelectNode={handleSelectNode}
-                  onGraphChange={handleGraphChange}
-                  projectPath={projectPath}
                   activeAction={activeAction}
                   onRequestAction={handleRequestAction}
                   streamRunning={stream.running}
-                  onAutoExec={runAutoExec}
-                  onStopAutoExec={stopAutoExec}
-                  autoExecRunning={autoExecRunning}
-                  autoExecProgress={autoExecProgress}
-                  execRecords={execRecords}
-                  liveOutput={liveOutput}
-                  onExecuteNode={executeNode}
                 />
               </div>
               {/* Right: Code Viewer + Action Panel */}
@@ -491,4 +465,63 @@ function LocaleSwitcher() {
       ))}
     </select>
   );
+}
+
+/* ── explain 导出落盘（定位对齐 §3：讲解产出可带走） ── */
+
+/** 两位补零（导出文件名时间戳用） */
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** 导出文件名安全清洗：非 [\w一-龥.-] 字符替换为 '_'，截断至 40 字符 */
+function sanitizeExportLabel(node: GraphNode): string {
+  const source = node.label || node.file || '';
+  const cleaned = source.replace(/[^\w一-龥.-]/g, '_').slice(0, 40);
+  if (!cleaned) return 'node';
+  return cleaned;
+}
+
+/** 导出文件名时间戳：本地时间 yyyyMMdd-HHmmss */
+function exportTimestamp(date: Date): string {
+  const ymd = `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}`;
+  const hms = `${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`;
+  return `${ymd}-${hms}`;
+}
+
+/**
+ * 判定 SSE done 载荷是否表示 explain 动作成功完成（含可导出的讲解正文）。
+ * 服务端只读动作成功 done 形态（runActionStream）：
+ *   { success: true, message: <讲解 Markdown>, review_passed: true, call_graph? }
+ */
+function isSuccessfulExplanation(payload: unknown): payload is { message: string } {
+  if (!payload || typeof payload !== 'object') return false;
+  const p = payload as { success?: unknown; message?: unknown };
+  if (p.success !== true) return false;
+  return typeof p.message === 'string';
+}
+
+/**
+ * explain 成功完成后，把讲解 Markdown 落盘到项目内 '.tracecrew/explanations/'，
+ * 返回相对导出路径供结果区展示；失败返回 null。
+ * best-effort：预期可忽略——落盘失败（无 Electron 环境、磁盘错误等）只告警，
+ * 不影响讲解在结果区的展示与其余流程。
+ */
+async function writeExplanationFile(node: GraphNode, message: string): Promise<string | null> {
+  const text = cleanProtocolTags(message).trim();
+  if (!text) return null;
+  const filePath = `.tracecrew/explanations/${sanitizeExportLabel(node)}-${exportTimestamp(new Date())}.md`;
+  try {
+    const result = await window.tracecrew.file.writeFile(filePath, text);
+    if (!result.success) {
+      // 预期可忽略：导出失败不影响讲解展示（文件写入失败经 IPC 返回 success:false 而非抛异常）
+      console.error('explain export failed:', result.error, filePath);
+      return null;
+    }
+    return filePath;
+  } catch (e) {
+    // 预期可忽略：非 Electron 环境等场景写盘不可用，导出失败不影响讲解展示
+    console.error('explain export failed:', e);
+    return null;
+  }
 }

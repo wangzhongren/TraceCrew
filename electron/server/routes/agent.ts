@@ -17,7 +17,7 @@ router.post('/chat', async (req, res) => {
 /* ── Streaming chat (SSE) ── */
 
 router.post('/chat/stream', async (req, res) => {
-  console.log(`[route /chat/stream] mode=${req.body?.mode} project_path=${(req.body?.project_path || '').slice(-30)}`);
+  console.log(`[route /chat/stream] mode=${req.body?.mode} max_turns=${req.body?.max_turns ?? '(default)'} project_path=${(req.body?.project_path || '').slice(-30)}`);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');

@@ -1,6 +1,6 @@
 /**
  * F3 / O-F3（2026-10-16，修复提案 docs/fix/2026-10-16_fix-e2e-findings.md §3、§9）：
- * 共享协议标签清洗工具 `cleanProtocolTags`（定义于 ActionDialog.tsx，5 个组件共用）
+ * 共享协议标签清洗工具 `cleanProtocolTags`（ActionDialog.tsx 共享导出，4 个组件共用：ChatPanel / PlanCard / ReviewCard / ActionPanel）
  * 的分类规则单测。第 9、10 组用 E2E 真实链路留档
  * （/tmp/tracecrew-e2e/evidence/）中的 done.message 样例做回归：
  *   - t1-planner-search（attempt1/2/3）：整条响应只剩操作标签；

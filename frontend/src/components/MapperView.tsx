@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import MapCanvas from './MapCanvas';
 import type { CallGraph } from '../types/graph';
-import { getActionsForNode, ACTION_CONFIGS, cleanProtocolTags } from './ActionDialog';
+import { getActionsForNode, ACTION_CONFIGS } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_LABELS } from '../types/theme';
 import type { NodeStatus } from '../types/theme';
@@ -12,26 +12,10 @@ interface Props {
   sequenceGraph: CallGraph | null;
   phase: 'idle' | 'planning' | 'reviewing' | 'done' | 'rejected' | 'clarifying';
   onSelectNode: (id: string | null) => void;
-  onGraphChange?: (graph: CallGraph) => void;
   selectedNode: string | null;
-  projectPath: string | null;
   activeAction: ActionType | null;
   onRequestAction: (action: ActionType) => void;
   streamRunning: boolean;
-  /** Start auto-executing all pending tasks in dependency order */
-  onAutoExec?: () => void;
-  /** Stop the currently running auto-exec */
-  onStopAutoExec?: () => void;
-  /** Whether auto-exec is currently running */
-  autoExecRunning?: boolean;
-  /** Auto-exec progress */
-  autoExecProgress?: { current: number; total: number; currentNodeId: string | null } | null;
-  /** Per-node execution records for card expand */
-  execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
-  /** Live streaming output for currently executing node */
-  liveOutput?: Record<string, string>;
-  /** Execute a single node directly (without opening right panel) */
-  onExecuteNode?: (nodeId: string, action: ActionType) => void;
 }
 
 /* ── Helpers ── */
@@ -48,7 +32,7 @@ function classifyNode(status: string, isActive: boolean, isAffectedExisting?: bo
 
 /* ── PendingList (refactored: left MapCanvas + right pending list) ── */
 
-function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedNode: sel, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: {
+function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedNode: sel, onRequestAction, streamRunning }: {
   graph: CallGraph;
   displayGraph?: CallGraph;
   layoutDirection?: 'TB' | 'LR';
@@ -56,13 +40,6 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
   selectedNode: string | null;
   onRequestAction: (action: ActionType) => void;
   streamRunning: boolean;
-  onAutoExec?: () => void;
-  onStopAutoExec?: () => void;
-  autoExecRunning?: boolean;
-  autoExecProgress?: { current: number; total: number; currentNodeId: string | null } | null;
-  execRecords?: Record<string, { summary: string; review_passed: boolean | null; review_feedback?: string; review_issues?: any[] }>;
-  liveOutput?: Record<string, string>;
-  onExecuteNode?: (nodeId: string, action: ActionType) => void;
 }) {
   const t = useT();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -70,7 +47,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
 
   // Auto-expand the active node's card
   useEffect(() => {
-    const activeId = autoExecProgress?.currentNodeId || (streamRunning ? sel : null);
+    const activeId = streamRunning ? sel : null;
     if (activeId) {
       setExpandedCards(prev => {
         if (prev.has(activeId)) return prev;
@@ -79,11 +56,10 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
         return s;
       });
     }
-  }, [autoExecProgress?.currentNodeId, streamRunning, sel]);
+  }, [streamRunning, sel]);
 
   // Compute which node is "active" (currently being worked on)
-  const activeNodeId = autoExecProgress?.currentNodeId
-    || (streamRunning ? sel : null);
+  const activeNodeId = streamRunning ? sel : null;
 
   // Collect existing nodes that are affected by a bug (impact_scope.affected_nodes)
   const affectedExistingIds = useMemo(() => {
@@ -101,7 +77,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
     return ids;
   }, [graph]);
 
-  // Only pending + active nodes (right-side list) — active nodes stay visible for live output
+  // Only pending + active nodes (right-side list) — active nodes stay visible while running
   const pendingNodes = useMemo(() =>
     graph.nodes.filter(n => {
       const c = classifyNode(n.status, n.id === activeNodeId, affectedExistingIds.has(n.id));
@@ -110,23 +86,12 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
     [graph, activeNodeId, affectedExistingIds]
   );
 
-  // Unfiltered pending count for button disabled logic (ignores activeNodeId)
-  const unfilteredPending = graph.nodes.filter(n => classifyNode(n.status, false, affectedExistingIds.has(n.id)) === 'pending').length;
-
   const renderCard = (node: typeof graph.nodes[0]) => {
     const c = STATUS_COLORS_SIMPLE[node.status as NodeStatus] || STATUS_COLORS_SIMPLE.existing;
     const isSel = sel === node.id;
     const isHovered = hoveredNode === node.id;
     const isActive = node.id === activeNodeId;
     const actions = getActionsForNode(node.status);
-
-    // Check if dependencies are met
-    const incoming = graph.edges.filter(e => e.to === node.id);
-    const unmetDeps = incoming.filter(e => {
-      const dep = graph.nodes.find(n => n.id === e.from);
-      return dep && dep.status !== 'done' && dep.status !== 'existing';
-    });
-    const blocked = unmetDeps.length > 0 && node.status !== 'done' && node.status !== 'existing';
 
     return (
       <div
@@ -201,11 +166,6 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
             {node.line && (
               <span className="text-[10px] opacity-40" style={{ color: 'var(--color-text-muted)' }}>L{node.line}</span>
             )}
-            {blocked && (
-              <span className="text-[10px] px-1 py-px rounded" style={{ background: 'rgba(169,123,42,.08)', color: '#8f6720' }}>
-                依赖未完成
-              </span>
-            )}
           </div>
 
           {/* Bottom bar: view-code always, action buttons for pending (never during execution) */}
@@ -227,7 +187,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                 return (
                   <button
                     key={action}
-                    onClick={(e) => { e.stopPropagation(); if (onExecuteNode) { onExecuteNode(node.id, action); } else { onSelect(node.id); onRequestAction(action); } }}
+                    onClick={(e) => { e.stopPropagation(); onSelect(node.id); onRequestAction(action); }}
                     className="px-2 py-0.5 rounded text-[10px] font-medium transition-all duration-150 hover:scale-105 whitespace-nowrap"
                     style={{ background: `color-mix(in srgb, ${c} 9%, transparent)`, color: c }}
                   >
@@ -241,13 +201,6 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
           {/* Expanded detail — click card to toggle */}
           {expandedCards.has(node.id) && (
             <div className="mt-2 pt-2 border-t space-y-2" style={{ borderColor: 'var(--color-border-subtle)' }}>
-              {/* Live output — show for active node */}
-              {isActive && liveOutput?.[node.id] !== undefined && (
-                <div className="rounded p-2 text-[10px] font-mono leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
-                  style={{ background: 'var(--ibm-layer-02)', color: 'var(--ibm-text-secondary)' }}>
-                  {cleanProtocolTags(liveOutput[node.id] || '') || '等待 Agent 响应...'}
-                </div>
-              )}
               {/* Planner detail — always show when expanded */}
               {node.detail && (
                 <div className="text-[11px] leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
@@ -255,43 +208,11 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
                   {node.detail}
                 </div>
               )}
-              {/* Execution record — show if exists */}
-              {execRecords?.[node.id] && (() => {
-                  const rec = execRecords[node.id];
-                  const passed = rec.review_passed; // true | false | null
-                  const isGreen = passed !== false; // null = no review needed, treat as success
-                  return (
-                <>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px]" style={{ color: isGreen ? 'var(--ibm-success)' : 'var(--ibm-error)' }}>
-                      {passed === true ? '✓ 通过' : passed === false ? '✕ 未通过' : '✓ 完成'}
-                    </span>
-                  </div>
-                  {rec.review_feedback && (
-                    <div className="px-2 py-1 rounded text-[10px]" style={{
-                      background: isGreen ? 'rgba(47,125,95,.08)' : 'rgba(194,69,46,.08)',
-                      color: isGreen ? 'var(--ibm-success)' : 'var(--ibm-error)',
-                    }}>
-                      {rec.review_feedback}
-                    </div>
-                  )}
-                  {(rec.review_issues?.length ?? 0) > 0 && (
-                    <div className="space-y-0.5">
-                      {rec.review_issues!.map((issue: any, j: number) => (
-                        <div key={j} className="flex items-start gap-1 text-[9px]" style={{ color: 'var(--ibm-error)' }}>
-                          <span className="shrink-0 mt-0.5">✕</span>
-                          <span>[{issue.severity || '?'}] {issue.file || '?'}: {issue.claim || ''}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              );})()}
             </div>
           )}
 
           {/* Expand toggle indicator */}
-          {(node.detail || execRecords?.[node.id]) && (
+          {node.detail && (
             <div className="mt-1.5 flex items-center gap-1 text-[10px] cursor-pointer"
               style={{ color: 'var(--color-text-muted)' }}
               onClick={(e) => {
@@ -326,7 +247,7 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
       {/* Right: Pending list */}
       <div className="shrink-0 flex flex-col border-l"
         style={{ width: 320, borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-primary)' }}>
-        {/* Title bar with one-click execute button */}
+        {/* Title bar */}
         <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-b"
           style={{ borderColor: 'var(--color-border-subtle)', background: 'var(--color-bg-layer)' }}>
           <span className="text-[12px] font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
@@ -336,26 +257,6 @@ function KanbanBoard({ graph, displayGraph, layoutDirection, onSelect, selectedN
             {pendingNodes.length}
           </span>
           <div className="flex-1" />
-          {/* One-click execute button */}
-          {onAutoExec && (
-            <>
-              {autoExecProgress && autoExecRunning && (
-                <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-muted)' }}>
-                  {autoExecProgress.current}/{autoExecProgress.total}
-                </span>
-              )}
-              <button
-                onClick={autoExecRunning ? onStopAutoExec : onAutoExec}
-                disabled={streamRunning || (!autoExecRunning && unfilteredPending === 0)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded text-[12px] font-semibold transition-all duration-150 disabled:opacity-30"
-                style={{
-                  background: autoExecRunning ? 'rgba(194,69,46,.08)' : 'var(--ibm-primary)',
-                  color: autoExecRunning ? 'var(--ibm-error)' : '#fff',
-                }}>
-                {autoExecRunning ? <>{t('chat.stop')}</> : <>▶ 一键执行</>}
-              </button>
-            </>
-          )}
         </div>
 
         {/* Card list — scrollable */}
@@ -398,7 +299,7 @@ function EmptyState({ phase }: { phase: Props['phase'] }) {
 
 /* ── MapperView ── */
 
-export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, selectedNode, activeAction: _activeAction, onRequestAction, streamRunning, onAutoExec, onStopAutoExec, autoExecRunning, autoExecProgress, execRecords, liveOutput, onExecuteNode }: Props) {
+export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, selectedNode, activeAction: _activeAction, onRequestAction, streamRunning }: Props) {
   const [tab, setTab] = useState<'call' | 'dependency' | 'sequence'>('call');
   const hasSequence = sequenceGraph && sequenceGraph.nodes.length > 0;
 
@@ -459,13 +360,6 @@ export default function MapperView({ graph, sequenceGraph, phase, onSelectNode, 
           selectedNode={selectedNode}
           onRequestAction={onRequestAction}
           streamRunning={streamRunning}
-          onAutoExec={onAutoExec}
-          onStopAutoExec={onStopAutoExec}
-          autoExecRunning={autoExecRunning}
-          autoExecProgress={autoExecProgress}
-          execRecords={execRecords}
-          liveOutput={liveOutput}
-          onExecuteNode={onExecuteNode}
         />
       </div>
     </div>

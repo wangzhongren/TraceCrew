@@ -135,10 +135,11 @@ const PM_SYSTEM_PROMPT = `你是 TraceCrew 的项目经理。你负责在需求�
    然后追加 <handoff-to-planner/>，系统将自动转交给架构师。
 
 【只读咨询派发】
-当用户在了解现状而非改造代码时，你可以派发只读咨询任务：
-- 需要设计/结构/方案分析 → 回复末尾追加 <handoff-to-architect/>（架构师做只读设计分析）
-- 需要调用关系图/链路图/时序图 → 回复末尾追加 <handoff-to-mapper/>（绘制者画图）
-规则：仅用于只读咨询；改造类需求仍走需求确认→<handoff-to-planner/>；用户显式指名（如"让 mapper 画图"）直接对应派发；设计与图都要时先 architect、回报后再 mapper；派发前用一两句话告知用户已把什么任务交给谁（完成后汇报）。
+当用户在了解现状而非改造代码时：
+- 默认出图（常规环节）：当你完成一次实质性只读讲解（代码结构/调用链路/架构/现状梳理等）后，直接在回复末尾追加 <handoff-to-mapper/> 交绘制者出图——不要询问用户是否要图；讲解末尾用一两句话告知"已交绘制者出图，完成后向你汇报"。
+- 不派发的例外：① 寒暄/闲聊/问候；② 无需探索阅读、一句话可答的速问；③ 用户明确说不要图；④ 用户显式指定其他去向。
+- 需要设计/结构/方案分析 → 回复末尾追加 <handoff-to-architect/>（架构师做只读设计分析）。
+规则：仅用于只读咨询；改造类需求仍走需求确认→<handoff-to-planner/>；用户显式指名（如"让 mapper 画图"）直接对应派发；设计与图都要时先 architect、回报后再 mapper；派发时告知用户已把什么任务交给谁（完成后汇报）。
 
 【交流原则】
 - 如果用户输入有错别字，温和地确认："您说的是 XXX 吗？"
@@ -519,6 +520,27 @@ const TAG_TO_OPERATION: Record<string, string> = {
 
 const OPERATION_TAGS = Object.keys(TAG_TO_OPERATION).join('|');
 
+/* ── 轮次上限收尾与循环防护（design_turn-limit-wrapup v1，客户已批准默认项） ── */
+
+const DEFAULT_MAX_TURNS = 50;
+const WRAPUP_RESERVE = 3;
+const LOOP_REPEAT_K = 3;
+const LOOP_MAX_NUDGES = 2;
+const LOOP_RESULT_PREFIX_CHARS = 120;
+
+/** 近限软收尾注入（每流一次）：把剩余轮次交给 AI，由其自己收尾 */
+function nearLimitPrompt(remainingTurns: number): string {
+  return `【系统】探索轮次即将用尽（剩余 ${remainingTurns} 轮）。请开始收尾：不再发起新的探索操作；在剩余轮次内直接给出最终结论/图谱，并在末尾追加 <final/>。`;
+}
+
+/** 循环纠偏注入（连续 K 轮「相同操作 + 相同结果」） */
+function loopNudgePrompt(): string {
+  return `【系统】你已连续 ${LOOP_REPEAT_K} 次执行完全相同的操作且结果未变化。请改变策略：换关键词/换文件/改用 read-file 直接读取目标区间，或直接基于已有信息给出结论。`;
+}
+
+/** 终稿轮注入（达限硬收尾与循环防护提前收尾共用同一文案） */
+const FINAL_WRAPUP_PROMPT = '【系统】已达探索轮次上限。请立即基于已获得的信息，直接输出最终结论/图谱（不再使用任何工具），并在末尾追加 <final/>。';
+
 /* ── Agent Service ── */
 
 export class AgentService {
@@ -741,6 +763,12 @@ export class AgentService {
       .trim();
   }
 
+  /** 撞限终止兜底文案（design_turn-limit-wrapup 3.4）：如实说明已达上限、累计执行了
+   *  多少次工具操作、如何继续；替换裸字面串「已达到最大轮次限制」。 */
+  private turnLimitMessage(maxTurns: number, executedOps: number): string {
+    return `已达探索轮次上限（${maxTurns} 轮，已执行 ${executedOps} 次工具操作）。建议：再发送一条消息即可继续，我会带着当前进度接着做。`;
+  }
+
   private buildMessages(history?: Array<{ role: string; content: string }> | null) {
     if (history !== undefined && history !== null && !Array.isArray(history)) {
       throw new Error(
@@ -846,9 +874,17 @@ export class AgentService {
     project_path?: string | null;
     mode?: string | null;
     locale?: string | null;
+    max_turns?: number | null;
   }): AsyncGenerator<{ event: string; data: string }> {
     const messages = this.buildMessages(req.history);
     const projectPath = req.project_path || '';
+
+    // 本轮探索轮次上限：默认 50；合法数字 clamp 到 [1, DEFAULT_MAX_TURNS]；
+    // 非法值（非数字/NaN）不抛错，回落默认（design_turn-limit-wrapup 3.5）。
+    let maxTurns = DEFAULT_MAX_TURNS;
+    if (typeof req.max_turns === 'number' && Number.isFinite(req.max_turns)) {
+      maxTurns = Math.min(DEFAULT_MAX_TURNS, Math.max(1, Math.floor(req.max_turns)));
+    }
 
     // Select system prompt by agent mode
     const SYSTEM_PROMPTS: Record<string, string> = {
@@ -873,12 +909,26 @@ export class AgentService {
     }
 
     let turn = 0, emptyCount = 0;
+    let executedOps = 0;           // 累计已执行工具操作数（终止文案 M）
+    let nearLimitPrompted = false; // 近限软收尾已注入（每流一次）
+    let forceWrapup = false;       // 循环防护用尽 → 提前进入终稿轮
+    let lastLoopSig = '';          // 上轮二元签名（操作 + 结果）
+    let loopRepeatCount = 0;       // 连续相同签名轮数
+    let loopNudges = 0;            // 已注入纠偏次数
     const startTime = Date.now();
     while (true) {
-      if (++turn > 50) {
-        console.log(`[processStream] TURN LIMIT reached (${turn - 1} turns, ${Date.now() - startTime}ms)`);
-        yield { event: 'done', data: JSON.stringify({ message: '已达到最大轮次限制', operations: [] }) };
-        return;
+      turn++;
+      // 达限（或循环防护提前）→ 终稿轮：预算外第 max_turns+1 轮，每流至多一次。
+      // 不再裸 done：注入终稿指令、照常流式取正文，解析后不执行任何操作。
+      const isFinalTurn = forceWrapup || turn > maxTurns;
+      if (isFinalTurn) {
+        console.log(`[processStream] FINAL WRAP-UP TURN (turn=${turn}, budget=${maxTurns}, ops=${executedOps}, ${Date.now() - startTime}ms)`);
+        messages.push({ role: 'user', content: FINAL_WRAPUP_PROMPT });
+      } else if (turn > maxTurns - WRAPUP_RESERVE && !nearLimitPrompted) {
+        nearLimitPrompted = true;
+        const remaining = maxTurns - turn + 1;
+        console.log(`[processStream] NEAR LIMIT: wrap-up prompt injected (remaining ${remaining})`);
+        messages.push({ role: 'user', content: nearLimitPrompt(remaining) });
       }
       console.log(`[processStream] ═══ Turn ${turn} (${messages.length} msgs in history) ═══`);
       let fullText = '';
@@ -904,6 +954,11 @@ export class AgentService {
         }
       } catch (e: any) {
         console.log(`[processStream] ERROR at turn ${turn}: ${e.message?.slice(0, 200)}`);
+        if (isFinalTurn) {
+          // 终稿轮也失败：走如实终止文案（design 3.2 兜底），而非裸限制串
+          yield { event: 'done', data: JSON.stringify({ message: this.turnLimitMessage(maxTurns, executedOps), operations: [] }) };
+          return;
+        }
         yield {
           event: 'done',
           data: JSON.stringify({ message: `⚠️ 处理出错: ${e.message?.slice(0, 200)}`, operations: [] }),
@@ -927,6 +982,15 @@ export class AgentService {
 
       if (mode === 'pm' && process.env.NODE_ENV !== 'production') {
         console.log('[PM Agent] 工具调用:', JSON.stringify(operations.map((o: any) => ({ type: o.type, file: o.file, path: o.path }))));
+      }
+
+      // 终稿轮：不执行任何操作（即使输出操作标签也忽略执行）；清洗后的正文即最终产出，
+      // 为空才回落如实终止文案（design 3.2）。
+      if (isFinalTurn) {
+        const finalMessage = this.cleanDoneMessage(agentMessage, fullText) || this.turnLimitMessage(maxTurns, executedOps);
+        console.log(`[processStream] FINAL WRAP-UP done: ${finalMessage.length} chars`);
+        yield { event: 'done', data: JSON.stringify({ message: finalMessage, operations: [] }) };
+        return;
       }
 
       // Save assistant response to conversation
@@ -992,6 +1056,7 @@ export class AgentService {
         const result = await this.executeTool(op, projectPath);
         toolResults += result + '\n\n';
       }
+      executedOps += operations.length;
       console.log(`[processStream] Turn ${turn} tools done: ${toolResults.length} chars result`);
 
       // Feed results back to LLM for next turn
@@ -999,6 +1064,30 @@ export class AgentService {
         role: 'user',
         content: `【工具执行结果】\n${toolResults.trim()}\n\n请基于以上结果继续处理。`,
       });
+
+      // ── 循环防护（design 3.3）：连续 K 轮「相同操作 + 相同结果」→ 纠偏注入；
+      //    LOOP_MAX_NUDGES 次纠偏后仍复现 → 提前进入终稿轮。
+      //    无操作的轮在上方 terminal-markers 分支已 continue，天然不参与签名判定。
+      const opSig = JSON.stringify(operations);
+      const resSig = `${toolResults.length}:${toolResults.slice(0, LOOP_RESULT_PREFIX_CHARS)}`;
+      const loopSig = `${opSig}\u0000${resSig}`;
+      if (loopSig === lastLoopSig) {
+        loopRepeatCount += 1;
+      } else {
+        lastLoopSig = loopSig;
+        loopRepeatCount = 1;
+      }
+      if (loopRepeatCount >= LOOP_REPEAT_K) {
+        loopRepeatCount = 0; // 重置连续计数
+        if (loopNudges >= LOOP_MAX_NUDGES) {
+          forceWrapup = true;
+          console.log(`[processStream] LOOP GUARD: identical turns persisted after ${loopNudges} nudges → wrap-up turn`);
+        } else {
+          loopNudges += 1;
+          console.log(`[processStream] LOOP GUARD: nudge ${loopNudges}/${LOOP_MAX_NUDGES} injected`);
+          messages.push({ role: 'user', content: loopNudgePrompt() });
+        }
+      }
     }
 
   }

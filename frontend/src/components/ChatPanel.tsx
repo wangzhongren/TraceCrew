@@ -164,6 +164,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     return null;
   };
 
+  /* PM 派发咨询的任务摘要：从 PM 回复原文去掉协议标签后截取前 400 字（原文仍用于 handoff 判定） */
+  const briefFrom = (fullText: string): string => cleanProtocolTags(fullText).slice(0, 400);
+
   /*
    * F3 完成期归零：done.message 非空时，用它（经共享工具清洗兜底）替换当前
    * agent 卡片的流式累积展示文本。fullText 原文不受影响——parseJson 与 PM
@@ -237,7 +240,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
   /* ── Agent loop ── */
 
-  const agentLoop = async (agent: string, systemPrompt: string, ctx: string, history?: Array<{ role: string; content: string }>) => {
+  const agentLoop = async (agent: string, systemPrompt: string, ctx: string, history?: Array<{ role: string; content: string }>, maxTurns?: number) => {
     const messages = [...(history || [])];
     let fileTree: any = null;
     // 预期可忽略：文件树仅用于增强 prompt，获取失败仍可继续对话（不附带文件树）
@@ -247,7 +250,10 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     let fullText = '';
     setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent, text: '', reasoning: '', result: null }]; });
 
-    const { doneMessage } = await streamSSE({ history: messages, mode: agent },
+    const body: Record<string, any> = { history: messages, mode: agent };
+    // 可选探索轮次预算（design_turn-limit-wrapup 3.5）：仅咨询重试传入；不传则服务端默认 50
+    if (maxTurns !== undefined) body.max_turns = maxTurns;
+    const { doneMessage } = await streamSSE(body,
       (t) => {
         fullText += t;
         setTimeline(prev => {
@@ -344,6 +350,16 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       // Proceed to Architect → Planner pipeline
       setTimeout(() => runArchitect(confirmedReq), 100);
       return;
+    } else if (/<handoff-to-architect\/>/i.test(fullText)) {
+      // 只读设计咨询：派给 Architect，完成后回报 PM（不进 Planner/Reviewer/执行）
+      pmHistoryRef.current.push({ role: 'assistant', content: fullText });
+      runArchitectConsult(briefFrom(fullText), fullText, instruction);
+      return;
+    } else if (/<handoff-to-mapper\/>/i.test(fullText)) {
+      // 只读画图咨询：派给 Mapper，完成后回报 PM（不并入流水线 history）
+      pmHistoryRef.current.push({ role: 'assistant', content: fullText });
+      runMapperConsult(briefFrom(fullText), fullText, instruction);
+      return;
     }
 
     // PM is asking questions — record in PM history, wait for user reply
@@ -372,6 +388,16 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       setPmState({ active: false, originalInstruction: '' });
       setRunning(false);
       setTimeout(() => runArchitect(confirmedReq), 100);
+      return;
+    } else if (/<handoff-to-architect\/>/i.test(fullText)) {
+      // 只读设计咨询：派给 Architect，完成后回报 PM（不进 Planner/Reviewer/执行）
+      pmHistoryRef.current.push({ role: 'assistant', content: fullText });
+      runArchitectConsult(briefFrom(fullText), fullText, pmState.originalInstruction);
+      return;
+    } else if (/<handoff-to-mapper\/>/i.test(fullText)) {
+      // 只读画图咨询：派给 Mapper，完成后回报 PM（不并入流水线 history）
+      pmHistoryRef.current.push({ role: 'assistant', content: fullText });
+      runMapperConsult(briefFrom(fullText), fullText, pmState.originalInstruction);
       return;
     }
 
@@ -688,6 +714,118 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
       onPipelineChange({ phase: 'done' });
     }
 
+    setRunning(false);
+  };
+
+  /* ── PM dispatch: read-only consultations (Architect / Mapper) ── */
+
+  /* Architect 只读设计咨询：产出落咨询卡文本；不写 .tracecrew、不进 Planner/Reviewer/执行。 */
+  const runArchitectConsult = async (brief: string, pmText: string, originalInstruction: string) => {
+    console.log(`[PM→Architect] 只读咨询派发：brief ${brief.length} 字，PM 派发声明轮 ${pmText.length} 字`);
+    setTimeline(prev => [...prev, { kind: 'system', text: t('chat.dispatchArchitect') }]);
+
+    const result = await agentLoop('architect', '',
+      `请就以下事项给出**只读**设计分析（Markdown；仅用 list-dir/read-file/search）：\n${brief}`);
+
+    await runConsultReportBack('Architect', result.fullText.slice(0, 2000), false, originalInstruction);
+  };
+
+  /* Mapper 只读画图咨询：镜像 runMapper 成功路径（重试环 + EDGE_STATUS_MAP + 画布挂载），
+     但历史与产出均隔离于主流水线；咨询卡不设 autoCollapse——图谱同时留存于对话与画布。 */
+  const runMapperConsult = async (brief: string, pmText: string, originalInstruction: string) => {
+    console.log(`[PM→Mapper] 只读画图派发：brief ${brief.length} 字，PM 派发声明轮 ${pmText.length} 字`);
+    setTimeline(prev => [...prev, { kind: 'system', text: t('chat.dispatchMapper') }]);
+
+    const EDGE_STATUS_MAP: Record<string, 'existing' | 'new' | 'removed' | 'error'> = {
+      existing: 'existing', new: 'new', removed: 'removed', error: 'error',
+      planned_new: 'new', planned_change: 'existing',
+    };
+    const consultCtx = `请梳理以下目标的调用关系并产出 call_graph + sequence_graph（只读操作）：\n${brief}`;
+    let fullText = '';
+    let data: any = null;
+    let graph: CallGraph | null = null;
+    const MAX_RETRIES = 2;
+    // 重试预算收窄（design_turn-limit-wrapup 3.5）：首次尝试不传（服务端默认 50 轮），
+    // 重试限 15 轮——避免解析失败重试再起一整轮全预算探索。
+    const RETRY_MAX_TURNS = 15;
+    // 咨询重试历史只在本函数内累积，不写入 historyRef（主流水线上下文零污染）
+    const consultHistory: Array<{ role: string; content: string }> = [];
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      let ctx = consultCtx;
+      if (attempt > 0) {
+        ctx = `${consultCtx}\n\n上一次你的输出格式不正确，无法解析为有效的 JSON。请确保：\n1. 输出包含 \`\`\`json 代码块，其中同时包含 "call_graph" 和 "sequence_graph"\n2. call_graph 和 sequence_graph 各自包含 nodes 和 edges 数组\n3. sequence_graph 的每个 node 必须有 lane 和 step 字段\n\n请重新生成。`;
+      }
+
+      let retryMaxTurns: number | undefined;
+      if (attempt > 0) retryMaxTurns = RETRY_MAX_TURNS;
+      const result = await agentLoop('mapper', '', ctx, [...consultHistory], retryMaxTurns);
+      fullText = result.fullText;
+      data = parseJson(fullText);
+
+      if (data?.call_graph?.nodes?.length > 0) {
+        const edges = (data.call_graph.edges || []).map((e: any) => ({ ...e, status: EDGE_STATUS_MAP[e.status] || 'new' }));
+        graph = { nodes: data.call_graph.nodes, edges };
+        break;
+      }
+
+      const errPreview = fullText.slice(0, 300).replace(/\n/g, ' ');
+      consultHistory.push({ role: 'assistant', content: `[Mapper 咨询] JSON 解析失败 (第${attempt + 1}次): ${errPreview}` });
+      consultHistory.push({ role: 'user', content: `你的输出无法解析为有效的 call_graph JSON。请优先基于已收集信息直接输出 call_graph + sequence_graph；确需补充探索，最多 ${RETRY_MAX_TURNS} 轮。` });
+
+      setTimeline(prev => [...prev, { kind: 'system', text: `Mapper 输出格式错误，正在重试 (${attempt + 1}/${MAX_RETRIES})...` }]);
+    }
+
+    // 序列图解析口径与 runMapper 一致（缺失/失败时保持 null）
+    let sequenceGraph: CallGraph | null = null;
+    if (data?.sequence_graph?.nodes?.length > 0) {
+      const seqEdges = (data.sequence_graph.edges || []).map((e: any) => ({
+        ...e,
+        status: (EDGE_STATUS_MAP[e.status] || 'existing') as 'existing' | 'new' | 'removed' | 'error',
+      }));
+      sequenceGraph = { nodes: data.sequence_graph.nodes, edges: seqEdges };
+    }
+
+    if (graph) {
+      const nodeCount = graph.nodes.length;
+      const edgeCount = graph.edges.length;
+      // 咨询卡挂结果但保留在对话流中（不设 autoCollapse）
+      setTimeline(prev => {
+        const u = [...prev];
+        for (let i = u.length - 1; i >= 0; i--) {
+          const e: any = u[i];
+          if (e.kind === 'agent' && e.agent === 'mapper') {
+            u[i] = { ...e, result: { type: 'graph', nodes: nodeCount, edges: edgeCount } };
+            return u;
+          }
+        }
+        return u;
+      });
+      flushSync(() => onPipelineChange({ phase: 'done', graph, sequenceGraph }));
+      let seqInfo = '；未含序列图';
+      if (sequenceGraph) {
+        seqInfo = `；序列图 ${sequenceGraph.nodes.length} 节点 · ${sequenceGraph.edges.length} 边`;
+      }
+      await runConsultReportBack('Mapper', `调用图 ${nodeCount} 节点 · ${edgeCount} 边${seqInfo}\n${fullText.slice(0, 1500)}`, true, originalInstruction);
+    } else {
+      // 失败终态：不挂结果卡、不挂图谱，如实回报失败
+      setTimeline(prev => [...prev, { kind: 'system', text: `✕ ${t('chat.mapperNoGraph')}（已重试 ${MAX_RETRIES} 次）` }]);
+      onPipelineChange({ phase: 'done' });
+      await runConsultReportBack('Mapper', `未能产出图谱（输出格式重试 ${MAX_RETRIES} 次后仍无法解析）\n${fullText.slice(0, 1500)}`, false, originalInstruction);
+    }
+  };
+
+  /* 咨询回报回路（唯一实现处）：把产出摘要回注 PM 历史，再跑一轮 PM 输出汇总卡。
+     汇报轮直接调用 pmStream、不经过派发判定链——汇报文本即使含 handoff 标签也不会
+     触发二次派发（结构上保证每条链「设计、画图」各至多一次）。 */
+  const runConsultReportBack = async (agentLabel: string, summary: string, hasGraph: boolean, originalInstruction: string) => {
+    pmHistoryRef.current.push({
+      role: 'user',
+      content: `【系统回报】${agentLabel} 已完成当前咨询任务。产出摘要（截断）：\n${summary}${hasGraph ? '\n（图谱已生成并显示于中央画布）' : ''}\n请向用户简要汇报（要点化，勿复述全文）；除用户显式要求外不再派发；结束时输出 <done/>。`,
+    });
+    const summaryText = await pmStream([...pmHistoryRef.current]);
+    pmHistoryRef.current.push({ role: 'assistant', content: summaryText });
+    setPmState({ active: true, originalInstruction });
     setRunning(false);
   };
 
