@@ -7,9 +7,7 @@
 | Type | Operable path | Function |
 | --- | --- | --- |
 | Single file | `electron/fileManager.ts` | 文件读写/行级编辑/搜索/备份恢复、Shell 执行与任务日志（Provider） |
-| Single file | `electron/server/services/db.ts` | SQLite 持久化：features、changes、file_summaries、meta（Provider） |
-| Single file | `electron/server/routes/features.ts` | 功能分析 HTTP/SSE 接口（当前多为占位实现，Interface） |
-| Single file | `electron/server/routes/changes.ts` | 变更记录接口 /summarize、/pending（Interface） |
+| Single file | `electron/server/services/db.ts` | SQLite 持久化：features、changes、meta（Provider） |
 | Single file | `electron/server/types.ts` | 服务端共享请求/响应类型（FeatureNode、AgentRequest 等，Model） |
 | Single file | `frontend/src/components/CodeViewer.tsx` | 代码查看器：文件内容展示、行选择与滚动定位 |
 | Single file | `frontend/test/db.test.ts` | `services/db.ts` 的单元测试（既有） |
@@ -26,4 +24,4 @@
 
 在已接受的目录范围内新增或删除普通文件不需要重写 Section 1；新增目录授权、改变归属，或增删单独列出的路径，必须由治理角色（ANS Governance）先更新 Section 1。
 
-本角色的只读依赖（引用其公开能力，不修改其文件）：`frontend/src/i18n/**`（项目管理）。`fileManager.ts` 与 `db.ts` 的导出函数/表结构是本角色主属主的基础设施契约，被 agent-pipeline（工具执行、文件摘要落库）与应用外壳（IPC、`closeDatabase`、健康检查）引用；变更契约会使其下游证据失效，必须先出设计并通知受影响角色。
+本角色的只读依赖（引用其公开能力，不修改其文件）：`frontend/src/i18n/**`（项目管理）。`fileManager.ts` 与 `db.ts` 的导出函数/表结构是本角色主属主的基础设施契约，被 agent-pipeline（工具执行）与应用外壳（IPC、`closeDatabase`、健康检查）引用；变更契约会使其下游证据失效，必须先出设计并通知受影响角色。

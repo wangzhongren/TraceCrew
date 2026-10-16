@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | Single file | `electron/server/routes/agent.ts` | Agent 对话/分类/命名/计划/动作的 HTTP 与 SSE 接口（Interface） |
 | Single file | `electron/server/services/agent.ts` | 多 Agent 编排与转换核心：流式对话、计划流、子代理、动作执行、工具调用（Pipeline/Service） |
-| Single file | `electron/server/services/summarizer.ts` | 文件摘要服务：经注入回调使用 LLM，摘要写入 file_summaries（Service） |
-| Single file | `frontend/src/App.tsx` | 前端流水线编排与组合根：阶段状态机、自动执行、图谱数据下发、面板组合 |
+| Single file | `frontend/src/App.tsx` | 前端组合根：阶段状态机、图谱数据下发、面板组合（自动执行编排见 hooks/useAutoExec.ts） |
+| Single file | `frontend/src/hooks/useAutoExec.ts` | App 自动执行编排 hook（批 2/D3 抽取：拓扑排序、依赖检查、逐节点执行与记录持久化；含可测纯函数） |
 | Single file | `frontend/src/components/ChatPanel.tsx` | 对话面板：Agent 时间线、流式接收与计划/审查卡片挂载 |
 | Single file | `frontend/src/components/PlanCard.tsx` | 计划卡片展示 |
 | Single file | `frontend/src/components/ReviewCard.tsx` | 审查卡片展示 |
@@ -28,4 +28,4 @@
 
 在已接受的目录范围内新增或删除普通文件不需要重写 Section 1；新增目录授权、改变归属，或增删单独列出的路径，必须由治理角色（ANS Governance）先更新 Section 1。
 
-本角色的只读依赖（引用其公开能力，不修改其文件）：`electron/fileManager.ts`、`electron/server/services/db.ts`（项目数据）、`frontend/src/i18n/**`（项目管理）、`frontend/src/components/MapCanvas.tsx` 的图谱类型（图谱视图）、`frontend/src/components/RightPanel.tsx` / `SettingsPanel.tsx` / `TitleBar.tsx` / `ResizeHandle.tsx`（应用外壳）。需要它们变化时向项目管理角色提出请求。
+本角色的只读依赖（引用其公开能力，不修改其文件）：`electron/fileManager.ts`、`electron/server/services/db.ts`（项目数据）、`frontend/src/i18n/**`（项目管理）、`frontend/src/types/graph.ts` 的图谱共享类型（图谱视图；MapCanvas 重导出兼容）、`frontend/src/components/RightPanel.tsx` / `SettingsPanel.tsx` / `TitleBar.tsx` / `ResizeHandle.tsx`（应用外壳）。需要它们变化时向项目管理角色提出请求。

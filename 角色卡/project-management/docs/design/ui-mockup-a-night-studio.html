@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>TraceCrew UI 方向 A · 深夜工作室 Night Studio</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   方向 A · 深夜工作室 Night Studio — 深色专业型
+   深色蓝黑分层 + 单一琥珀色光源；图谱为画面主角，界面其余部分退后。
+   本文件为静态设计样张（离线自包含，无外部依赖）。
+   ═══════════════════════════════════════════════════════════════════ */
+:root {
+  --bg:#0e1420;            /* 应用底 */
+  --surface:#141b29;       /* 面板 */
+  --raised:#1b2436;        /* 卡片/浮起面 */
+  --well:#0b1019;          /* 凹槽：画布/代码/流式输出 */
+  --line:#26314a;
+  --line-soft:#1d2637;
+  --ink:#e9edf5;
+  --ink-2:#a6b1c5;
+  --ink-3:#707d95;
+  --amber:#f0a63c;         /* 唯一强调色：制图灯 */
+  --amber-deep:#c9822a;
+  --problem:#f2705f;
+  --change:#dfb257;
+  --new:#47b98b;
+  --done:#5f9df0;
+  --existing:#8b99af;
+  --pm:#45b98c; --planner:#5f9df0; --architect:#b48cf2; --reviewer:#f2705f; --mapper:#5fc9d8;
+  --sans:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --mono:"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --r-lg:10px; --r-md:7px; --r-sm:5px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family:var(--sans); background:#22262c; color:var(--ink);
+  padding:30px 0 48px; display:flex; flex-direction:column; align-items:center; gap:16px;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── 样张说明条（非应用界面的一部分） ── */
+.spec { width:1512px; display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:0 4px; }
+.spec-name { font-size:14px; font-weight:600; color:#e8eaf0; letter-spacing:.2px; }
+.spec-name em { font-style:normal; font-weight:400; font-size:12px; color:#9aa3b2; margin-left:6px; }
+.spec-desc { font-size:12px; color:#9aa3b2; }
+.spec-swatches { display:flex; gap:5px; align-items:center; margin-left:2px; }
+.spec-swatches i { width:13px; height:13px; border-radius:3px; display:block; }
+.spec-note { font-size:11px; color:#7c8798; margin-left:auto; }
+
+/* ── 窗口 ── */
+.window {
+  width:1512px; height:900px; border-radius:11px; overflow:hidden; position:relative;
+  background:var(--bg); display:flex; flex-direction:column;
+  box-shadow:0 2px 6px rgba(0,0,0,.35), 0 28px 90px rgba(0,0,0,.55);
+  outline:1px solid rgba(233,237,245,.06);
+}
+
+/* ── 标题栏 ── */
+.titlebar {
+  height:38px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
+  background:var(--surface); border-bottom:1px solid var(--line-soft); padding-left:16px;
+  -webkit-user-select:none; user-select:none;
+}
+.brand { display:flex; align-items:center; gap:9px; }
+.brand svg { display:block; }
+.brand b { font-size:13px; font-weight:600; letter-spacing:.3px; }
+.brand .slash { color:var(--ink-3); font-weight:300; }
+.brand .proj { color:var(--ink-2); font-weight:400; }
+.win-controls { display:flex; }
+.win-controls button {
+  width:46px; height:38px; border:0; background:transparent; color:var(--ink-3);
+  display:flex; align-items:center; justify-content:center; cursor:default;
+}
+.win-controls button.close:hover { background:var(--problem); color:#fff; }
+
+/* ── 工具条 ── */
+.toolbar {
+  height:32px; flex-shrink:0; display:flex; align-items:center; justify-content:space-between;
+  padding:0 14px; background:var(--bg); border-bottom:1px solid var(--line-soft);
+}
+.toolbar .path { font-family:var(--mono); font-size:11px; color:var(--ink-3); letter-spacing:.1px; }
+.toolbar .actions { display:flex; align-items:center; gap:4px; }
+.tbtn {
+  font-size:11.5px; color:var(--ink-2); background:transparent; border:0; border-radius:var(--r-sm);
+  padding:3px 9px; display:flex; align-items:center; gap:5px; cursor:default;
+}
+.tbtn:hover { background:rgba(233,237,245,.05); color:var(--ink); }
+.lang { font-size:11.5px; color:var(--ink-2); border:1px solid var(--line); border-radius:var(--r-sm); padding:2px 7px; }
+
+/* ── 三栏 ── */
+.cols { flex:1; display:flex; min-height:0; }
+.col-chat { width:420px; flex-shrink:0; background:var(--surface); border-right:1px solid var(--line-soft); display:flex; flex-direction:column; min-height:0; }
+.col-graph { flex:1; position:relative; background:var(--well); overflow:hidden; min-width:0; }
+.col-right { width:460px; flex-shrink:0; background:var(--surface); border-left:1px solid var(--line-soft); display:flex; flex-direction:column; min-height:0; }
+
+/* ══ 左：会话面板 ══ */
+.chat-head { padding:14px 16px 12px; display:flex; align-items:center; gap:11px; border-bottom:1px solid var(--line-soft); }
+.chat-head .mark {
+  width:30px; height:30px; border-radius:9px; background:rgba(240,166,60,.12);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.chat-head h2 { font-size:13px; font-weight:600; letter-spacing:.2px; }
+.chat-head p { font-size:11px; color:var(--ink-3); margin-top:2px; }
+.plan-bar {
+  margin:12px 16px 0; padding:8px 11px; border:1px solid var(--line); border-radius:var(--r-md);
+  background:var(--raised); display:flex; align-items:center; gap:8px;
+}
+.plan-bar .pt { font-size:11.5px; font-weight:600; color:var(--ink); }
+.plan-bar .ps { font-size:11px; color:var(--ink-3); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.plan-bar .picons { display:flex; gap:2px; }
+.picons span { width:22px; height:22px; border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center; color:var(--ink-3); }
+.picons span:hover { background:rgba(233,237,245,.06); color:var(--ink-2); }
+
+.msgs { flex:1; overflow:hidden; padding:14px 16px 6px; display:flex; flex-direction:column; gap:10px; }
+.m-sys { align-self:center; font-size:10px; color:var(--ink-3); background:var(--well); border:1px solid var(--line-soft); padding:3px 11px; border-radius:99px; }
+.m-user { align-self:flex-end; max-width:86%; background:var(--raised); border:1px solid var(--line);
+  border-radius:12px 12px 4px 12px; padding:9px 12px; font-size:12.5px; line-height:1.65; color:var(--ink); }
+.m-agent { align-self:stretch; background:var(--raised); border:1px solid var(--line); border-radius:var(--r-lg); padding:10px 12px 11px; }
+.m-agent .mh { display:flex; align-items:center; gap:7px; margin-bottom:7px; }
+.m-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.m-dot.run { box-shadow:0 0 0 3px rgba(180,140,242,.18); animation:breath 2.2s ease-in-out infinite; }
+@keyframes breath { 0%,100%{opacity:1} 50%{opacity:.45} }
+.m-name { font-size:11.5px; font-weight:600; letter-spacing:.2px; }
+.m-pill { font-size:10px; padding:2px 7px; border-radius:99px; border:1px solid var(--line); color:var(--ink-3); }
+.m-pill.ok { color:var(--new); border-color:rgba(71,185,139,.35); background:rgba(71,185,139,.08); }
+.m-pill.go { color:var(--architect); border-color:rgba(180,140,242,.35); background:rgba(180,140,242,.08); }
+.m-body { font-size:12.5px; line-height:1.7; color:var(--ink-2); }
+.m-body b { color:var(--ink); font-weight:600; }
+.m-body .codei { font-family:var(--mono); font-size:11px; background:var(--well); border:1px solid var(--line-soft); border-radius:4px; padding:1px 5px; color:var(--done); }
+.m-tools { margin-top:8px; padding-top:7px; border-top:1px dashed var(--line-soft); font-size:11px; color:var(--ink-3); display:flex; align-items:center; gap:6px; }
+.m-tools .chev { transition:transform .15s; }
+
+.chat-foot { padding:10px 16px 14px; }
+.input-shell { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--raised); padding:10px 12px 8px; }
+.input-shell:focus-within { border-color:rgba(240,166,60,.55); box-shadow:0 0 0 3px rgba(240,166,60,.10); }
+.input-line { font-size:12.5px; color:var(--ink-3); line-height:1.5; min-height:36px; }
+.input-row { display:flex; align-items:center; justify-content:space-between; margin-top:6px; }
+.input-hint { font-size:10.5px; color:var(--ink-3); }
+.send {
+  width:30px; height:30px; border-radius:9px; border:0; background:var(--amber); color:#241705;
+  display:flex; align-items:center; justify-content:center; box-shadow:0 2px 10px rgba(240,166,60,.28);
+}
+
+/* ══ 中：图谱 ══ */
+.col-graph::before {
+  content:""; position:absolute; inset:0;
+  background-image:radial-gradient(circle, rgba(233,237,245,.055) 1px, transparent 1.1px);
+  background-size:26px 26px; background-position:14px 12px;
+}
+.graph-svg { position:absolute; inset:0; }
+.node {
+  position:absolute; background:var(--raised); border:1px solid var(--line); border-radius:9px;
+  padding:9px 11px 10px 14px; box-shadow:0 6px 18px rgba(0,0,0,.35); overflow:hidden;
+}
+.node.h63 { height:63px; } .node.h84 { height:84px; }
+.node .n-meta { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.node::before { content:""; position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:2px; background:var(--sc); }
+.node .n-head { display:flex; align-items:center; gap:6px; }
+.node .n-dot { width:7px; height:7px; border-radius:50%; background:var(--sc); flex-shrink:0; }
+.node .n-label { font-size:12.5px; font-weight:600; letter-spacing:.1px; color:var(--ink); }
+.node .n-meta { font-family:var(--mono); font-size:10px; color:var(--ink-3); margin-top:4px; }
+.node .n-detail { font-size:11px; color:var(--ink-2); margin-top:3px; }
+.st-existing { --sc:var(--existing); } .st-problem { --sc:var(--problem); }
+.st-new      { --sc:var(--new); }      .st-done    { --sc:var(--done); }
+.st-change   { --sc:var(--change); }
+
+.node.hoverable:hover { border-color:var(--sc); }
+.node.sel { border-color:var(--amber); box-shadow:0 0 0 1px rgba(240,166,60,.35), 0 10px 30px rgba(0,0,0,.45); }
+.node.sel .br { position:absolute; width:9px; height:9px; border:2px solid var(--amber); }
+.node.sel .br.tl { top:-4px; left:-4px; border-right:0; border-bottom:0; border-radius:3px 0 0 0; }
+.node.sel .br.tr { top:-4px; right:-4px; border-left:0; border-bottom:0; border-radius:0 3px 0 0; }
+.node.sel .br.bl { bottom:-4px; left:-4px; border-right:0; border-top:0; border-radius:0 0 0 3px; }
+.node.sel .br.brr { bottom:-4px; right:-4px; border-left:0; border-top:0; border-radius:0 0 3px 0; }
+.node .trigger-dot {
+  position:absolute; top:-4px; right:-4px; width:9px; height:9px; border-radius:50%;
+  background:var(--problem); box-shadow:0 0 0 3px rgba(242,112,95,.22);
+}
+.node.affected { outline:1.5px dashed rgba(223,178,87,.65); outline-offset:4px; }
+.node.affected .n-detail { color:var(--change); }
+
+.mk { position:absolute; display:flex; align-items:center; gap:7px; color:var(--ink-3); font-size:10.5px; }
+.mk .tri { width:0; height:0; border-left:9px solid var(--done); border-top:6px solid transparent; border-bottom:6px solid transparent; }
+.mk.end .bar { width:6px; height:30px; border-radius:3px; background:var(--ink-3); opacity:.55; }
+
+.legend {
+  position:absolute; left:18px; bottom:16px; background:rgba(20,27,41,.86); border:1px solid var(--line);
+  border-radius:var(--r-md); padding:10px 13px; backdrop-filter:blur(8px); display:flex; gap:18px; font-size:10.5px; color:var(--ink-2);
+}
+.legend .lg { display:flex; flex-direction:column; gap:6px; }
+.legend .li { display:flex; align-items:center; gap:7px; }
+.legend .dot { width:7px; height:7px; border-radius:50%; }
+.legend .ln { width:14px; height:0; border-top:2px solid var(--problem); }
+.legend .ln.dash { border-top:1.5px dashed var(--change); }
+
+/* ══ 右：执行面板 ══ */
+.rp-head { padding:13px 16px 12px; display:flex; align-items:center; gap:9px; border-bottom:1px solid var(--line-soft); }
+.rp-head h3 { font-size:13px; font-weight:600; }
+.rp-head .badge { font-size:10px; padding:2px 8px; border-radius:99px; color:var(--problem); background:rgba(242,112,95,.10); border:1px solid rgba(242,112,95,.32); }
+.rp-head .x { margin-left:auto; width:26px; height:26px; border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center; color:var(--ink-3); }
+.rp-body { flex:1; overflow:hidden; padding:14px 16px; display:flex; flex-direction:column; gap:11px; }
+.card { border:1px solid var(--line); background:var(--raised); border-radius:var(--r-md); padding:11px 13px; }
+.card h4 { font-size:11px; font-weight:600; color:var(--ink-3); letter-spacing:.4px; margin-bottom:8px; }
+.kv { display:flex; gap:8px; font-size:12px; line-height:1.6; margin-bottom:5px; }
+.kv .k { color:var(--ink-3); flex-shrink:0; width:64px; }
+.kv .v { color:var(--ink-2); }
+.kv .v.mono { font-family:var(--mono); font-size:11px; }
+.chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.chip { font-size:10.5px; font-family:var(--mono); padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--ink-2); background:var(--well); }
+.chip.warn { border-color:rgba(223,178,87,.4); color:var(--change); }
+.steps { display:flex; flex-direction:column; }
+.step { display:flex; align-items:center; gap:9px; padding:7px 0; border-bottom:1px dashed var(--line-soft); font-size:12px; }
+.step:last-child { border-bottom:0; }
+.step .g { width:16px; height:16px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:10px; }
+.step.done .g { background:rgba(71,185,139,.15); color:var(--new); border:1px solid rgba(71,185,139,.4); }
+.step.run .g { background:rgba(180,140,242,.15); color:var(--architect); border:1px solid rgba(180,140,242,.45); animation:breath 2.2s ease-in-out infinite; }
+.step.todo .g { background:transparent; color:var(--ink-3); border:1px solid var(--line); }
+.step.done .st { color:var(--ink-2); }
+.step.run .st { color:var(--ink); font-weight:500; }
+.step.todo .st { color:var(--ink-3); }
+.step .sd { margin-left:auto; font-size:10.5px; color:var(--ink-3); }
+.stream { background:var(--well); border:1px solid var(--line-soft); border-radius:var(--r-md); padding:10px 12px;
+  font-family:var(--mono); font-size:10.5px; line-height:1.8; color:var(--ink-3); }
+.stream .ok { color:var(--new); }
+.stream .go { color:var(--architect); }
+.stream .arr { color:var(--amber); }
+.rp-foot { padding:12px 16px 14px; border-top:1px solid var(--line-soft); display:flex; align-items:center; gap:8px; }
+.auto-note { font-size:10px; color:var(--ink-3); flex:1; }
+.btn-ghost2 { font-size:12px; color:var(--ink-2); padding:7px 14px; border-radius:var(--r-md); border:1px solid var(--line); background:transparent; }
+.btn-primary2 {
+  font-size:12px; font-weight:600; color:#241705; background:var(--amber); border:0; padding:8px 18px;
+  border-radius:var(--r-md); box-shadow:0 3px 14px rgba(240,166,60,.30); display:flex; align-items:center; gap:6px;
+}
+</style>
+</head>
+<body>
+
+<!-- 说明条（非应用界面） -->
+<div class="spec">
+  <div class="spec-name">方向 A · 深夜工作室 <em>Night Studio</em></div>
+  <div class="spec-desc">深色专业 · 蓝黑分层里的一盏琥珀色制图灯；图谱是画面主角</div>
+  <div class="spec-swatches">
+    <i style="background:#0e1420"></i><i style="background:#1b2436"></i><i style="background:#f0a63c"></i>
+    <i style="background:#f2705f"></i><i style="background:#47b98b"></i><i style="background:#5f9df0"></i>
+  </div>
+  <div class="spec-note">改动面：token 级为主 ＋ 组件硬编码色/图标替换 · 工作量 M · 风险 低-中（暗底图谱对比度需目视）</div>
+</div>
+
+<!-- 应用窗口 -->
+<div class="window" id="win">
+
+  <!-- 标题栏 -->
+  <div class="titlebar">
+    <div class="brand">
+      <svg width="19" height="16" viewBox="0 0 19 16" fill="none">
+        <line x1="4.5" y1="8" x2="13" y2="3.2" stroke="#f0a63c" stroke-width="1.4"/>
+        <line x1="4.5" y1="8" x2="13" y2="12.8" stroke="#5b6b8a" stroke-width="1.2"/>
+        <circle cx="4" cy="8" r="2.4" fill="#f0a63c"/>
+        <circle cx="13.8" cy="3" r="1.9" fill="#e9edf5"/>
+        <circle cx="13.8" cy="13" r="1.9" fill="#5b6b8a"/>
+      </svg>
+      <b>TraceCrew</b><span class="slash">/</span><span class="proj">kanban-live</span>
+    </div>
+    <div class="win-controls">
+      <button title="最小化"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="5.5" width="8" height="1" fill="currentColor"/></svg></button>
+      <button title="最大化"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="2" width="8" height="8" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg></button>
+      <button class="close" title="关闭"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.2"/></svg></button>
+    </div>
+  </div>
+
+  <!-- 工具条 -->
+  <div class="toolbar">
+    <span class="path">~/dev/kanban-live</span>
+    <div class="actions">
+      <button class="tbtn">切换项目</button>
+      <span class="lang">中文</span>
+      <button class="tbtn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></button>
+    </div>
+  </div>
+
+  <div class="cols">
+
+    <!-- ══ 左：会话 ══ -->
+    <aside class="col-chat">
+      <div class="chat-head">
+        <div class="mark">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f0a63c" stroke-width="1.7">
+            <path d="M21 12a8 8 0 1 1-3.1-6.3"/><path d="M21 3v6h-6"/>
+          </svg>
+        </div>
+        <div>
+          <h2>Agent 会话</h2>
+          <p>Agent 将规划、映射、执行并审核</p>
+        </div>
+      </div>
+
+      <div class="plan-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#f0a63c" stroke-width="1.8"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5V3h6v1.5"/><path d="M9 10h6M9 14h4"/></svg>
+        <span class="pt">Plan</span>
+        <span class="ps">空列引导 · filters.ts / taskStore.ts / KanbanBoard.tsx</span>
+        <span class="picons">
+          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 17L17 7M9 7h8v8"/></svg></span>
+          <span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        </span>
+      </div>
+
+      <div class="msgs">
+        <div class="m-sys">已加载 kanban-live · 4 个 Agent 就绪</div>
+        <div class="m-user">某列没有任务时是一片空白，加个空状态引导吧。</div>
+
+        <div class="m-agent">
+          <div class="mh">
+            <span class="m-dot" style="background:var(--planner)"></span>
+            <span class="m-name">Planner</span>
+            <span class="m-pill ok">已完成</span>
+          </div>
+          <div class="m-body">
+            计划已生成：在 <span class="codei">KanbanBoard.tsx</span> 的空列分支渲染占位组件，
+            <span class="codei">taskStore.ts</span> 暴露列任务计数供判定，回归 <span class="codei">filters.ts</span> 的筛选路径。
+          </div>
+        </div>
+
+        <div class="m-agent">
+          <div class="mh">
+            <span class="m-dot run" style="background:var(--architect)"></span>
+            <span class="m-name">Architect</span>
+            <span class="m-pill go">进行中</span>
+          </div>
+          <div class="m-body">
+            正在评审组件边界：占位组件应落在 <span class="codei">components/EmptyState.tsx</span>，不进入 store 层。
+          </div>
+          <div class="m-tools">
+            <svg class="chev" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+            工具调用 (3) · 读取 filters.ts、taskStore.ts、KanbanBoard.tsx
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-foot">
+        <div class="input-shell">
+          <div class="input-line">描述你想构建或修复的内容...</div>
+          <div class="input-row">
+            <span class="input-hint">Enter 发送 · Shift+Enter 换行</span>
+            <button class="send"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ══ 中：图谱 ══ -->
+    <main class="col-graph">
+      <svg class="graph-svg" width="630" height="830" viewBox="0 0 630 830">
+        <defs>
+          <marker id="arw" markerWidth="9" markerHeight="8" refX="7.2" refY="4" orient="auto">
+            <path d="M0,0.6 L7.6,4 L0,7.4 Z" fill="#46587b"/>
+          </marker>
+          <marker id="arwR" markerWidth="9" markerHeight="8" refX="7.2" refY="4" orient="auto">
+            <path d="M0,0.6 L7.6,4 L0,7.4 Z" fill="#f2705f"/>
+          </marker>
+        </defs>
+        <!-- filters → KanbanBoard（触发路径，红） -->
+        <path d="M212,311.5 H224 V202 H236" fill="none" stroke="#f2705f" stroke-width="2.2" marker-end="url(#arwR)"/>
+        <!-- KanbanBoard → EmptyState -->
+        <path d="M331,160 V111" fill="none" stroke="#46587b" stroke-width="1.4" marker-end="url(#arw)"/>
+        <!-- KanbanBoard → taskStore -->
+        <path d="M426,202 H438 V311.5 H450" fill="none" stroke="#46587b" stroke-width="1.4" marker-end="url(#arw)"/>
+        <!-- taskStore → api/tasks -->
+        <path d="M534,343 V470" fill="none" stroke="#46587b" stroke-width="1.4" marker-end="url(#arw)"/>
+        <!-- KanbanBoard → useBoardDnD -->
+        <path d="M290,244 V501.5 H212" fill="none" stroke="#46587b" stroke-width="1.4" marker-end="url(#arw)"/>
+      </svg>
+
+      <!-- 开始 / 结束 -->
+      <div class="mk" style="left:20px; top:305px;"><span class="tri"></span>开始</div>
+      <div class="mk end" style="left:626px; top:486px;"><span class="bar"></span>结束</div>
+
+      <!-- 节点 -->
+      <div class="node st-existing hoverable h63" style="left:44px; top:280px; width:168px;">
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">filters.ts</span></div>
+        <div class="n-meta">util · filters.ts</div>
+      </div>
+
+      <div class="node st-existing hoverable affected h63" style="left:44px; top:470px; width:168px;">
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">useBoardDnD.ts</span></div>
+        <div class="n-meta">hook · useBoardDnD.ts</div>
+        <div class="n-detail">受影响</div>
+      </div>
+
+      <div class="node st-problem sel h84" style="left:236px; top:160px; width:190px;">
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br brr"></span>
+        <span class="trigger-dot"></span>
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">KanbanBoard.tsx</span></div>
+        <div class="n-meta">layout · KanbanBoard.tsx</div>
+        <div class="n-detail">空列时无占位渲染</div>
+      </div>
+
+      <div class="node st-new h63" style="left:236px; top:48px; width:190px;">
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">EmptyState</span></div>
+        <div class="n-meta">widget · 空状态引导卡</div>
+      </div>
+
+      <div class="node st-existing hoverable affected h63" style="left:450px; top:280px; width:168px;">
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">taskStore.ts</span></div>
+        <div class="n-meta">model · taskStore.ts</div>
+        <div class="n-detail">受影响</div>
+      </div>
+
+      <div class="node st-done h63" style="left:450px; top:470px; width:168px;">
+        <div class="n-head"><span class="n-dot"></span><span class="n-label">api/tasks.ts</span></div>
+        <div class="n-meta">service · api/tasks.ts</div>
+      </div>
+
+      <!-- 图例 -->
+      <div class="legend">
+        <div class="lg">
+          <div class="li"><span class="dot" style="background:var(--existing)"></span>现有</div>
+          <div class="li"><span class="dot" style="background:var(--problem)"></span>问题</div>
+          <div class="li"><span class="dot" style="background:var(--change)"></span>待改</div>
+        </div>
+        <div class="lg">
+          <div class="li"><span class="dot" style="background:var(--new)"></span>新增</div>
+          <div class="li"><span class="dot" style="background:var(--done)"></span>完成</div>
+        </div>
+        <div class="lg">
+          <div class="li"><span class="ln"></span>触发路径</div>
+          <div class="li"><span class="ln dash"></span>受影响</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ══ 右：执行面板 ══ -->
+    <aside class="col-right">
+      <div class="rp-head">
+        <h3>执行 · KanbanBoard.tsx</h3>
+        <span class="badge">问题</span>
+        <span class="x"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.3"/></svg></span>
+      </div>
+
+      <div class="rp-body">
+        <div class="card">
+          <h4>影响范围</h4>
+          <div class="kv"><span class="k">根因</span><span class="v">空列分支直接返回，未渲染占位</span></div>
+          <div class="kv"><span class="k">触发路径</span><span class="v mono">filters.ts</span></div>
+          <div class="kv"><span class="k">修复文件</span><span class="v mono">KanbanBoard.tsx · taskStore.ts</span></div>
+          <div class="chips">
+            <span class="chip warn">受影响 taskStore.ts</span>
+            <span class="chip warn">受影响 useBoardDnD.ts</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>执行步骤</h4>
+          <div class="steps">
+            <div class="step done"><span class="g">✓</span><span class="st">注入 EmptyState 占位组件</span><span class="sd">已完成</span></div>
+            <div class="step run"><span class="g">●</span><span class="st">更新列任务计数接口</span><span class="sd">进行中</span></div>
+            <div class="step todo"><span class="g">○</span><span class="st">回归 filters.ts 筛选路径</span><span class="sd">等待</span></div>
+          </div>
+        </div>
+
+        <div class="stream">
+          <div><span class="arr">→</span> 读取 src/stores/taskStore.ts</div>
+          <div><span class="ok">✓</span> 计数函数已导出 columnsWithCount()</div>
+          <div><span class="go">⏳</span> 正在注入 EmptyState …</div>
+        </div>
+
+        <div class="card">
+          <h4>验证方式</h4>
+          <div style="font-size:12px; color:var(--ink-2); line-height:1.65;">修复后运行受影响测试与启动冒烟，再由独立验证角色复核。</div>
+          <div class="chips">
+            <span class="chip">npm test</span>
+            <span class="chip">启动冒烟</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rp-foot">
+        <span class="auto-note">修改前自动备份 · 执行过程可在右侧面板回放</span>
+        <button class="btn-ghost2">取消</button>
+        <button class="btn-primary2">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 4l14 8-14 8z"/></svg>
+          一键执行
+        </button>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<script>
+  // 细部查看：用 file:///…html#z1.6 打开可整体放大（仅样张自检用）
+  const z = (location.hash.match(/^#z([\d.]+)/) || [])[1];
+  if (z) document.body.style.zoom = z;
+</script>
+</body>
+</html>
