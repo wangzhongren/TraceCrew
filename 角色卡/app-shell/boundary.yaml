@@ -73,6 +73,9 @@ section1:
     - type: Single file
       path: frontend/public/icon.png
       purpose: 应用图标资源
+    - type: Single file
+      path: icon.png
+      purpose: 应用图标（根目录；窗口与 macOS Dock 用，electron/main.ts 引用）
     - type: Owned directory
       path: frontend/test/app-shell/
       purpose: 本角色单元测试的归属目录；不放置生产代码

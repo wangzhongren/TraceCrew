@@ -30,6 +30,7 @@
 | Single file | `start.bat` | Windows 启动脚本 |
 | Single file | `.gitignore` | 补充忽略行：锁文件与生成物构建缓存（`.tracecrew.lock`、`*.tsbuildinfo`）；`.codeatlas` 条目与数据处置仍等客户单独指示 |
 | Single file | `frontend/public/icon.png` | 应用图标资源 |
+| Single file | `icon.png` | 应用图标（根目录；窗口与 macOS Dock 用，`electron/main.ts` 引用） |
 | Owned directory | `frontend/test/app-shell/` | 本角色单元测试的归属目录；不放置生产代码 |
 | Single file | `角色卡/app-shell/memo.md` | 本角色的简短事实与续接线索 |
 | Single file | `角色卡/app-shell/feature-map.md` | 功能导航：用途、状态与文档链接 |
