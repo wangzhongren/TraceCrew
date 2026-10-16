@@ -712,6 +712,12 @@ export class AgentService {
   }
 
   private buildMessages(history?: Array<{ role: string; content: string }> | null) {
+    if (history !== undefined && history !== null && !Array.isArray(history)) {
+      throw new Error(
+        `buildMessages: history 必须是数组（或省略 / null），实际收到 ${typeof history}；` +
+          '非数组值会被逐字符遍历、静默产出逐字符垃圾消息，故立即报错',
+      );
+    }
     const msgs: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
     if (history) {
       for (const h of history) {
@@ -994,7 +1000,7 @@ export class AgentService {
         case 'search': {
           const query = (op.content as string) || '';
           const searchPath = filePath ? fullPath : projectPath;
-          const results = await searchInFiles(query, searchPath, {
+          const { results } = await searchInFiles(query, searchPath, {
             caseSensitive: op['case-sensitive'] === 'true' || op.case_sensitive === true,
             wholeWord: op['whole-word'] === 'true' || op.whole_word === true,
             useRegex: op['regex'] === 'true' || op.regex === true,

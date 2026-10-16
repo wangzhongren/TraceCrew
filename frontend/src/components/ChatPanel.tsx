@@ -41,6 +41,21 @@ const TOOL_COLOR: Record<string, { bg: string; c: string }> = {
   run_shell:    { bg: '#fef3c7', c: '#b45309' },
 };
 
+/* ── Pure helpers (exported for unit tests) ── */
+
+/**
+ * 拼装 agentLoop 发送给 Agent 的 user 消息 content。
+ * ctx 与 systemPrompt 以空行分隔；有项目文件树时追加【项目文件树】小节
+ * （JSON 缩进 2、截断 2000 字符）。只接收已获取的数据——
+ * `window.tracecrew.file.listDirectory` 的 IPC 调用留在调用点。
+ */
+export function buildAgentUserContent(ctx: string, systemPrompt: string, fileTree: unknown): string {
+  if (fileTree) {
+    return `${ctx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}`;
+  }
+  return `${ctx}\n\n${systemPrompt}`;
+}
+
 /* ══════════════════════════════════════════════ */
 
 export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, savedGraph }: {
@@ -183,7 +198,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
     const messages = [...(history || [])];
     let fileTree: any = null;
     try { fileTree = await window.tracecrew.file.listDirectory(projectPath!); } catch {}
-    messages.push({ role: 'user', content: fileTree ? `${ctx}\n\n${systemPrompt}\n\n【项目文件树】\n${JSON.stringify(fileTree, null, 2).slice(0, 2000)}` : `${ctx}\n\n${systemPrompt}` });
+    messages.push({ role: 'user', content: buildAgentUserContent(ctx, systemPrompt, fileTree) });
 
     let fullText = '';
     setTimeline(prev => { tidxRef.current = prev.length; return [...prev, { kind: 'agent', agent, text: '', reasoning: '', result: null }]; });

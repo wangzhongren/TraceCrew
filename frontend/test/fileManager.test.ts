@@ -67,10 +67,11 @@ describe('listDirectory', () => {
     const entries = listDirectory(tmpDir);
     expect(entries).toHaveLength(3);
 
-    // Directories come first, sorted alphabetically
-    expect(entries[0].name).toBe('a-dir');
+    // Directories come first, sorted alphabetically; directory names carry a trailing '/'
+    expect(entries[0].name).toBe('a-dir/');
     expect(entries[0].type).toBe('directory');
-    expect(entries[0].children).toBeDefined();
+    // Default depth (0): children are not expanded and are omitted (undefined), not []
+    expect(entries[0].children).toBeUndefined();
 
     // Then files, sorted alphabetically
     expect(entries[1].name).toBe('a.txt');
@@ -81,16 +82,27 @@ describe('listDirectory', () => {
 
   it('includes children for directories up to depth', () => {
     mkfile('a/b/c/d.txt', 'deep');
+    mkdir('empty-dir');
 
+    // depth=4 expands four levels: a → b → c → d.txt
     const entries = listDirectory(tmpDir, 4);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].name).toBe('a');
+    expect(entries).toHaveLength(2);
+    expect(entries[0].name).toBe('a/');
     expect(entries[0].children).toHaveLength(1);
-    expect(entries[0].children![0].name).toBe('b');
+    expect(entries[0].children![0].name).toBe('b/');
+    expect(entries[0].children![0].children![0].name).toBe('c/');
+    expect(entries[0].children![0].children![0].children![0].name).toBe('d.txt');
 
-    // depth=1 means no children expanded
+    // depth=1 expands only the top level; nested directories keep children omitted
     const shallow = listDirectory(tmpDir, 1);
-    expect(shallow[0].children).toEqual([]);
+    expect(shallow[0].name).toBe('a/');
+    expect(shallow[0].children).toHaveLength(1);
+    expect(shallow[0].children![0].name).toBe('b/');
+    expect(shallow[0].children![0].children).toBeUndefined();
+
+    // An expanded empty directory also omits children instead of returning []
+    expect(shallow[1].name).toBe('empty-dir/');
+    expect(shallow[1].children).toBeUndefined();
   });
 
   it('ignores common patterns (node_modules, .git, etc.)', () => {
@@ -188,26 +200,26 @@ describe('writeFile', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('insertLines', () => {
-  it('inserts content after specified line', () => {
+  it('inserts content after specified line', async () => {
     const p = mkfile('code.ts', 'line1\nline2\nline3\n');
-    const result = insertLines(p, 1, 'inserted a\ninserted b');
+    const result = await insertLines(p, 1, 'inserted a\ninserted b');
 
     expect(result.success).toBe(true);
     const content = fs.readFileSync(p, 'utf-8');
     expect(content).toBe('line1\ninserted a\ninserted b\nline2\nline3\n');
   });
 
-  it('inserts at the beginning with afterLine=0', () => {
+  it('inserts at the beginning with afterLine=0', async () => {
     const p = mkfile('code.ts', 'line1\nline2\n');
-    const result = insertLines(p, 0, 'new first');
+    const result = await insertLines(p, 0, 'new first');
 
     expect(result.success).toBe(true);
     expect(fs.readFileSync(p, 'utf-8')).toBe('new first\nline1\nline2\n');
   });
 
-  it('creates backup for existing file', () => {
+  it('creates backup for existing file', async () => {
     const p = mkfile('code.ts', 'line1\nline2\n');
-    const result = insertLines(p, 1, 'inserted');
+    const result = await insertLines(p, 1, 'inserted');
 
     expect(result.success).toBe(true);
     expect(result.backupId).toBeTruthy();
@@ -219,26 +231,26 @@ describe('insertLines', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('replaceLines', () => {
-  it('replaces a range of lines', () => {
+  it('replaces a range of lines', async () => {
     const p = mkfile('code.ts', 'line1\nline2\nline3\nline4\n');
-    const result = replaceLines(p, 2, 3, 'new2\nnew3');
+    const result = await replaceLines(p, 2, 3, 'new2\nnew3');
 
     expect(result.success).toBe(true);
     const content = fs.readFileSync(p, 'utf-8');
     expect(content).toBe('line1\nnew2\nnew3\nline4\n');
   });
 
-  it('replaces single line', () => {
+  it('replaces single line', async () => {
     const p = mkfile('code.ts', 'line1\nline2\nline3\n');
-    const result = replaceLines(p, 2, 2, 'replaced');
+    const result = await replaceLines(p, 2, 2, 'replaced');
 
     expect(result.success).toBe(true);
     expect(fs.readFileSync(p, 'utf-8')).toBe('line1\nreplaced\nline3\n');
   });
 
-  it('create backup for existing file', () => {
+  it('create backup for existing file', async () => {
     const p = mkfile('code.ts', 'line1\nline2\n');
-    const result = replaceLines(p, 1, 1, 'new1');
+    const result = await replaceLines(p, 1, 1, 'new1');
 
     expect(result.success).toBe(true);
     expect(result.backupId).toBeTruthy();
@@ -250,25 +262,25 @@ describe('replaceLines', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('deleteLines', () => {
-  it('deletes a range of lines', () => {
+  it('deletes a range of lines', async () => {
     const p = mkfile('code.ts', 'line1\nline2\nline3\nline4\n');
-    const result = deleteLines(p, 2, 3);
+    const result = await deleteLines(p, 2, 3);
 
     expect(result.success).toBe(true);
     expect(fs.readFileSync(p, 'utf-8')).toBe('line1\nline4\n');
   });
 
-  it('deletes a single line', () => {
+  it('deletes a single line', async () => {
     const p = mkfile('code.ts', 'line1\nline2\nline3\n');
-    const result = deleteLines(p, 2, 2);
+    const result = await deleteLines(p, 2, 2);
 
     expect(result.success).toBe(true);
     expect(fs.readFileSync(p, 'utf-8')).toBe('line1\nline3\n');
   });
 
-  it('creates backup for existing file', () => {
+  it('creates backup for existing file', async () => {
     const p = mkfile('code.ts', 'line1\nline2\n');
-    const result = deleteLines(p, 1, 1);
+    const result = await deleteLines(p, 1, 1);
 
     expect(result.success).toBe(true);
     expect(result.backupId).toBeTruthy();
@@ -336,12 +348,13 @@ describe('restoreBackup', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('searchInFiles', () => {
-  it('finds matches across source files', () => {
+  it('finds matches across source files', async () => {
     mkfile('src/app.ts', 'function handleSubmit() {\n  console.log("submit");\n}');
     mkfile('src/utils.ts', 'export function handleSubmit() {}');
     mkfile('src/readme.md', '## handleSubmit reference');
 
-    const results = searchInFiles('handleSubmit', tmpDir);
+    const response = await searchInFiles('handleSubmit', tmpDir);
+    const results = response.results;
     expect(results.length).toBeGreaterThanOrEqual(2);
 
     const files = results.map((r) => r.file);
@@ -349,47 +362,47 @@ describe('searchInFiles', () => {
     expect(files).toContain('src/utils.ts');
   });
 
-  it('returns line numbers with matches', () => {
+  it('returns line numbers with matches', async () => {
     mkfile('src/test.ts', 'line1\nline2 with keyword\nline3\n');
 
-    const results = searchInFiles('keyword', tmpDir);
-    expect(results).toHaveLength(1);
-    expect(results[0].line).toBe(2);
-    expect(results[0].text).toContain('keyword');
+    const response = await searchInFiles('keyword', tmpDir);
+    expect(response.results).toHaveLength(1);
+    expect(response.results[0].line).toBe(2);
+    expect(response.results[0].text).toContain('keyword');
   });
 
-  it('is case insensitive', () => {
+  it('is case insensitive', async () => {
     mkfile('src/test.ts', 'HELLO world\n');
 
-    const results = searchInFiles('hello', tmpDir);
-    expect(results.length).toBeGreaterThanOrEqual(1);
+    const response = await searchInFiles('hello', tmpDir);
+    expect(response.results.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('returns empty for no matches', () => {
+  it('returns empty for no matches', async () => {
     mkfile('src/test.ts', 'nothing here\n');
-    const results = searchInFiles('zzz_nonexistent_zzz', tmpDir);
-    expect(results).toEqual([]);
+    const response = await searchInFiles('zzz_nonexistent_zzz', tmpDir);
+    expect(response.results).toEqual([]);
   });
 
-  it('respects maxResults limit', () => {
+  it('respects maxResults limit', async () => {
     mkfile('src/a.ts', 'match\nmatch\nmatch\nmatch\nmatch\n');
     mkfile('src/b.ts', 'match\n');
 
-    const results = searchInFiles('match', tmpDir, 3);
-    expect(results.length).toBeLessThanOrEqual(3);
+    const response = await searchInFiles('match', tmpDir, { maxResults: 3 });
+    expect(response.results.length).toBeLessThanOrEqual(3);
   });
 
-  it('only searches known source extensions', () => {
+  it('only searches known source extensions', async () => {
     mkfile('src/image.png', 'match keyword text');
     mkfile('src/data.bin', 'match keyword text');
 
-    const results = searchInFiles('keyword', tmpDir);
-    expect(results).toEqual([]);
+    const response = await searchInFiles('keyword', tmpDir);
+    expect(response.results).toEqual([]);
   });
 
-  it('handles non-existent directory', () => {
-    const results = searchInFiles('test', path.join(tmpDir, 'nope'));
-    expect(results).toEqual([]);
+  it('handles non-existent directory', async () => {
+    const response = await searchInFiles('test', path.join(tmpDir, 'nope'));
+    expect(response.results).toEqual([]);
   });
 });
 
@@ -409,7 +422,7 @@ describe('getProjectName', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('workflow round-trip', () => {
-  it('write → read → replace → read → restore cycle works', () => {
+  it('write → read → replace → read → restore cycle works', async () => {
     const p = path.join(tmpDir, 'workflow.ts');
     writeFile(p, 'line1\nline2\nline3\nline4\nline5');
 
@@ -418,7 +431,7 @@ describe('workflow round-trip', () => {
     expect(fc1.lineCount).toBe(5);
 
     // Replace lines 2-3
-    const replaceResult = replaceLines(p, 2, 3, 'new2\nnew3');
+    const replaceResult = await replaceLines(p, 2, 3, 'new2\nnew3');
     expect(replaceResult.success).toBe(true);
     expect(replaceResult.backupId).toBeTruthy();
 
@@ -427,14 +440,14 @@ describe('workflow round-trip', () => {
     expect(fc2.lines).toEqual(['line1', 'new2', 'new3', 'line4', 'line5']);
 
     // Insert after line 4
-    insertLines(p, 4, 'inserted');
+    await insertLines(p, 4, 'inserted');
     expect(readFile(p).lines).toEqual([
       'line1', 'new2', 'new3', 'line4',
       'inserted', 'line5',
     ]);
 
     // Delete line 1
-    deleteLines(p, 1, 1);
+    await deleteLines(p, 1, 1);
     expect(readFile(p).content.startsWith('new2')).toBe(true);
 
     // Restore to original

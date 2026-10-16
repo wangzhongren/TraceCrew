@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "electron:dev": "vite",
     "electron:build": "vite build && electron-builder",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "cross-env ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs run",
+    "test:watch": "cross-env ELECTRON_RUN_AS_NODE=1 electron ./node_modules/vitest/vitest.mjs"
   },
   "dependencies": {
     "@types/dagre": "^0.7.54",
@@ -38,6 +38,7 @@
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.4.0",
     "autoprefixer": "^10.4.20",
+    "cross-env": "^10.1.0",
     "electron": "^34.5.4",
     "electron-builder": "^25.1.8",
     "postcss": "^8.5.0",

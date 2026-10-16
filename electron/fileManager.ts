@@ -3,7 +3,7 @@ import {
   mkdirSync, statSync, copyFileSync, renameSync, createWriteStream,
   createReadStream,
 } from 'fs';
-import { readdir, readFile, stat } from 'fs/promises';
+import { readdir, readFile as readFileAsync, stat } from 'fs/promises';
 import { createInterface } from 'readline';
 import { join, dirname, relative, basename } from 'path';
 
@@ -403,7 +403,7 @@ export async function searchInFiles(
           const isDotfile = name.startsWith('.');
           const ext = name.includes('.') ? '.' + name.split('.').pop()?.toLowerCase() : '';
           if (!isDotfile && ext !== '' && !sourceExts.includes(ext)) continue;
-          const content = await readFile(full, 'utf-8');
+          const content = await readFileAsync(full, 'utf-8');
           const lines = content.split('\n');
           let fileHits = 0;
           for (let i = 0; i < lines.length && allResults.length < MAX_SCAN; i++) {
@@ -418,7 +418,9 @@ export async function searchInFiles(
             }
           }
         }
-      } catch { /* skip unreadable */ }
+      } catch (e: any) {
+        console.log('[searchInFiles] 跳过不可读文件: ' + full + ' — ' + (e?.message || e));
+      }
     }
   }
 

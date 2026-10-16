@@ -3,8 +3,17 @@
  *
  * Tests AgentService parsing, message building, and utility methods.
  * LLM calls are NOT tested — those require a live API.
+ *
+ * 退役说明（2026-10-16，提案 docs/fix/2026-10-16_fix_test-suite-red.md 第 2.2 节 A 表）：
+ * 原 `buildUserMessage` 的 5 条用例已退役——该方法已从 AgentService 删除，
+ * 「用户指令 + 打开文件 + 选区 + 项目文件树」的用户消息拼装已移至前端
+ * `ChatPanel.agentLoop`；等价覆盖由 `test/agent-pipeline/chatPanelUserContent.test.ts`
+ * （选装 O1）承接。
  */
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { AgentService } from '../../electron/server/services/agent';
 
 function makeService(): AgentService {
@@ -82,10 +91,12 @@ describe('parseAttrs', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('tagText', () => {
-  it('trims and returns content', () => {
+  it('returns content as-is without trimming', () => {
     const svc = makeService();
+    // 实现刻意不修剪（仅剥离 CDATA 包装）：修剪曾导致写入内容缩进丢失；
+    // 首尾空行由下游 contentToLines（electron/fileManager.ts）负责剥离。
     const result = (svc as any).tagText('  hello world  ');
-    expect(result).toBe('hello world');
+    expect(result).toBe('  hello world  ');
   });
 
   it('extracts CDATA content', () => {
@@ -257,7 +268,8 @@ describe('parseXmlLike / parseAgentOutput', () => {
     expect(result.operations[0].type).toBe('read_file');
     expect(result.operations[1].type).toBe('read_file');
     expect(result.operations[2].type).toBe('insert_lines');
-    expect(result.operations[2].content).toBe('new code');
+    // 内容按原文保留（含标签内首尾换行）；首尾空行由下游 contentToLines 剥离
+    expect(result.operations[2].content).toBe('\nnew code\n');
   });
 
   it('parses self-closing tags', () => {
@@ -326,97 +338,44 @@ describe('truncate', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// buildUserMessage
-// ═══════════════════════════════════════════════════════════════════
-
-describe('buildUserMessage', () => {
-  it('builds basic message with instruction', () => {
-    const svc = makeService();
-    const msg = svc.buildUserMessage({
-      instruction: 'How does the login work?',
-    });
-    expect(msg).toContain('【用户指令】');
-    expect(msg).toContain('How does the login work?');
-  });
-
-  it('includes open file content', () => {
-    const svc = makeService();
-    const msg = svc.buildUserMessage({
-      instruction: 'Fix this bug',
-      open_file: {
-        path: 'src/login.ts',
-        content: 'function login() { return false; }',
-        lines: 1,
-      },
-    });
-    expect(msg).toContain('【当前打开的文件: src/login.ts');
-    expect(msg).toContain('function login() { return false; }');
-  });
-
-  it('includes selection context', () => {
-    const svc = makeService();
-    const msg = svc.buildUserMessage({
-      instruction: 'Fix this bug',
-      selection: {
-        file: 'src/app.ts',
-        text: 'const x: number = "string";',
-        lines: '10-10',
-      },
-    });
-    expect(msg).toContain('【用户选中的代码');
-    expect(msg).toContain('src/app.ts');
-    expect(msg).toContain('const x: number = "string"');
-  });
-
-  it('includes file tree summary', () => {
-    const svc = makeService();
-    const msg = svc.buildUserMessage({
-      instruction: 'Analyze',
-      file_tree: [
-        { name: 'src', path: 'src', type: 'directory' },
-      ] as any,
-    });
-    expect(msg).toContain('【项目文件树');
-  });
-
-  it('warns when file tree is missing', () => {
-    const svc = makeService();
-    const msg = svc.buildUserMessage({
-      instruction: 'Analyze',
-      file_tree: null,
-    });
-    expect(msg).toContain('文件树未加载');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
 // buildMessages (private)
 // ═══════════════════════════════════════════════════════════════════
 
 describe('buildMessages', () => {
-  it('includes system prompt and user message', () => {
+  it('builds one message per history entry (system prompt is mounted by the caller)', () => {
     const svc = makeService();
-    const msgs = (svc as any).buildMessages('system prompt', 'user message');
-    expect(msgs).toHaveLength(2);
-    expect(msgs[0].role).toBe('system');
-    expect(msgs[0].content).toBe('system prompt');
-    expect(msgs[1].role).toBe('user');
-    expect(msgs[1].content).toBe('user message');
+    const msgs = (svc as any).buildMessages([
+      { role: 'user', content: 'hello' },
+    ]);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toEqual({ role: 'user', content: 'hello' });
   });
 
   it('includes history messages with agent→assistant conversion', () => {
     const svc = makeService();
-    const msgs = (svc as any).buildMessages('system', 'user', [
+    const msgs = (svc as any).buildMessages([
       { role: 'user', content: 'hello' },
       { role: 'agent', content: 'hi there' },
       { role: 'user', content: 'help' },
     ]);
-    expect(msgs).toHaveLength(5);
-    expect(msgs[0].role).toBe('system');
-    expect(msgs[1].role).toBe('user');   // user
-    expect(msgs[2].role).toBe('assistant'); // agent → assistant
-    expect(msgs[3].role).toBe('user');
-    expect(msgs[4].role).toBe('user');
+    expect(msgs).toHaveLength(3);
+    expect(msgs[0].role).toBe('user');
+    expect(msgs[1].role).toBe('assistant'); // agent → assistant
+    expect(msgs[2].role).toBe('user');
+    expect(msgs[1].content).toBe('hi there');
+  });
+
+  // O2 守护（2026-10-16 提案第 7 节）：history 提供但非数组时立即报错，
+  // 杜绝旧签名误用（传字符串）被逐字符遍历、静默产出逐字符垃圾消息。
+  it('throws a descriptive error when history is provided but not an array', () => {
+    const svc = makeService();
+    expect(() => (svc as any).buildMessages('system prompt')).toThrow(/history.*数组/);
+  });
+
+  it('treats omitted or null history as empty', () => {
+    const svc = makeService();
+    expect((svc as any).buildMessages()).toEqual([]);
+    expect((svc as any).buildMessages(null)).toEqual([]);
   });
 });
 
@@ -491,5 +450,34 @@ describe('Chinese + XML mixed content', () => {
     // Message should contain the Chinese text between tags
     expect(result.message).toContain('我来分析一下');
     expect(result.message).toContain('修改完成');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// executeTool (private) — search 分支
+// ═══════════════════════════════════════════════════════════════════
+
+describe('executeTool search', () => {
+  // 缺陷 #2 回归守护（2026-10-16 fix_search-in-files-empty 第 10 节，M8）：
+  // 该分支曾把 searchInFiles 的 SearchResponse 当数组调用 results.map，
+  // 抛错并被 executeTool 的 catch 捕获 → Agent 搜索工具恒返回 `[错误: ...] is not a function`。
+  it('returns file:line matches from a real search instead of an error string', async () => {
+    const svc = makeService();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracecrew-agent-search-'));
+    try {
+      fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, 'src', 'a.ts'), 'function needle() {}\n', 'utf-8');
+
+      const out = await (svc as any).executeTool(
+        { type: 'search', file: '.', content: 'needle' },
+        tmpDir,
+      );
+
+      expect(out).toContain('src/a.ts:1');
+      expect(out).not.toContain('[错误');
+      expect(out).not.toContain('is not a function');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
