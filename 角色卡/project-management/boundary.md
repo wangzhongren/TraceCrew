@@ -1,0 +1,31 @@
+# 模块边界文档 — 项目管理（project-management）
+
+本文件仅包含 Section 1：项目管理角色的可修改文件与目录白名单，是本角色唯一的变更授权来源。同名 `boundary.yaml` 只是同步副本，不构成第二授权源。
+
+## Section 1: Modifiable files and directories
+
+| Type | Operable path | Function |
+| --- | --- | --- |
+| Single file | `frontend/src/i18n/index.tsx` | 跨角色共享国际化机制：Locale Context、`useT`、locale 检测与持久化 |
+| Single file | `frontend/src/i18n/zh-CN.json` | 中文字符串资源 |
+| Single file | `frontend/src/i18n/en.json` | 英文字符串资源 |
+| Single file | `frontend/src/i18n/ja.json` | 日文字符串资源 |
+| Single file | `frontend/src/i18n/ko.json` | 韩文字符串资源 |
+| Owned directory | `frontend/test/project-management/` | 共享基础代码（i18n）的单元与契约测试；不放置生产代码 |
+| Single file | `角色卡/project-management/memo.md` | 本角色的简短事实与续接线索 |
+| Single file | `角色卡/project-management/feature-map.md` | 功能导航：用途、状态与文档链接 |
+| Single file | `角色卡/project-management/changelog.md` | 本角色的创建与范围变更历史 |
+| Single file | `角色卡/project-management/functional-description.md` | 模块说明与代码位置 |
+| Single file | `角色卡/project-management/api-spec.md` | 共享基础代码的实际导出、依赖与测试证据 |
+| Single file | `角色卡/project-management/docs/architecture.md` | 项目整体架构（当前态，含 Mermaid 角色协作图） |
+| Single file | `角色卡/project-management/docs/architecture/shared-components.md` | 共享组件清单（i18n 等）及其消费者 |
+| Single file | `角色卡/project-management/docs/project-rules.md` | 项目级工程规则 |
+| Conditional directory | `角色卡/project-management/docs/scheduling/` | `docs/scheduling/<task-id>.md`：任务计划、步骤表与事件历史；task_ops 是唯一写入者 |
+| Conditional directory | `角色卡/project-management/docs/meetings/` | 项目级与跨组会议纪要 |
+| Conditional directory | `角色卡/project-management/docs/` | 本角色的设计/功能/变更/修复历史文档 |
+
+**未在本 Section 1 中列出、也不被已接受目录覆盖的文件默认只读。** 要修改未覆盖的文件，必须先提交 Section 1 更新提案，并经过与代码变更相同的证据与验收门。
+
+在已接受的目录范围内新增或删除普通文件不需要重写 Section 1；新增目录授权、改变归属，或增删单独列出的路径，必须由治理角色（ANS Governance）先更新 Section 1。
+
+本角色不得修改其他角色的业务代码与私有目录、构建配置或权限配置，也不得编辑角色卡与边界文档（治理角色所有）；跨角色修改由本角色安排给对应归属角色执行。
