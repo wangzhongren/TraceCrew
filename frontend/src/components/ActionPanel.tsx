@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { GraphNode } from './MapCanvas';
+import type { GraphNode } from '../types/graph';
 import { getActionConfig, cleanProtocolTags, type ActionType } from './ActionDialog';
 import { useT } from '../i18n';
 

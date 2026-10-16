@@ -99,6 +99,7 @@ export default function CodeViewer({ filePath, projectPath, scrollToLine, onSele
         setError(t('code.emptyContent', { path: filePath }));
       }
     } catch (e: any) {
+      // 读取失败已由下方错误态 UI 呈现（code.fileNotFound / code.failedToRead 文案），故此处不需要 console。
       const msg = e?.message || String(e);
       if (msg.includes('ENOENT')) {
         setError(t('code.fileNotFound', { path: filePath }));

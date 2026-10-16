@@ -1,48 +1,17 @@
 import { useRef, useEffect, useState, useCallback, useMemo, memo } from 'react';
 import dagre from 'dagre';
 import { STATUS_COLORS, EDGE_COLORS, STATUS_LABELS, BUG_IMPACT_COLORS } from '../types/theme';
-import type { NodeStatus, SubComponent, ImpactScope } from '../types/theme';
+import type { NodeStatus } from '../types/theme';
+import type { GraphNode, GraphEdge, CallGraph, ContextMenuAction } from '../types/graph';
 import { useT } from '../i18n';
+
+/* Graph shared types moved to types/graph.ts (primary owner: graph-view);
+   re-exported here unchanged for backward compatibility while consumers migrate. */
+export type { GraphNode, GraphEdge, CallGraph, ContextMenuAction } from '../types/graph';
 
 /* ═══════════════════════════════════════════════════════════
    Call Graph Canvas — Node-Link diagram for code structure
    ═══════════════════════════════════════════════════════════ */
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  kind: string;
-  status: NodeStatus;
-  detail: string;
-  file?: string;
-  line?: number;
-  /** Widget/service composition for planned_new nodes */
-  sub_components?: SubComponent[];
-  /** Bug impact analysis for problem nodes */
-  impact_scope?: ImpactScope;
-  /** Sequence diagram: swimlane name */
-  lane?: string;
-  /** Sequence diagram: position in timeline (1-based) */
-  step?: number;
-}
-
-export interface GraphEdge {
-  from: string;
-  to: string;
-  label: string;
-  status: 'existing' | 'new' | 'removed' | 'error';
-}
-
-export interface CallGraph {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-export interface ContextMenuAction {
-  node: GraphNode;
-  x: number;
-  y: number;
-}
 
 interface Props {
   graph: CallGraph | null;

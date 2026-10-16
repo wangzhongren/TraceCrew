@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import CodeViewer from './CodeViewer';
 import ActionPanel, { type StreamState } from './ActionPanel';
 import type { ActionType } from './ActionDialog';
-import type { GraphNode } from './MapCanvas';
+import type { GraphNode } from '../types/graph';
 
 interface Props {
   // CodeViewer props

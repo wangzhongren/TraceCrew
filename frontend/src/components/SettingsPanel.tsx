@@ -85,7 +85,9 @@ function loadLocal(): AllLLMSettings | null {
       localStorage.removeItem(OLD_STORAGE_KEY);
       return migrated;
     }
-  } catch {}
+  } catch {
+    // localStorage 不可用（隐私模式/嵌入环境等）或存储内容非法：预期失败，回退到后端拉取或默认设置，不阻断面板打开。
+  }
   return null;
 }
 
@@ -111,7 +113,9 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
           setSettings(d as AllLLMSettings);
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        // 后端设置拉取失败（后端未就绪等）：预期失败，保留本地/默认值，下方 finally 仍会结束加载态。
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -129,6 +133,7 @@ export default function SettingsPanel({ onClose }: { onClose: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
+      // 响应体非 JSON（预期失败，如代理返回 HTML 错误页）时以空对象兜底；保存结果由下一行日志输出，此处不再额外报错。
       const result = await res.json().catch(() => ({}));
       console.log('[Settings] 保存结果:', result, '| architect:', settings.architect?.apiKey ? '***' + settings.architect.apiKey.slice(-4) : '(empty)');
     } catch (e) {

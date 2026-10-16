@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import MapCanvas, { type CallGraph } from './MapCanvas';
+import MapCanvas from './MapCanvas';
+import type { CallGraph } from '../types/graph';
 import { getActionsForNode, ACTION_CONFIGS, cleanProtocolTags } from './ActionDialog';
 import type { ActionType } from './ActionDialog';
 import { STATUS_COLORS_SIMPLE, STATUS_LABELS } from '../types/theme';

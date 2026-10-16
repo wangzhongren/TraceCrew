@@ -5,7 +5,7 @@ import type { PipelineState } from '../App';
 import PlanCard from './PlanCard';
 import ReviewCard from './ReviewCard';
 import { cleanProtocolTags } from './ActionDialog';
-import type { CallGraph } from './MapCanvas';
+import type { CallGraph } from '../types/graph';
 import { useT, useLocale } from '../i18n';
 
 /* ── Types ── */
@@ -140,6 +140,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const parseJson = (text: string): any => {
     if (!text) return null;
     const m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    // 预期可忽略：代码块内容不保证是合法 JSON，失败则继续后续解析尝试
     if (m) { try { return JSON.parse(m[1]); } catch {} }
     for (const key of ['"architecture"', '"call_graph"', '"plan_summary"', '"passed"']) {
       const idx = text.indexOf(key);
@@ -151,11 +152,13 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
             if (text[i] === '{') depth++;
             else if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
           }
+          // 预期可忽略：提取的片段可能仍非合法 JSON，失败则继续扫描其他候选键
           if (end !== -1) { try { return JSON.parse(text.slice(start, end)); } catch {} }
         }
       }
     }
     const greedy = text.match(/\{[\s\S]*\}/);
+    // 预期可忽略：贪婪匹配片段可能非合法 JSON，失败则返回 null 交由调用方兜底
     if (greedy) { try { return JSON.parse(greedy[0]); } catch {} }
     return null;
   };
@@ -226,6 +229,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
   const agentLoop = async (agent: string, systemPrompt: string, ctx: string, history?: Array<{ role: string; content: string }>) => {
     const messages = [...(history || [])];
     let fileTree: any = null;
+    // 预期可忽略：文件树仅用于增强 prompt，获取失败仍可继续对话（不附带文件树）
     try { fileTree = await window.tracecrew.file.listDirectory(projectPath!); } catch {}
     messages.push({ role: 'user', content: buildAgentUserContent(ctx, systemPrompt, fileTree) });
 
@@ -440,6 +444,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
 
     if (architecture) {
       architectureRef.current = architecture;
+      // 预期可忽略：ARCHITECTURE.md 为旁路持久化（尽力而为），写失败不影响流水线
       window.tracecrew.file.writeFile('.tracecrew/ARCHITECTURE.md', fullText).catch(() => {});
 
       historyRef.current.push({ role: 'assistant', content: `[Architect] ${architecture.principle || '架构设计完成'} — ${(architecture.modules || []).length} 个模块, ${(architecture.interfaces || []).length} 个接口` });
@@ -570,6 +575,7 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
           const entry = `| ${date} | [${saved.plan_summary.slice(0, 60)}](${planFile}) | ${saved.steps?.length || 0} 步骤 |`;
           const readmeHeader = `# Plans\n\n| 日期 | 计划 | 步骤 |\n|------|------|------|`;
           let existing = '';
+          // 预期可忽略：README.md 不存在按无历史处理，随后会创建新的索引文件
           try { const fc = await window.tracecrew.file.readFile('.tracecrew/plans/README.md'); if (fc?.content) existing = fc.content; } catch {}
           if (!existing) {
             await window.tracecrew.file.writeFile('.tracecrew/plans/README.md', `${readmeHeader}\n${entry}\n`);
@@ -579,7 +585,9 @@ export default function ChatPanel({ projectPath, onPipelineChange, savedPlan, sa
             const after = existing.slice(idx + 1);
             await window.tracecrew.file.writeFile('.tracecrew/plans/README.md', `${before}\n${entry}${after}`);
           }
-        } catch {}
+        } catch {
+          // 预期可忽略：plans 目录落盘为旁路持久化（尽力而为），失败不影响流水线继续
+        }
       }
 
       await runMapper(instruction, plan, plannerText, architectureRef.current);
@@ -697,7 +705,9 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
           .sort()
           .reverse();
         setPlanFiles(files);
-      } catch {}
+      } catch {
+        // 预期可忽略：历史计划列表仅为附加信息，读取失败时保持空列表
+      }
     })();
   }, [plan]);
 
@@ -748,7 +758,9 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
                         try {
                           const fc = await window.tracecrew?.file.readFile(`.tracecrew/plans/${f}`);
                           if (fc?.content) openPopup(fc.content);
-                        } catch {}
+                        } catch {
+                          // 预期可忽略：单条历史计划读取失败时静默跳过（不展开），可稍后重试
+                        }
                       }}
                         className="w-full text-left px-3 py-2 hover:bg-black/[0.03] transition-colors border-b last:border-b-0"
                         style={{ borderColor: 'var(--color-border-subtle)' }}>

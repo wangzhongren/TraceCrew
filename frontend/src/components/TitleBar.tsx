@@ -3,7 +3,9 @@ export default function TitleBar({ projectName }: { projectName: string }) {
 
   const action = (name: 'minimize' | 'maximize' | 'close') => {
     const api = window.tracecrew?.window;
-    if (api?.[name]) Promise.resolve(api[name]()).catch(() => {});
+    if (api?.[name]) Promise.resolve(api[name]()).catch(() => {
+      // 窗口控制失败（如窗口已在关闭中）属预期失败：由主进程生命周期接管，无需上报。
+    });
   };
 
   return (

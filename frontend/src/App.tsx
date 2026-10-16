@@ -2,13 +2,14 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useT, useLocale, LOCALE_LABELS, type Locale } from './i18n';
 import ChatPanel from './components/ChatPanel';
 import MapperView from './components/MapperView';
-import type { CallGraph, GraphNode } from './components/MapCanvas';
+import type { CallGraph, GraphNode } from './types/graph';
 import TitleBar from './components/TitleBar';
 import SettingsPanel from './components/SettingsPanel';
 import RightPanel from './components/RightPanel';
 import ResizeHandle from './components/ResizeHandle';
 import type { ActionType } from './components/ActionDialog';
 import { type StreamState, INITIAL_STREAM_STATE } from './components/ActionPanel';
+import { useAutoExec } from './hooks/useAutoExec';
 
 export interface PipelineState {
   phase: 'idle' | 'clarifying' | 'planning' | 'reviewing' | 'done' | 'rejected';
@@ -29,20 +30,6 @@ export default function App() {
   // Action state (lifted from MapperView)
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [stream, setStream] = useState<StreamState>(INITIAL_STREAM_STATE);
-
-  // Auto-exec state
-  const [autoExecRunning, setAutoExecRunning] = useState(false);
-  const [autoExecProgress, setAutoExecProgress] = useState<{ current: number; total: number; currentNodeId: string | null } | null>(null);
-  const autoExecStopRef = useRef(false);
-
-  // Per-node execution records (for card expand)
-  const [execRecords, setExecRecords] = useState<Record<string, {
-    summary: string; review_passed: boolean | null;
-    review_feedback?: string; review_issues?: any[];
-  }>>({});
-
-  // Live output for currently executing node
-  const [liveOutput, setLiveOutput] = useState<Record<string, string>>({});
 
   // Auto-save execution record when stream completes
   useEffect(() => {
@@ -100,7 +87,7 @@ export default function App() {
       sequenceGraph: pipeline.sequenceGraph,
       savedPlan: pipeline.savedPlan,
       updatedAt: new Date().toISOString(),
-    }, null, 2)).catch(() => {});
+    }, null, 2)).catch(() => { /* 预期可忽略：STATE.json 为旁路持久化（尽力而为），写失败不影响会话 */ });
   }, [pipeline.graph, pipeline.savedPlan, projectPath]);
 
   /** Compute downstream nodes for the selected node (used by refactor action) */
@@ -152,13 +139,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try { window.tracecrew?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {}
+    try { window.tracecrew?.file.onProjectOpened((p: string) => handleOpenProject(p)); } catch {
+      // 预期可忽略：非 Electron 环境（浏览器开发模式）可能无此 API，订阅失败不影响其余功能
+    }
   }, [handleOpenProject]);
 
   useEffect(() => {
     try {
       window.tracecrew?.file.getProjectPath().then((p: string) => { if (p) setProjectPath(p); });
-    } catch {}
+    } catch {
+      // 预期可忽略：非 Electron 环境（浏览器开发模式）可能无此 API，取路径失败不阻断启动
+    }
   }, []);
 
   const openFolder = async () => {
@@ -218,259 +209,19 @@ export default function App() {
     setPipeline(prev => ({ ...prev, phase: 'idle' }));
   }, [handleActionClose]);
 
-  // Topological sort nodes by dependency edges.
-  // Only edges whose BOTH endpoints are in `nodes` count as dependencies.
-  const topoSortNodes = useCallback((nodes: GraphNode[], edges: { from: string; to: string }[]): GraphNode[] => {
-    const inDegree = new Map<string, number>();
-    const adj = new Map<string, string[]>();
-    for (const n of nodes) { inDegree.set(n.id, 0); adj.set(n.id, []); }
-    for (const e of edges) {
-      // Ignore edges where either endpoint is outside the current node set
-      if (!inDegree.has(e.from) || !inDegree.has(e.to)) continue;
-      inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
-      adj.get(e.from)!.push(e.to);
-    }
-    const queue = [...inDegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
-    const result: GraphNode[] = [];
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-    while (queue.length > 0) {
-      const id = queue.shift()!;
-      const n = nodeMap.get(id); if (n) result.push(n);
-      for (const to of (adj.get(id) || [])) {
-        const d = (inDegree.get(to) || 1) - 1;
-        inDegree.set(to, d);
-        if (d === 0) queue.push(to);
-      }
-    }
-    return result;
-  }, []);
-
-  // SSE helper: run a single action and return full result
-  const runSingleAction = useCallback(async (
-    node: GraphNode, action: ActionType, projectPath: string,
-    onEvent?: (ev: { type: string; data: string }) => void,
-  ): Promise<{ passed: boolean | null; feedback?: string; issues?: any[]; message?: string }> => {
-    try {
-      const res = await fetch('/api/v1/agent/action/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          node,
-          instruction: '',
-          project_path: projectPath,
-          downstream_nodes: action === 'refactor' ? [] : [],
-          locale,
-          plan_context: savedPlanRef.current || null,
-        }),
-      });
-
-      const reader = res.body?.getReader();
-      if (!reader) return { passed: null };
-      const dec = new TextDecoder();
-      let buf = '';
-      let result: any = null;
-
-      let chunkCount = 0;
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = dec.decode(value, { stream: true });
-        chunkCount++;
-        if (chunkCount <= 3) console.log('[runSingleAction chunk]', chunk.slice(0, 300));
-        buf += chunk;
-        const parts = buf.split('\n');
-        buf = parts.pop() || '';
-        for (const line of parts) {
-          if (!line.trim()) continue;
-          let event2: string, data2: any;
-          try { const p = JSON.parse(line); event2 = p.event; data2 = p.data; } catch (e: any) { console.error('[runSingleAction JSON.parse]', line.slice(0, 200), e.message); continue; }
-          if (!event2) continue;
-          const d = typeof data2 === 'string' ? (() => { try { return JSON.parse(data2); } catch { return data2; } })() : data2;
-          if (event2 === 'token' || event2 === 'review_token') {
-            onEvent?.({ type: 'token', data: d });
-          } else if (event2 === 'phase') {
-            try { onEvent?.({ type: 'phase', data: d.phase }); } catch {}
-          } else if (event2 === 'tools') {
-            try { onEvent?.({ type: 'tools', data: `${d.ops?.length || 0} 个工具操作` }); } catch {}
-          } else if (event2 === 'done') {
-            console.log('[runSingleAction done]', JSON.stringify(d).slice(0, 500));
-            result = d;
-          }
-        }
-      }
-      const ret = {
-        passed: result?.review_passed ?? null,
-        feedback: result?.review_feedback,
-        issues: result?.review_issues,
-        message: result?.message,
-      };
-      console.log('[runSingleAction return]', JSON.stringify(ret).slice(0, 300));
-      return ret;
-    } catch (e: any) {
-      console.error('[runSingleAction ERROR]', e.message || e, e.stack?.slice(0, 300));
-      return { passed: null };
-    }
-  }, [locale]);
-
-  const handleExecuteNode = useCallback(async (nodeId: string, action: ActionType) => {
-    const graph = graphRef.current;
-    const node = graph?.nodes.find(n => n.id === nodeId);
-    if (!node || !projectPath) return;
-
-    setAutoExecProgress({ current: 0, total: 1, currentNodeId: nodeId });
-    setLiveOutput(prev => ({ ...prev, [nodeId]: '' }));
-
-    const result = await runSingleAction(node, action, projectPath, (ev) => {
-      if (ev.type === 'token') {
-        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + ev.data }));
-      } else if (ev.type === 'phase') {
-        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n\n[${ev.data}]\n` }));
-      } else if (ev.type === 'tools') {
-        setLiveOutput(prev => ({ ...prev, [nodeId]: (prev[nodeId] || '') + `\n🔧 ${ev.data}\n` }));
-      }
-    });
-
-    setExecRecords(prev => ({
-      ...prev,
-      [nodeId]: {
-        summary: result.message || '',
-        review_passed: result.passed,
-        review_feedback: result.feedback,
-        review_issues: result.issues,
-      },
-    }));
-
-    if (result.passed !== false) {
-      const g = graphRef.current;
-      if (g) {
-        const updatedNodes = g.nodes.map(n =>
-          n.id === nodeId ? { ...n, status: 'done' as const } : n
-        );
-        graphRef.current = { nodes: updatedNodes, edges: g.edges };
-        setPipeline(prev => ({ ...prev, graph: { nodes: updatedNodes, edges: g.edges } }));
-      }
-    }
-
-    setAutoExecProgress(null);
-  }, [projectPath, runSingleAction]);
-
-  // Auto-execute all pending tasks in dependency order
-  const handleAutoExec = useCallback(async () => {
-    try {
-      const graph = graphRef.current;
-      if (!graph || !projectPath) return;
-
-      // Collect existing nodes that are affected by a bug → should be executed too
-      const affectedExistingIds = new Set<string>();
-      for (const node of graph.nodes) {
-        if (node.impact_scope?.affected_nodes) {
-          for (const nid of node.impact_scope.affected_nodes) {
-            const target = graph.nodes.find(n => n.id === nid);
-            if (target && target.status === 'existing') {
-              affectedExistingIds.add(nid);
-            }
-          }
-        }
-      }
-
-      const pending = graph.nodes.filter(n =>
-        n.status !== 'done' && (n.status !== 'existing' || affectedExistingIds.has(n.id))
-      );
-      if (pending.length === 0) {
-        alert('所有任务已完成，没有待执行的任务。');
-        return;
-      }
-
-      // Reset any stale stream state so the button isn't disabled
-      setStream(INITIAL_STREAM_STATE);
-      // Abort any lingering SSE request from right panel
-      if (actionAbortRef.current) {
-        actionAbortRef.current.abort();
-        actionAbortRef.current = null;
-      }
-
-      const sorted = topoSortNodes(pending, graph.edges);
-      const total = sorted.length;
-      autoExecStopRef.current = false;
-      setAutoExecRunning(true);
-      setAutoExecProgress({ current: 0, total, currentNodeId: null });
-
-      let completed = 0;
-      let skipped = 0;
-      for (const node of sorted) {
-      if (autoExecStopRef.current) break;
-
-      // Check deps
-      const incoming = graph.edges.filter(e => e.to === node.id);
-      const unmetDeps = incoming.filter(e => {
-        const depGraph = graphRef.current?.nodes.find(n => n.id === e.from);
-        return depGraph && depGraph.status !== 'done' && depGraph.status !== 'existing';
-      });
-      if (unmetDeps.length > 0) {
-        skipped++;
-        continue; // skip, dependencies not met
-      }
-
-      setAutoExecProgress({ current: completed, total, currentNodeId: node.id });
-
-      // Run the action with live output
-      setLiveOutput(prev => ({ ...prev, [node.id]: '' }));
-      // affected existing nodes → fix; planned_new / problem / planned_change → develop
-      const action = (node.status === 'existing' && affectedExistingIds.has(node.id)) ? 'fix' : 'develop';
-      const result = await runSingleAction(node, action, projectPath, (ev) => {
-        if (ev.type === 'token') {
-          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + ev.data }));
-        } else if (ev.type === 'phase') {
-          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n\n[${ev.data}]\n` }));
-        } else if (ev.type === 'tools') {
-          setLiveOutput(prev => ({ ...prev, [node.id]: (prev[node.id] || '') + `\n🔧 ${ev.data}\n` }));
-        }
-      });
-
-      console.log(`[autoExec result] node=${node.label} passed=${result.passed} feedback=`, (result.feedback || '').slice(0, 80));
-      // Save exec record
-      setExecRecords(prev => ({
-        ...prev,
-        [node.id]: {
-          summary: result.message || '',
-          review_passed: result.passed,
-          review_feedback: result.feedback,
-          review_issues: result.issues,
-        },
-      }));
-
-      if (!autoExecStopRef.current && result.passed !== false) {
-        // Update node status — sync ref immediately so next iteration sees it
-        const g = graphRef.current;
-        if (g) {
-          const updatedNodes = g.nodes.map(n =>
-            n.id === node.id ? { ...n, status: 'done' as const, detail: (n.detail || '') + '\n✅ 已完成' } : n
-          );
-          const newGraph = { nodes: updatedNodes, edges: g.edges };
-          graphRef.current = newGraph; // sync immediately for next loop iteration
-          setPipeline(prev => ({ ...prev, graph: newGraph }));
-        }
-      }
-      completed++;
-    }
-
-      // Warn if all nodes were skipped due to unmet dependencies
-      if (!autoExecStopRef.current && completed === 0 && skipped > 0) {
-        alert(`无法执行任何任务：${skipped} 个任务的前置依赖尚未完成。请先执行上游节点。`);
-      }
-    } catch (e) {
-      console.error('[autoExec] error:', e);
-    }
-    setAutoExecRunning(false);
-    setAutoExecProgress(null);
-  }, [projectPath, topoSortNodes, runSingleAction]);
-
-  const handleStopAutoExec = useCallback(() => {
-    autoExecStopRef.current = true;
-    setAutoExecRunning(false);
-    setAutoExecProgress(null);
-  }, []);
+  // Auto-exec 编排（批 2 / D3 抽取）：状态与处理器由 hooks/useAutoExec.ts 提供
+  const {
+    autoExecRunning, autoExecProgress, execRecords, liveOutput, setExecRecords,
+    runAutoExec, stopAutoExec, executeNode,
+  } = useAutoExec({
+    projectPath,
+    graphRef,
+    onGraphChange: handleGraphChange,
+    locale,
+    savedPlanRef,
+    setStream,
+    actionAbortRef,
+  });
 
   const handleActionConfirm = useCallback(async (instruction: string) => {
     if (!projectPath || !selectedNodeData || !activeAction) return;
@@ -521,6 +272,7 @@ export default function App() {
           const { event, data } = JSON.parse(line);
           if (!event) continue;
 
+          // 预期可忽略：data 载荷可能是非 JSON 普通文本，解析失败时原样保留
           const d = typeof data === 'string' ? (() => { try { return JSON.parse(data); } catch { return data; } })() : data;
           try {
             setStream(prev => {
@@ -594,6 +346,7 @@ export default function App() {
         }
       }
     } catch (e: any) {
+      // 错误已通过 setStream 呈现在右侧面板（ActionPanel 错误态渲染 stream.error），故此处不需要 console。
       if (e?.name === 'AbortError') {
         setStream(INITIAL_STREAM_STATE);
       } else {
@@ -657,13 +410,13 @@ export default function App() {
                   activeAction={activeAction}
                   onRequestAction={handleRequestAction}
                   streamRunning={stream.running}
-                  onAutoExec={handleAutoExec}
-                  onStopAutoExec={handleStopAutoExec}
+                  onAutoExec={runAutoExec}
+                  onStopAutoExec={stopAutoExec}
                   autoExecRunning={autoExecRunning}
                   autoExecProgress={autoExecProgress}
                   execRecords={execRecords}
                   liveOutput={liveOutput}
-                  onExecuteNode={handleExecuteNode}
+                  onExecuteNode={executeNode}
                 />
               </div>
               {/* Right: Code Viewer + Action Panel */}

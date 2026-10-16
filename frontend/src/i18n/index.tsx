@@ -27,7 +27,9 @@ function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && saved in RESOURCES) return saved as Locale;
-  } catch {}
+  } catch {
+    // localStorage 不可用（隐私模式/嵌入环境等）：回退到浏览器语言检测，不阻断启动。
+  }
 
   const lang = navigator.language?.toLowerCase() || '';
   if (lang.startsWith('zh')) return 'zh-CN';
@@ -62,7 +64,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    try { localStorage.setItem(STORAGE_KEY, l); } catch {}
+    try {
+      localStorage.setItem(STORAGE_KEY, l);
+    } catch {
+      // 持久化失败不阻断：语言切换在当前会话内仍生效，仅下次启动不复用该选择。
+    }
   }, []);
 
   const t = useCallback((key: string, vars?: Record<string, string | number>): string => {
