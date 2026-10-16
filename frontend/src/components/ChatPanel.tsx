@@ -1330,7 +1330,7 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
           <div className="flex items-center gap-2.5 min-w-0">
             {/* 思考强度三档分段控件（②）：点击切换即持久化；样式沿用蓝图室 token（墨蓝选中态、方角 3px） */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[9px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.thinkingLabel')}</span>
+              <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>{t('chat.thinkingLabel')}</span>
               <div className="flex overflow-hidden" style={{ border: '1px solid var(--ibm-border)', borderRadius: 3 }}>
                 {THINKING_TIERS.map((tier, index) => {
                   const selected = thinkingTier === tier;
@@ -1345,11 +1345,10 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
                   }
                   return (
                     <button key={tier} onClick={() => changeThinkingTier(tier)}
-                      className="px-1.5 py-0.5 flex flex-col items-center leading-none transition-colors"
+                      className="w-7 h-[18px] flex items-center justify-center leading-none whitespace-nowrap overflow-hidden transition-colors"
                       style={segmentStyle}
                       title={t(THINKING_TIER_HINT_KEY[tier])}>
-                      <span className="text-[9px] font-medium">{t(THINKING_TIER_LABEL_KEY[tier])}</span>
-                      <span className="text-[8px] mt-0.5" style={{ opacity: 0.72 }}>{t(THINKING_TIER_HINT_KEY[tier])}</span>
+                      <span className="min-w-0 text-[10px] font-medium truncate">{t(THINKING_TIER_LABEL_KEY[tier])}</span>
                     </button>
                   );
                 })}
@@ -1362,12 +1361,12 @@ function PinnedPlanCard({ plan }: { plan: { plan_summary: string; raw?: string; 
                 setTimeline(prev => [...prev, { kind: 'system', text: t('pm.skipToPlanner') }]);
                 setTimeout(() => runPlanner(orig), 100);
               }}
-                className="text-[9px] hover:underline truncate"
+                className="min-w-0 text-[9px] hover:underline truncate"
                 style={{ color: 'var(--color-text-muted)' }}>
                 {t('pm.skipToPlanner')}
               </button>
             ) : (
-              <span className="text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
+              <span className="min-w-0 text-[9px] truncate" style={{ color: 'var(--color-text-muted)' }}>{t('chat.enterHint')}</span>
             )}
           </div>
           <span className="text-[9px] shrink-0" style={{ color: 'var(--color-text-muted)' }}>{t('chat.charCount', { count: input.length })}</span>
