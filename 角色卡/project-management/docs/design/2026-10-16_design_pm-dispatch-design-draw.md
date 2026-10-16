@@ -5,12 +5,18 @@ title: PM 调度设计与画图（含回报回路与呈现流程）——设计�
 created: "2026-10-16"
 updated: "2026-10-16"
 timezone: Asia/Shanghai
-status: draft
+status: implemented
 related: [design-ui-redesign, fix-answer-presentation]
 events:
   - date: "2026-10-16"
     kind: created
     summary: 客户「pm 可以调度设计和画图更好呢。画图和设计都处理好了，和pm 汇报呢」正式立项；完成现状调研（编排链/协议触点/呈现分支，file:line 齐全），产出本设计方案：两个新 handoff 标签（architect/mapper 咨询）、前端 slim 咨询编排 + 回报注入、呈现序列与边界统一；待客户确认后实施
+  - date: "2026-10-16"
+    kind: approved
+    summary: 客户确认全部默认项（标签命名与分流规则；v1 即开先设计后画图；汇总轮不自动二次派发；Architect 咨询卡 v1 保留 JSON 正文）
+  - date: "2026-10-16"
+    kind: implemented
+    summary: D0（i18n 胶囊 2 键×4 包）+ D1（agent-pipeline：agent.ts 四处 + ChatPanel 纯插入 130 行〔两分支/三函数〕+ ActionDialog 标签清单）完成；核验：主流水线四函数体逐字节未动（零删除复核）、四门槛全绿（119/119、tsc/build/check=0）；过程记录 ../scheduling/pm-dispatch.md；「可复验」时点已报协调者（客户实例 HMR 就地可看）；D-V 独立验证进行中
 ---
 
 # PM 调度设计与画图（含回报回路与呈现流程）——设计方案

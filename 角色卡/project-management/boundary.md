@@ -11,6 +11,7 @@
 | Single file | `frontend/src/i18n/en.json` | 英文字符串资源 |
 | Single file | `frontend/src/i18n/ja.json` | 日文字符串资源 |
 | Single file | `frontend/src/i18n/ko.json` | 韩文字符串资源 |
+| Single file | `README.md` | 项目说明与使用示意（随产品形态同步维护） |
 | Owned directory | `frontend/test/project-management/` | 共享基础代码（i18n）的单元与契约测试；不放置生产代码 |
 | Single file | `角色卡/project-management/memo.md` | 本角色的简短事实与续接线索 |
 | Single file | `角色卡/project-management/feature-map.md` | 功能导航：用途、状态与文档链接 |

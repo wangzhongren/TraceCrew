@@ -1,6 +1,6 @@
 # <img src="icon.png" alt="TraceCrew" width="32" height="32" style="vertical-align: middle;" /> TraceCrew
 
-> **A multi-agent collaborative IDE for code intelligence.** A structured agent crew replaces the single-agent paradigm — achieving large-model quality code understanding and modification with a team of smaller, specialized models.
+> **A multi-agent collaborative IDE for code understanding and explanation.** A structured agent crew replaces the single-agent paradigm — achieving large-model quality code understanding and explanation with a team of smaller, specialized models.
 
 ## Why TraceCrew
 
@@ -14,7 +14,6 @@ One brain does everything               PM         — requirements clarificatio
   ├── search codebase                   Planner    — architecture analysis & planning
   ├── plan changes                      Reviewer   — evidence verification
   ├── write code                        Mapper     — task graph & sequence diagram
-  └── verify correctness               Executor   — execute operations (ultra-narrow context)
 
 Token cost: $$$$                        Each agent is small, focused, and auditable
 No oversight, role confusion            Checks & balances between stages catch errors early
@@ -22,7 +21,7 @@ No oversight, role confusion            Checks & balances between stages catch e
                                         Clear division of labor, structured validation
 ```
 
-**Flow:** `PM → Architect → Planner → Reviewer → Mapper → Dependency Graph → Auto-exec or Manual`
+**Flow:** `PM → Architect → Planner → Reviewer → Mapper → Dependency Graph`. Read-only questions take the short path: PM explains, then automatically hands the chain to Mapper to draw (explain-then-draw).
 
 ## Interface
 
@@ -41,11 +40,11 @@ No oversight, role confusion            Checks & balances between stages catch e
 │    ↓ (pass/reject)  │  └──────────────────────────────────────┘  │
 │  Mapper (画图)      │                                              │
 │                     │  ┌──── 待改列表 ──────────────────────┐      │
-│  ↻ retry on fail   │  │ [▶ 一键执行]  3                   │      │
+│  ↻ retry on fail   │  │  3                                  │      │
 │                     │  │                                    │      │
 │  PlanCard           │  │ ┌ [前端] 通知弹窗组件 ────────────┐ │      │
 │  ReviewCard         │  │ │ Planner: 需要新增...           │ │      │
-│  ArchitectCard      │  │ │ [修复] [测试] [解释]           │ │      │
+│  ArchitectCard      │  │ │ [解释]                         │ │      │
 │  Tool calls inline  │  │ └────────────────────────────────┘ │      │
 │                     │  │ ┌ [后端] IPC handler ─────────────┐ │      │
 │  [input] [Send]     │  │ │ ...                             │ │      │
@@ -76,7 +75,7 @@ No oversight, role confusion            Checks & balances between stages catch e
 | `existing` | ○ | Existing code, no action needed |
 | `done` | ✓ | Completed |
 
-Each node card shows: label, status badge, Planner analysis detail, file path, and action buttons (fix/test/explain). Dependencies are resolved automatically — blocked tasks show "⚠ 依赖未完成".
+Each node card shows: label, status badge, Planner analysis detail, file path, and an action button (explain). Running「解释」generates a Markdown explanation of the node and exports it to `.tracecrew/explanations/`.
 
 ## Features
 
@@ -85,14 +84,12 @@ Each node card shows: label, status badge, Planner analysis detail, file path, a
 - **IoC Architecture Design** — Architect agent designs interface contracts, module boundaries, and dependency rules. Persisted as `.tracecrew/ARCHITECTURE.md`, auto-skipped when unchanged
 - **Three Graph Views** — Call graph (TB), task dependency graph (LR), and sequence diagram — switchable via tabs
 - **Bug Impact Analysis** — `impact_scope` highlights trigger paths (red) and affected nodes (orange dashed) on the graph
-- **One-Click Auto-Exec** — Topological sort → execute all pending tasks in dependency order → auto-advance on completion, stop anytime
-- **Single-Node Execute** — Click any pending card's action button (fix/test/explain) to execute just that node
+- **Explain-Then-Draw** — Ask PM about any flow or structure: it explains, then automatically hands the chain to Mapper and the graph appears on the canvas
+- **Explain & Export** — Click a node card's「解释」button to generate a Markdown explanation of just that node; automatically exported to `.tracecrew/explanations/`
 - **Plan Versioning** — Multiple Planner revisions shown in popup viewer with diff comparison
 
 ### Streaming & Feedback
 - **SSE Streaming** — Real-time agent output per node, with live token display in expanded card
-- **Execution Records** — Review results (pass/fail, feedback, issues) persisted per node, expandable in card
-- **Live Output Panel** — Expanded card shows real-time agent output with XML tags stripped
 - **Reasoning Display** — LLM reasoning tokens shown in collapsible "💭 思考过程" section
 - **Tool Call Badges** — All tool invocations (read, search, list, run, create, edit, delete) shown inline inside agent chat bubbles
 

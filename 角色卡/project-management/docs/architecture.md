@@ -11,7 +11,7 @@ TraceCrew 是一个跑在桌面上的**多 Agent 协作代码智能 IDE**（Elec
 
 1. 用自然语言描述任务；
 2. 一组 LLM Agent 依次工作：**PM**（需求澄清）→ **Architect**（框架设计）→ **Planner**（分析并产出计划）→ **Reviewer**（独立审查计划）→ **Mapper**（画出调用图、任务依赖图、时序图）；
-3. 用户在图上对单个节点点「开发 / 修复 / 重构 / 测试 / 解释」，或点「一键执行」让所有待办节点按依赖顺序自动执行；每个**写操作**完成后由独立 Reviewer 复核，不通过则自动返修；
+3. 用户在图上对单个节点点「解释」生成讲解文档（Markdown），完成后自动落盘到 `.tracecrew/explanations/`（2026-10-16 定位对齐：动作集合仅保留理解类「解释」，不做代码修改）；
 4. 所有文件读写都发生在用户打开的那个项目目录里，改动前自动备份，删除进回收目录。
 
 技术组成（以 `frontend/package.json` 与源码为准）：
@@ -40,7 +40,7 @@ TraceCrew 是一个跑在桌面上的**多 Agent 协作代码智能 IDE**（Elec
 | project-test | 测试组（组长） | 独立验证跨角色接口、完整流程与回归 | `角色卡/project-test/feature-map.md`（待创建） |
 
 ### agent-pipeline（Agent 协作流水线）
-产品核心能力的归属角色：PM 需求澄清、Architect 框架设计、Planner 计划、Reviewer 审查、Mapper 画图、Executor 动作执行、自动执行编排，以及文件摘要服务与对话界面。
+产品核心能力的归属角色：PM 需求澄清与派发、Architect 框架设计、Planner 计划、Reviewer 审查、Mapper 画图、讲解/解释链路，以及文件摘要服务与对话界面（2026-10-16 定位对齐：移除自动执行编排；单点动作仅「解释」；服务端底层执行器保留但界面不可达）。
 主要文件：[`electron/server/services/agent.ts`](../../../electron/server/services/agent.ts)（`AgentService` 单例，全部系统提示词与工具循环）、[`frontend/src/components/ChatPanel.tsx`](../../../frontend/src/components/ChatPanel.tsx)（流水线前端编排）、[`ActionDialog.tsx`](../../../frontend/src/components/ActionDialog.tsx)、[`ActionPanel.tsx`](../../../frontend/src/components/ActionPanel.tsx)、[`frontend/src/App.tsx`](../../../frontend/src/App.tsx) 的调度部分。
 
 ### app-shell（应用外壳与装配）
@@ -158,8 +158,8 @@ sequenceDiagram
 2. **后端执行**：`routes/agent.ts` 调 `agentService.processStream()`。它选系统提示词、调对应 Agent 的模型（流式），把模型输出里的类 XML 操作标签（`<read-file>`、`<update>`、`<create-file>`、`<run-shell>`、`<search>` 等）解析为工具操作，经 `fileManager` 真正执行，结果回喂模型进入下一轮；模型输出 `<final/>` 或 `<done/>` 结束，最多 50 轮。
 3. **事件回来**：每个事件一行 JSON（`{"event":"…","data":…}` + 换行）。前端按行拆分解析，Append 进对话时间线。
 4. **流水线接力**：ChatPanel 检测到 PM 输出 `<handoff-to-planner/>` 后，自动依次运行 Architect → Planner → Reviewer → Mapper；Mapper 产出 `call_graph` 与 `sequence_graph` JSON 后写入 `PipelineState`，界面切换到图谱。
-5. **动作执行**：用户点节点操作（或“一键执行”）时，App.tsx POST `/api/v1/agent/action/stream`，后端先由执行 Agent 改码（写前自动备份），再把改动交给独立的 Reviewer Agent 复核，不通过则带反馈返修（最多 10 轮）。结果里含 `review_passed`、`updated_node`、`need_replan`。
-6. **一键执行**：App.tsx 对非完成节点做拓扑排序（只统计两端都在集合内的依赖边），逐个复用第 5 步；依赖未完成的节点跳过；通过后节点状态改为 `done` 并持久化。
+5. **动作执行（仅「解释」）**：用户点节点「解释」时，App.tsx POST `/api/v1/agent/action/stream`（服务端按只读路径运行），生成讲解 Markdown 并自动落盘到 `.tracecrew/explanations/`，结果区显示导出路径；服务端底层执行器（写 op/自动备份/Reviewer 循环）按定位对齐 A 案保留、界面不可达。
+注：2026-10-16 定位对齐——原第 6 项「一键执行」自动编排已随 `useAutoExec.ts` 整支移除。
 
 ## 5. 公共契约概览
 
@@ -217,7 +217,7 @@ flowchart TB
 
     subgraph DEV["功能开发组"]
         SHELL["<b>app-shell</b><br/>electron/main.ts · preload.ts · settingsStore.ts<br/>server/index.ts（装配+设置 API）<br/>App.tsx(布局) · RightPanel · SettingsPanel<br/>TitleBar · ResizeHandle · 构建配置 · start.sh"]
-        PIPE["<b>agent-pipeline</b><br/>server/services/agent.ts（提示词+工具循环）<br/>ChatPanel · ActionDialog · ActionPanel<br/>App.tsx(流水线编排/自动执行)"]
+        PIPE["<b>agent-pipeline</b><br/>server/services/agent.ts（提示词+工具循环）<br/>ChatPanel · ActionDialog · ActionPanel<br/>App.tsx(流水线编排/面板接线)"]
         GRAPH["<b>graph-view</b><br/>MapCanvas（图谱类型主属主）· MapperView<br/>types/theme.ts · routes/topology.ts"]
         DATA["<b>project-data</b><br/>fileManager.ts（文件/Shell/备份/任务日志）<br/>services/db.ts（SQLite）<br/>routes/features.ts · routes/changes.ts · CodeViewer.tsx"]
     end
@@ -261,7 +261,7 @@ flowchart TB
 
 1. **Express 路由直连 services，跨过 Pipeline 层**：`routes/agent.ts` 直接调用 `agentService` 的各个方法；`routes/changes.ts`、`routes/features.ts` 直接导入 `services/db` 的函数。项目当前没有 `pipelines/` 目录。
 2. **组件从 MapCanvas 导入图谱类型**：`App.tsx`、`ChatPanel.tsx`、`ActionDialog.tsx`、`ActionPanel.tsx`、`RightPanel.tsx`、`MapperView.tsx` 都用 `import type { … } from './MapCanvas'`。图谱类型是事实上的共享模型，但主属主是 graph-view 的组件文件。
-3. **App.tsx 同时承担组合根与流水线编排**：既有布局接线（左右面板、标题栏），又有自动执行编排（拓扑排序、依赖检查、逐节点调用、状态持久化），还持有 `PipelineState` 类型（ChatPanel 反向导入）。
+3. **App.tsx 曾同时承担组合根与流水线编排**：自动执行编排（拓扑排序、依赖检查、逐节点调用）已于 2026-10-16 定位对齐移除（`useAutoExec.ts` 删除、App 接线与 Props 收窄）；App 仍持有 `PipelineState` 类型（ChatPanel 反向导入）。
 4. **fileManager.ts 承担多重职责并被跨层直接引用**：`main.ts`（IPC handler）与 `services/agent.ts`（工具执行）都直接 import 它；它没有 abstract/public/impl 分层。
 5. **features 路由多为占位**：`routes/features.ts` 的 analyze / analyze-top / analyze-all / search 等端点返回空结果或 “Not yet migrated”。
 6. **summarizer.ts 未接线**：`SummarizerService` 只在自身文件内定义，全仓库无引用；`file_summaries` 表建好了但没有生产者。

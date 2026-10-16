@@ -5,7 +5,7 @@ title: 修复「回答被吞」误判——字数徽章单位错误与完成态�
 created: "2026-10-16"
 updated: "2026-10-16"
 timezone: Asia/Shanghai
-status: implemented
+status: verified
 related: [fix-e2e-findings]
 events:
   - date: "2026-10-16"
@@ -17,6 +17,9 @@ events:
   - date: "2026-10-16"
     kind: implemented
     summary: N1（agent-pipeline）落地 6 处呈现层改动（`ChatPanel.tsx`：`status?: 'done'` 类型字段 / `isThinking` 守卫 / 运行中「思考中 · N字」/ 完成「✓ 完成 · N字」/ `markCurrentAgentDone()` 助手 + `agentLoop` 与 `pmStream` 两处收尾调用）；i18n `chat.thinking` 值修剪为「思考中」（4 语言包，值级，项目管理执行）。核验：6 hunk 与批准一一对应、哈希 `83fb96e5…`、**四门槛全绿**（119/119、tsc/build/check=0）。复验（复现器 .sse 逐事件 + 客户就地目视）进行中
+  - date: "2026-10-16"
+    kind: verified
+    summary: 复验闭环完成。① **逐事件实跑（b2r 四轮，协调者停机窗口内自有实例）**：token 连续流出（b1 达 3033 个 token 事件/49 轮）、done.message=完整最终回答（b1=2190 字、b2=559、b3=100、b4=208；拼接文本核对）；徽章语义修复后=真实字数。② 客户实例经 HMR 就地携修复、客户已重启实测。旁证：b1 于第 49 轮自然收束（软收尾注入点后成稿）——呈现链在真实 49 轮对话下完整无损
 ---
 
 # 修复「回答被吞」误判——字数徽章单位错误与完成态缺失（呈现层）
@@ -82,4 +85,4 @@ statusLabel = `${Math.round(entry.text.length / 100)}${t('chat.chars')}`;
 ## 6. 未决（更新 2026-10-16）
 
 1. ~~客户对 F1/F2 确认~~ **已批准**（2026-10-16）；
-2. 复验闭环：复现器（`/tmp/b2r/`）运行中（窗口守望；客户实例占用期间不触碰）——完成后以 `.sse` 做逐事件核对并补录；**客户实例经 HMR 已携修复运行，客户可就地目视复验**（徽章「思考中 · N字」→「✓ 完成 · N字」、旋转弧停止）。
+2. 复验闭环：复现器（`/tmp/b2r/`）运行中（窗口守望；客户实例占用期间不触碰）——完成后以 `.sse` 做逐事件核对并补录；**客户实例经 HMR 已携修复运行，客户可就地目视复验**（徽章「思考中 · N字」→「✓ 完成 · N字」、旋转弧停止）。修复已随外部提交 `93bec0c`（2026-10-16）入库。

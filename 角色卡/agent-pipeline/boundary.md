@@ -8,8 +8,7 @@
 | --- | --- | --- |
 | Single file | `electron/server/routes/agent.ts` | Agent 对话/分类/命名/计划/动作的 HTTP 与 SSE 接口（Interface） |
 | Single file | `electron/server/services/agent.ts` | 多 Agent 编排与转换核心：流式对话、计划流、子代理、动作执行、工具调用（Pipeline/Service） |
-| Single file | `frontend/src/App.tsx` | 前端组合根：阶段状态机、图谱数据下发、面板组合（自动执行编排见 hooks/useAutoExec.ts） |
-| Single file | `frontend/src/hooks/useAutoExec.ts` | App 自动执行编排 hook（批 2/D3 抽取：拓扑排序、依赖检查、逐节点执行与记录持久化；含可测纯函数） |
+| Single file | `frontend/src/App.tsx` | 前端组合根：阶段状态机、图谱数据下发、面板组合 |
 | Single file | `frontend/src/components/ChatPanel.tsx` | 对话面板：Agent 时间线、流式接收与计划/审查卡片挂载 |
 | Single file | `frontend/src/components/PlanCard.tsx` | 计划卡片展示 |
 | Single file | `frontend/src/components/ReviewCard.tsx` | 审查卡片展示 |
